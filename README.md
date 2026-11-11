@@ -6,7 +6,7 @@
 
 Presets, free-form minutes, a chime and confetti. Windows 10/11.
 
-<sub>v1 feature-complete · Go + Bubble Tea · GPL-3.0</sub>
+<sub>v0.1.0 · first public release · Go + Bubble Tea · GPL-3.0</sub>
 
 </div>
 
@@ -56,7 +56,7 @@ Requires **Go 1.26+** on Windows 10/11. No C compiler is needed (`CGO_ENABLED=0`
 ```powershell
 go mod download
 .\scripts\build.ps1              # dev build into dist/
-.\scripts\build.ps1 -Version v1.0.0
+.\scripts\build.ps1 -Version v0.1.0
 ```
 
 The build script regenerates the chime/icons, checks formatting, runs vet and
@@ -84,7 +84,7 @@ go generate ./...               # regenerate chime, icons and .syso
 ```
 
 On first launch SmartScreen may warn because the executable is unsigned. That
-is expected for v1.
+is expected for an unsigned build.
 
 ## ⌨️ Controls
 
@@ -199,8 +199,8 @@ scripts/build.ps1     portable release build
 | No sound | Check the Windows volume/sound device and that Sound is checked in the tray. The countdown still finishes visually. |
 | Tray icon missing | Windows hides new tray icons; open the overflow chevron. |
 | Presets disappeared | A corrupt config is backed up and defaults are restored. Look for `config.bad-*.json` in `%APPDATA%\tuick-tack`. |
-| SmartScreen warning | Expected for an unsigned v1 executable. |
-| Timer lost after a crash | The timer is in memory; restart the daemon and start again. Persistence is not in v1. |
+| SmartScreen warning | Expected for an unsigned executable. |
+| Timer lost after a crash | The timer is in memory; restart the daemon and start again. Persistence is out of scope for this release. |
 
 ## 📄 License
 
