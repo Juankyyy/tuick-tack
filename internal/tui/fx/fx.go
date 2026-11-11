@@ -89,6 +89,22 @@ func (d *Dust) Draw(c *canvas.Canvas, col color.RGBA) {
 	}
 }
 
+// DrawWithin paints only the motes inside the rect, used for the gentler dust
+// that lives inside the glass panel.
+func (d *Dust) DrawWithin(c *canvas.Canvas, col color.RGBA, x, y, w, h int) {
+	if c == nil || w <= 0 || h <= 0 {
+		return
+	}
+	st := canvas.Fg(col)
+	for _, m := range d.motes {
+		mx, my := int(m.x), int(m.y)
+		if mx < x || my < y || mx >= x+w || my >= y+h {
+			continue
+		}
+		c.Set(mx, my, m.glyph, st)
+	}
+}
+
 func wrap(v, size float64) float64 {
 	if size <= 0 {
 		return 0
@@ -192,24 +208,24 @@ func (c *Confetti) spawn(b burst) Particle {
 	switch b.kind {
 	case 0: // center-bottom cannon
 		p.X = center + (c.rng.Float64()*2-1)*w*0.18
-		p.Y = h + 1
-		p.VX = (c.rng.Float64()*2 - 1) * 9
-		p.VY = -24 - c.rng.Float64()*26
+		p.Y = h - 2
+		p.VX = (c.rng.Float64()*2 - 1) * 6
+		p.VY = -12 - c.rng.Float64()*14
 	case 1: // left cannon
 		p.X = 1 + c.rng.Float64()*4
-		p.Y = h*0.78 + c.rng.Float64()*4
-		p.VX = 12 + c.rng.Float64()*16
-		p.VY = -22 - c.rng.Float64()*24
+		p.Y = h*0.72 + c.rng.Float64()*3
+		p.VX = 10 + c.rng.Float64()*10
+		p.VY = -10 - c.rng.Float64()*12
 	case 2: // right cannon
 		p.X = w - 1 - c.rng.Float64()*4
-		p.Y = h*0.78 + c.rng.Float64()*4
-		p.VX = -12 - c.rng.Float64()*16
-		p.VY = -22 - c.rng.Float64()*24
+		p.Y = h*0.72 + c.rng.Float64()*3
+		p.VX = -10 - c.rng.Float64()*10
+		p.VY = -10 - c.rng.Float64()*12
 	default: // top rain
 		p.X = c.rng.Float64() * w
 		p.Y = -1 - c.rng.Float64()*2
-		p.VX = (c.rng.Float64()*2 - 1) * 5
-		p.VY = 2 + c.rng.Float64()*5
+		p.VX = (c.rng.Float64()*2 - 1) * 3
+		p.VY = 1 + c.rng.Float64()*3
 	}
 	p.Gravity = 180 + c.rng.Float64()*120
 	if p.Life > c.maxLife {
@@ -258,7 +274,10 @@ func (c *Confetti) Update(dt float64) {
 			continue
 		}
 		p.Age += dt
-		p.VY += p.Gravity * dt
+		// SPEC §11 quotes gravity in 180-300 px/s². A terminal row is about
+		// eight pixels tall, so divide by eight to keep the same trajectory on
+		// a cell grid instead of dropping every piece out of frame in 0.2 s.
+		p.VY += (p.Gravity / 8) * dt
 		// Exponential drag, applied per 60 Hz frame.
 		drag := math.Pow(0.985, dt*60)
 		p.VX *= drag

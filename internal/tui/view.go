@@ -34,6 +34,10 @@ func (m *Model) View() tea.View {
 	}
 	p := m.panelRect(w, h)
 	c.Frame(p.x, p.y, p.w, p.h, m.pal.Accent, m.pal.Accent2, m.pal.Panel)
+	if m.dust != nil {
+		m.dust.DrawWithin(c, theme.Lerp(m.pal.Panel, m.pal.Muted, 0.22),
+			p.x+1, p.y+1, p.w-2, p.h-2)
+	}
 	if m.celebrating && m.confetti != nil {
 		m.confetti.Draw(c)
 	}
@@ -175,7 +179,17 @@ func (m *Model) drawContent(c *canvas.Canvas, p rect) {
 }
 
 func (m *Model) drawHeader(c *canvas.Canvas, x, y, w int) {
-	c.Set(x, y, '●', canvas.Fg(m.pal.Accent))
+	dot := m.pal.Accent
+	phase := m.animTime * 2.4
+	switch m.status() {
+	case engine.Running:
+		dot = theme.Pulse(m.pal.Accent, m.pal.Accent2, phase)
+	case engine.Paused:
+		dot = m.pal.Warn
+	case engine.Finished:
+		dot = theme.Pulse(m.pal.Warn, m.pal.Danger, phase)
+	}
+	c.Set(x, y, '●', canvas.Fg(dot))
 	c.Text(x+2, y, copy.T(copy.Brand), canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
 
 	label, col := m.statusPill()
