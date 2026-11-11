@@ -2,30 +2,30 @@
 
 # Tuick-Tack
 
-**Tu countdown, en la terminal y en la bandeja.**
+**Your countdown, in the terminal and in the tray.**
 
-Presets, minutos libres, aviso sonoro y confeti. Windows 10/11.
+Presets, free-form minutes, a chime and confetti. Windows 10/11.
 
-<sub>En desarrollo · Go + Bubble Tea · GPL-3.0</sub>
+<sub>In development · Go + Bubble Tea · GPL-3.0</sub>
 
 </div>
 
 ---
 
-## ✨ Lo que hace
+## ✨ What it does
 
-| Función | Detalle |
+| Feature | Details |
 |---|---|
-| ⏱ **Presets** | 5, 10 y 15 min de serie. Crea los tuyos con nombre y duración. |
-| ⌨️ **Minutos libres** | `25`, `12:30`, `90s`, `1h30m`. |
-| ⏯ **Control total** | Pausa, reanuda, ajusta ±1 min y repite. |
-| 📌 **Siempre a mano** | El countdown y el icono siguen aunque cierres la TUI. |
-| 🖱️ **Bandeja** | Inicia un preset, pausa, detén o abre la TUI desde el icono. |
-| 🔔 **Al llegar a 0** | Aviso sonoro de 4 s, icono en alerta y confeti a pantalla completa. |
-| 🎨 **Tres temas** | Midnight, Ember y Mono. |
-| 📦 **Portable** | Dos `.exe`, sin instalador, sin admin. |
+| ⏱ **Presets** | 5, 10 and 15 min out of the box. Create your own with a name and duration. |
+| ⌨️ **Free-form minutes** | `25`, `12:30`, `90s`, `1h30m`. |
+| ⏯ **Full control** | Pause, resume, adjust ±1 min and repeat. |
+| 📌 **Always at hand** | The countdown and tray icon keep running when you close the TUI. |
+| 🖱️ **Tray** | Start a preset, pause, stop or open the TUI from the icon. |
+| 🔔 **At zero** | A 4-second chime, an alert icon and full-screen confetti. |
+| 🎨 **Three themes** | Midnight, Ember and Mono. |
+| 📦 **Portable** | Two `.exe` files, no installer, no admin. |
 
-## 🖥️ Un vistazo
+## 🖥️ A quick look
 
 ```text
 ╭──────────────────────────────────────────────────────────╮
@@ -40,53 +40,51 @@ Presets, minutos libres, aviso sonoro y confeti. Windows 10/11.
 ╰──────────────────────────────────────────────────────────╯
 ```
 
-> La UI de la v1 está en inglés; esta documentación está en español.
+## 🚀 Getting started
 
-## 🚀 Empezar
+> **In development.** There are no binaries yet: the first milestone is the systray spike.
 
-> **En desarrollo.** Todavía no hay binarios: el primer hito es el spike de la bandeja.
+**Once v1 is released**, it will be as simple as this:
 
-**Cuando la v1 esté publicada** será tan simple como esto:
+1. Download `tuick-tack.exe` and `tuick-tack-tray.exe` into the same folder.
+2. Open `tuick-tack.exe`.
+3. The daemon starts on its own. Use the tray icon; no installer and no admin rights required.
 
-1. Descarga `tuick-tack.exe` y `tuick-tack-tray.exe` en la misma carpeta.
-2. Abre `tuick-tack.exe`.
-3. El daemon se inicia solo. Usa el icono de la bandeja; no hace falta instalar nada ni ejecutar como admin.
+On first launch, SmartScreen may ask for confirmation because the `.exe` is unsigned. This is expected.
 
-La primera vez, SmartScreen puede pedir confirmación porque el `.exe` no está firmado. Es esperado.
-
-**Para desarrollo** (a partir de M0):
+**For development** (from M0 onwards):
 
 ```powershell
 go mod download
 go run ./cmd/tuick-tack          # TUI
-go run ./cmd/tuick-tack-tray     # daemon, sin ventana en release
-.\scripts\build.ps1              # ambos .exe en dist/
+go run ./cmd/tuick-tack-tray     # daemon; no console in release
+.\scripts\build.ps1              # both .exe files in dist/
 ```
 
-Para usar la app: Windows 10/11. Para compilar: Go 1.24+. Windows Terminal recomendado.
+To use the app: Windows 10/11. To build: Go 1.24+. Windows Terminal recommended.
 
-## ⌨️ Controles
+## ⌨️ Controls
 
-| Acción | Tecla |
+| Action | Key |
 |---|---|
-| Escribir una duración | dígitos, `:`, `h`, `m`, `s` |
-| Empezar | `Enter` |
-| Elegir preset | `←` `→` + `Enter` |
-| Pausar / reanudar | `Space` |
-| Cancelar | `Esc` (confirmación) |
-| ±1 minuto | `+` / `-` |
-| Repetir al terminar | `r` |
+| Type a duration | digits, `:`, `h`, `m`, `s` |
+| Start | `Enter` |
+| Select a preset | `←` `→` + `Enter` |
+| Pause / resume | `Space` |
+| Cancel | `Esc` (confirmation) |
+| ±1 minute | `+` / `-` |
+| Repeat when finished | `r` |
 | Presets | `p` |
-| Tema | `t` |
-| Sonido | `s` |
-| Ayuda | `?` |
-| Cerrar la TUI | `q` |
+| Theme | `t` |
+| Sound | `s` |
+| Help | `?` |
+| Close the TUI | `q` |
 
-Formatos de duración: `25` = 25 min · `12:30` = 12 min 30 s · `90s` · `1h30m`.
+Duration formats: `25` = 25 min · `12:30` = 12 min 30 s · `90s` · `1h30m`.
 
-## 🖱️ Bandeja
+## 🖱️ Tray
 
-Clic izquierdo: abre la TUI. Clic derecho: menú.
+Left click: opens the TUI. Right click: menu.
 
 ```text
 Tuick-Tack · 04:32 remaining
@@ -101,27 +99,27 @@ Start with Windows
 Quit
 ```
 
-## ⚙️ Configuración
+## ⚙️ Configuration
 
-- **Presets, tema y sonido:** `%APPDATA%\tuick-tack\config.json`
-- **Logs y caché:** `%LOCALAPPDATA%\tuick-tack\`
-- **Autostart:** solo si lo activas (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`).
+- **Presets, theme and sound:** `%APPDATA%\tuick-tack\config.json`
+- **Logs and cache:** `%LOCALAPPDATA%\tuick-tack\`
+- **Autostart:** only if you enable it (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`).
 
-Todo es local. Sin cuentas, sin nube y sin servicios en segundo plano más allá del daemon.
+Everything is local. No accounts, no cloud, and no background services beyond the daemon.
 
-## 🛠️ Desarrollo
+## 🛠️ Development
 
 ```text
 cmd/tuick-tack        TUI
 cmd/tuick-tack-tray   daemon
-internal/             motor, IPC, config, bandeja, TUI
-assets/               aviso sonoro e iconos
+internal/             engine, IPC, config, tray, TUI
+assets/               chime and icons
 ```
 
-- Comportamiento y arquitectura: [`SPEC.md`](SPEC.md)
-- Convenciones y flujo: [`AGENTS.md`](AGENTS.md)
+- Behavior and architecture: [`SPEC.md`](SPEC.md)
+- Conventions and workflow: [`AGENTS.md`](AGENTS.md)
 - Tests: `go test ./...` · Lint: `go vet ./...` · Build: `.\scripts\build.ps1`
 
-## 📄 Licencia
+## 📄 License
 
-GPL-3.0. Ver [`LICENSE`](LICENSE).
+GPL-3.0. See [`LICENSE`](LICENSE).
