@@ -52,6 +52,20 @@ func main() {
 		fmt.Fprintln(os.Stderr, "pipe:", err)
 		os.Exit(1)
 	}
+
+	release, already, err := daemon.AcquireTUIInstance(pipe)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "instance:", err)
+	} else {
+		if already {
+			if !daemon.FocusTUI() {
+				fmt.Println(copy.T(copy.AlreadyOpen))
+			}
+			return
+		}
+		defer release()
+	}
+
 	model := tui.New(pipe)
 	program := tea.NewProgram(model)
 	final, err := program.Run()

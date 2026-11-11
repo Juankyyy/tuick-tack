@@ -74,14 +74,14 @@ tuick-tack.exe (consola)                 tuick-tack-tray.exe (sin ventana)
 
 - **Daemon** = `tuick-tack-tray.exe`, subsistema `windowsgui`, sin consola. Es la única fuente de verdad: motor, config, sonido, bandeja.
 - **TUI** = `tuick-tack.exe`, app de consola. Se conecta por el pipe; si el daemon no está, lo arranca y reintenta.
-- Varias TUIs pueden conectarse a la vez; todas reciben estado/config. Los comandos afectan al único timer.
+- Una sola TUI por sesión; el tray reutiliza la ventana abierta. Los comandos afectan al único timer.
 - El pipe es local, por usuario y sesión: `\\.\pipe\tuick-tack-<usuario>-<sesión>`. ACL para el usuario actual y acceso remoto denegado.
 - Instancia única: mutex con nombre (`CreateMutexW`) + fallo al escuchar el pipe. Si ya hay daemon, el segundo proceso sale con código 0.
 - Si el daemon se reinicia se pierde el timer en curso (documentado).
 
 ## 5. Ciclo de vida
 
-1. El usuario abre `tuick-tack.exe`.
+1. El usuario abre `tuick-tack.exe`. Si ya hay una TUI (mutex `<pipe>-tui-mutex`), la nueva instancia enfoca la ventana existente y sale.
 2. La TUI intenta conectar al pipe. Si falla:
    - Busca `tuick-tack-tray.exe` junto a ella y lo lanza detached con `CREATE_NO_WINDOW` (fallback de desarrollo: el propio `tuick-tack.exe --daemon`).
    - Reintenta durante ~3 s (100 ms entre intentos).
@@ -330,7 +330,12 @@ Quit
 
 ### Abrir la TUI
 
-- `os.Executable()` → directorio → `tuick-tack.exe`; lanzar con `SysProcAttr.CreationFlags = CREATE_NEW_CONSOLE`.
+- `os.Executable()` → directorio → `tuick-tack.exe`; lanzar con `windows.CreateProcess` y `CREATE_NEW_CONSOLE`.
+- No se usa `os/exec`: conecta stdin/stdout/stderr a `NUL` y activa `STARTF_USESTDHANDLES`, así que la consola nueva queda vacía y la TUI pinta en `NUL`. Con `CreateProcess` sin ese flag, Windows enlaza los handles del hijo con la consola recién creada.
+- La TUI mantiene el mutex `<pipe>-tui-mutex`; una segunda instancia llama a `FocusTUI()` y sale.
+- `OpenTUI` consulta `TUIRunning` antes de lanzar: si existe, enfoca la ventana y no crea ningún proceso.
+- `FocusTUI` busca una ventana visible con título exacto `Tuick-Tack` y clase `ConsoleWindowClass` o `CASCADIA_HOSTING_WINDOW_CLASS`, la restaura si está minimizada, suelta el foreground lock con un toque de Alt y usa `SetForegroundWindow`; si falla, `SwitchToThisWindow`. El título exacto y la clase evitan coincidir con editores o con OpenChamber.
+- Limitación: si la TUI está en una pestaña no activa de Windows Terminal, el título de la ventana no coincide; no se duplica, pero puede no enfocarse.
 - Si falta, log y tooltip “Can't find tuick-tack.exe”.
 - En dev se construyen ambos binarios en `dist/` para que se encuentren.
 
@@ -425,6 +430,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - `ipc`: pipe de test con nombre único, handshake, start/pause/stop, broadcast, múltiples clientes, reconexión.
 - `canvas`/`bigfont`: dimensiones, clipping, ancho de runas, gradiente.
 - `fx`: RNG con semilla, física, caducidad, sin NaN, límites.
+- `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único.
 - `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; 80×24 y 120×40; celebración una vez por `finish_seq`.
 - Comandos: `go test ./...`, `go vet ./...`, `gofmt -l .`.
 
@@ -438,7 +444,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 6. Añadir/editar/borrar preset → el submenú se actualiza; persistencia tras reiniciar.
 7. Entradas `25`, `12:30`, `90s`, `1h30m`, inválida.
 8. Temas; silenciar; “Start with Windows” on/off; “Quit”.
-9. 80×24 y 120×40; resize durante el confeti; dos TUIs abiertas.
+9. 80×24 y 120×40; resize durante el confeti; con una TUI abierta, el clic en la bandeja la enfoca sin abrir otra; lanzar `tuick-tack.exe` a mano también la enfoca y sale.
 10. El tray exe no muestra consola; el TUI sí.
 11. `go test`, build, ejecutar desde `dist/`.
 
@@ -446,7 +452,8 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 
 - [ ] El timer es preciso y el finish ocurre una sola vez.
 - [ ] Pausa/reanudación exactas; ajuste ±1 min.
-- [ ] La bandeja sobrevive al cierre de la TUI; clic izquierdo abre la TUI; clic derecho abre el menú.
+- [ ] La bandeja sobrevive al cierre de la TUI; clic izquierdo abre la TUI o enfoca la abierta; clic derecho abre el menú.
+- [ ] Una sola TUI: el tray y una segunda ejecución del exe enfocan la ventana existente sin duplicarla.
 - [ ] Los presets (5/10/15 + personalizados) se inician desde TUI y bandeja; persisten.
 - [ ] Chime de 3–5 s al terminar; se puede silenciar y parar.
 - [ ] Confeti a 0 en la TUI, una vez por final, ~6 s, sin artefactos al redimensionar.

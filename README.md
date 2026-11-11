@@ -106,7 +106,7 @@ Duration formats: `25` = 25 min · `12:30` = 12 min 30 s · `90s` · `1h30m` ·
 
 ## 🖱️ Tray
 
-Left click: opens the TUI. Right click: menu.
+Left click: opens the TUI, or brings the open one to the front. Right click: menu.
 
 ```text
 Tuick-Tack · 04:32 remaining
@@ -122,8 +122,9 @@ Quit
 ```
 
 The tray owns the timer. Closing the TUI leaves the countdown and chime alive.
-Clicking **Quit** stops everything. A daemon restart loses the active countdown;
-persistence is future work.
+The TUI is single-instance: running `tuick-tack.exe` again focuses the open
+window instead of starting a second one. Clicking **Quit** stops everything. A
+daemon restart loses the active countdown; persistence is future work.
 
 ## ⚙️ Configuration
 

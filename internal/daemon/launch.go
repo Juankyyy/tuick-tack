@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 
@@ -76,26 +78,60 @@ func Ensure(pipe string) (*ipc.Client, protocol.HelloMessage, error) {
 	return nil, protocol.HelloMessage{}, lastErr
 }
 
-// OpenTUI launches the terminal UI in a new console window. It is used by the
-// tray's left click and Custom… item.
+// OpenTUI launches the terminal UI in a new console window or focuses the
+// running one. It is used by the tray's left click and Custom… item.
 func OpenTUI() error {
+	pipe, err := ipc.PipePath()
+	if err != nil {
+		return err
+	}
+	if TUIRunning(pipe) {
+		if !FocusTUI() {
+			return errors.New("TUI is already open but its window was not found")
+		}
+		return nil
+	}
 	exe, err := TUIExecutable()
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(exe)
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNewConsole}
-	if err := cmd.Start(); err != nil {
+	if err := startConsole(exe); err != nil {
 		return fmt.Errorf("start TUI: %w", err)
 	}
-	return cmd.Process.Release()
+	return nil
+}
+
+// startConsole starts a console program in its own window. It uses Win32
+// CreateProcess instead of os/exec on purpose: os/exec points unset stdio at
+// NUL and sets STARTF_USESTDHANDLES, so the new console would stay blank while
+// the child renders into NUL. Without that flag Windows attaches the child's
+// stdin/stdout/stderr to the console created by CREATE_NEW_CONSOLE.
+func startConsole(path string) error {
+	exe, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return err
+	}
+	si := &windows.StartupInfo{}
+	si.Cb = uint32(unsafe.Sizeof(*si))
+	pi := &windows.ProcessInformation{}
+	if err := windows.CreateProcess(exe, nil, nil, nil, false, createNewConsole, nil, nil, si, pi); err != nil {
+		return fmt.Errorf("start %s: %w", path, err)
+	}
+	_ = windows.CloseHandle(pi.Thread)
+	_ = windows.CloseHandle(pi.Process)
+	return nil
+}
+
+// objectName strips the pipe namespace and makes the name safe for a kernel
+// object.
+func objectName(pipe string) string {
+	name := strings.TrimPrefix(pipe, `\\.\pipe\`)
+	return strings.ReplaceAll(name, `\`, "-")
 }
 
 // InstanceMutexName derives a per-session mutex name from the pipe path.
 func InstanceMutexName(pipe string) string {
-	name := strings.TrimPrefix(pipe, `\\.\pipe\`)
-	name = strings.ReplaceAll(name, `\`, "-")
-	return name + "-mutex"
+	return objectName(pipe) + "-mutex"
 }
 
 // AcquireInstance creates the named mutex used to enforce a single daemon.

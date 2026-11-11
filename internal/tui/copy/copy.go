@@ -99,6 +99,7 @@ const (
 	Minutes = Key("unit.minutes")
 
 	ExitActive       = Key("exit.active")
+	AlreadyOpen      = Key("instance.already")
 	StartupInstalled = Key("startup.installed")
 	StartupRemoved   = Key("startup.removed")
 
@@ -220,6 +221,8 @@ var texts = map[Key]string{
 	Minutes: "min",
 
 	ExitActive: "The countdown is still running in the tray.",
+
+	AlreadyOpen: "Tuick-Tack is already open.",
 
 	StartupInstalled: "Tuick-Tack will start with Windows.",
 	StartupRemoved:   "Tuick-Tack will no longer start with Windows.",
