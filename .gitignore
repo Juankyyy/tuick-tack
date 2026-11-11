@@ -1,0 +1,26 @@
+# Build output
+/dist/
+/bin/
+*.exe
+*.test
+*.out
+coverage.*
+
+# Local Go workspace
+go.work
+go.work.sum
+
+# Logs / local data
+*.log
+/logs/
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
