@@ -4,11 +4,11 @@
 
 **Tuick-Tack** is a Windows countdown app for personal focus sessions: a modern terminal UI (TUI) plus a background tray daemon that owns the timer, presets, sound and system-tray menu.
 
-- Stack: Go 1.24+, Bubble Tea v2.1.1, Lipgloss v2.1.0, `fyne.io/systray` v1.12.2, `github.com/Microsoft/go-winio` v0.6.4, `golang.org/x/sys/windows`; `CGO_ENABLED=0`.
+- Stack: Go 1.26+ (pinned Bubble Tea v2/go-winio require it), Bubble Tea v2.1.1, Lipgloss v2.1.0, `fyne.io/systray` v1.12.2, `github.com/Microsoft/go-winio` v0.6.4, `golang.org/x/sys/windows`; `CGO_ENABLED=0`.
 - App code lives in `cmd/` and `internal/`. Windows-specific code lives in `internal/tray/`, `internal/ipc/` and the `*_windows.go` files under `internal/daemon/`.
 - Platform features that cannot live in the shared layer stay in the native layer behind small, documented bridges: systray/menu (`internal/tray`), `PlaySoundW` (`internal/daemon/sound_windows.go`), registry/autostart (`internal/daemon/autostart_windows.go`) and named pipes (`internal/ipc`).
-- Current state: greenfield; `SPEC.md` approved; no implementation yet. Next: M0 (install Go and validate the systray spike).
-- Generated assets (`assets/chime.wav`, `assets/icons/*.ico`, `rsrc_windows_amd64.syso`) are committed; do not hand-edit them. Regenerate with `go generate ./...` / `scripts/build.ps1`.
+- Current state: v1 implemented in `dev` (M0–M5 complete); `SPEC.md` is the functional source. Next work is polish/QA and, only on request, the release build from `main`.
+- Generated assets (`assets/chime.wav`, `assets/icon.ico`, `assets/icon.png`, `assets/icons/*.ico`, the `.syso` files under `cmd/`) are committed; do not hand-edit them. Regenerate with `go generate ./...` / `scripts/build.ps1`.
 
 ## Commands
 
@@ -22,8 +22,9 @@ go test ./...                  # tests
 go run ./cmd/tuick-tack        # TUI (console)
 go run ./cmd/tuick-tack-tray   # daemon (console in dev; windowsgui in release)
 go fmt ./...                   # format
-go generate ./...              # regenerate chime/icons
+go generate ./...              # regenerate chime/icons and .syso resources
 .\scripts\build.ps1            # vet + test + build both exes into dist/
+.\scripts\build.ps1 -Version v1.0.0
 ```
 
 - Hot reload: none. Restart the TUI; the daemon can stay running and keeps the timer.

@@ -4,7 +4,6 @@ package daemon
 
 import (
 	"log"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -85,7 +84,11 @@ func Run() int {
 		player = &soundPlayer{}
 	}
 
-	trayExe, _ := os.Executable()
+	trayExe, err := TrayExecutable()
+	if err != nil {
+		logger.Printf("autostart unavailable: %v", err)
+		trayExe = ""
+	}
 	d := &Daemon{
 		logger:   logger,
 		store:    store,

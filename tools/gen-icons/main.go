@@ -46,7 +46,10 @@ func main() {
 	if err := writeICO(filepath.Join(root, "assets", "icon.ico"), draw(states[0], 256), []int{16, 32, 48, 256}); err != nil {
 		fail(err)
 	}
-	fmt.Println("gen-icons: wrote assets/icon.ico")
+	if err := writePNG(filepath.Join(root, "assets", "icon.png"), draw(states[0], 256)); err != nil {
+		fail(err)
+	}
+	fmt.Println("gen-icons: wrote assets/icon.ico and assets/icon.png")
 }
 
 func fail(err error) {
@@ -219,6 +222,18 @@ func writeICO(path string, src image.Image, sizes []int) error {
 		return err
 	}
 	return os.WriteFile(path, out.Bytes(), 0o644)
+}
+
+func writePNG(path string, img image.Image) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return png.Encode(f, img)
 }
 
 func scaleImage(src image.Image, size int, bounds image.Rectangle) image.Image {

@@ -1,9 +1,9 @@
 # Tuick-Tack — SPEC
 
-> **Estado:** plan aprobado para implementación · **Fecha:** 2026-11-11
+> **Estado:** implementado (v1) · **Fecha:** 2026-11-11
 > **Plataforma:** Windows 10/11 x64 · **Licencia:** GPL-3.0 (repo)
-> **Stack:** Go + Bubble Tea v2 + Lipgloss v2 + systray + go-winio
-> **Repo:** `tuick-tack` (greenfield; documentación aprobada, sin implementación)
+> **Stack:** Go 1.26+ + Bubble Tea v2 + Lipgloss v2 + systray + go-winio
+> **Repo:** `tuick-tack` (v1 implementado en `dev`; builds locales portables en `dist/`)
 
 ---
 
@@ -20,7 +20,7 @@ El countdown, el chime y el icono siguen funcionando aunque se cierre la TUI. Al
 
 | Área | Decisión |
 |---|---|
-| Lenguaje | Go 1.24+ (última estable al implementar); `CGO_ENABLED=0` en Windows |
+| Lenguaje | Go 1.26+ (las versiones pinneadas de Bubble Tea v2 y go-winio lo requieren); `CGO_ENABLED=0` en Windows |
 | TUI | `charm.land/bubbletea/v2` v2.1.1 + `charm.land/lipgloss/v2` v2.1.0 |
 | Bandeja | `fyne.io/systray` v1.12.2 (Go puro en Windows; sin cgo) |
 | IPC | `github.com/Microsoft/go-winio` v0.6.4, named pipe + JSON |
@@ -284,7 +284,7 @@ Rutas (por usuario, sin admin):
 
 - ~220 partículas, tope 260.
 - Ráfagas: centro-abajo (70) a t=0, cañón izquierdo (55) a 0.2 s, derecho (55) a 0.4 s, lluvia superior (40) a 0.9 s.
-- Física: gravedad 180–300 filas/s², rozamiento 0.985, deriva sinusoidal, giro, `dt` limitado a 50 ms.
+- Física: gravedad de 180–300 px/s² escalada a celdas (~22–38 filas/s², una fila ≈ 8 px), rozamiento 0.985, deriva sinusoidal, giro, `dt` limitado a 50 ms.
 - Glifos: `✦ ✧ ◆ ◇ • ▸` + alguna serpentina de 2 celdas; colores del tema + blanco.
 - Estelas cortas en ~35% de las partículas durante el primer 40% de vida.
 - Fade: mezcla del color hacia el fondo (no hay alpha en ANSI).
@@ -362,6 +362,8 @@ go.mod
 cmd/
   tuick-tack/main.go          # TUI (consola)
   tuick-tack-tray/main.go     # daemon (windowsgui)
+  tuick-tack/rsrc_windows_amd64.syso
+  tuick-tack-tray/rsrc_windows_amd64.syso
 internal/
   config/                     # load/save/validate, defaults
   duration/                   # parser
@@ -373,6 +375,7 @@ internal/
   tui/
     app.go                    # Bubble Tea model/update
     view.go                   # pantallas y layout
+    copy/                     # todo el copy de la UI
     canvas/
     bigfont/
     theme/
@@ -380,6 +383,7 @@ internal/
 assets/
   chime.wav
   icon.ico
+  icon.png                    # fuente 256 px para go-winres
   icons/ idle.ico running.ico paused.ico finished.ico
 tools/
   gen-chime/main.go
@@ -387,23 +391,26 @@ tools/
 scripts/
   build.ps1
 winres/
-  winres.json
+  winres.json                 # icono, manifiesto y versión de la TUI
+  winres-tray.json            # variante del daemon
+  generate.go                 # directivas go:generate de los .syso
 ```
 
 Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de GitHub al publicar.
 
 ## 16. Build y distribución
 
-- `scripts/build.ps1`:
+- `scripts/build.ps1 -Version <ver>` (por defecto `dev`):
   1. comprobar `go`;
-  2. `go generate ./...` (chime/iconos si faltan);
-  3. `go test ./...`; `go vet ./...`; comprobar `gofmt -l`;
-  4. `go build -trimpath -ldflags "-s -w" -o dist/tuick-tack.exe ./cmd/tuick-tack`;
-  5. `go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/tuick-tack-tray.exe ./cmd/tuick-tack-tray`;
-  6. mostrar versiones.
-- `go-winres` genera `rsrc_windows_amd64.syso` a partir de `winres/winres.json` + `assets/icon.ico`; si falla, el build sigue sin icono de .exe (el de bandeja no depende de esto).
+  2. `go generate ./assets` (chime/iconos);
+  3. `go generate ./winres` (icono y metadatos del .exe; si falla, sigue con los `.syso` ya commiteados);
+  4. `go test ./...`; `go vet ./...`; comprobar `gofmt -l`;
+  5. `go build -trimpath -ldflags "-s -w -X ...Version=<ver>" -o dist/tuick-tack.exe ./cmd/tuick-tack`;
+  6. `go build -trimpath -ldflags "-s -w -H windowsgui -X ...Version=<ver>" -o dist/tuick-tack-tray.exe ./cmd/tuick-tack-tray`;
+  7. generar `dist/SHA256SUMS.txt` y mostrar versiones.
+- `go-winres` genera un `rsrc_windows_amd64.syso` por comando desde `winres/winres.json` y `winres/winres-tray.json` (icono `assets/icon.png`, manifiesto y versión); los `.syso` se commitean para que `go build` funcione sin regenerarlos.
 - `CGO_ENABLED=0`; no se necesita compilador C.
-- Entrega: carpeta `dist/` con los dos `.exe`. Sin instalador. Firma de código fuera de alcance (SmartScreen puede avisar).
+- Entrega: carpeta `dist/` con los dos `.exe` y `SHA256SUMS.txt`. Sin instalador. Firma de código fuera de alcance (SmartScreen puede avisar).
 - `tuick-tack --version`; `tuick-tack --install-startup` / `--uninstall-startup` (apuntan al tray exe; error si no está).
 - README: requisitos, build, uso, teclas, presets, autostart, arquitectura, troubleshooting y licencia.
 

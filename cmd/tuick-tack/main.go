@@ -35,7 +35,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "install startup:", err)
 			os.Exit(1)
 		}
-		fmt.Println("Tuick-Tack will start with Windows.")
+		fmt.Println(copy.T(copy.StartupInstalled))
 		return
 	}
 	if *uninstallStartup {
@@ -43,7 +43,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "uninstall startup:", err)
 			os.Exit(1)
 		}
-		fmt.Println("Tuick-Tack will no longer start with Windows.")
+		fmt.Println(copy.T(copy.StartupRemoved))
 		return
 	}
 

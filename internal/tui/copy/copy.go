@@ -29,9 +29,16 @@ const (
 	TimeAt           = Key("time.at")
 	Completed        = Key("completed")
 
-	ControlsIdle    = Key("controls.idle")
-	ControlsRunning = Key("controls.running")
-	ControlsPaused  = Key("controls.paused")
+	ControlsIdle     = Key("controls.idle")
+	ControlsRunning  = Key("controls.running")
+	ControlsPaused   = Key("controls.paused")
+	ControlsFinished = Key("controls.finished")
+	HeroFinished     = Key("hero.finished")
+	LabelFocus       = Key("label.focus")
+	RepeatHint       = Key("hint.repeat")
+	CloseHint        = Key("hint.close")
+	HelpFormats      = Key("help.formats")
+	HelpFinished     = Key("help.finished")
 
 	Pause    = Key("action.pause")
 	Resume   = Key("action.resume")
@@ -91,7 +98,35 @@ const (
 
 	Minutes = Key("unit.minutes")
 
-	ExitActive = Key("exit.active")
+	ExitActive       = Key("exit.active")
+	StartupInstalled = Key("startup.installed")
+	StartupRemoved   = Key("startup.removed")
+
+	TrayReady          = Key("tray.ready")
+	TrayRunning        = Key("tray.running")
+	TrayPaused         = Key("tray.paused")
+	TrayFinished       = Key("tray.finished")
+	TrayRunningTooltip = Key("tray.running.tooltip")
+	TrayPausedTooltip  = Key("tray.paused.tooltip")
+	TrayOpen           = Key("tray.open")
+	TrayOpenTooltip    = Key("tray.open.tooltip")
+	TrayStart          = Key("tray.start")
+	TrayStartTooltip   = Key("tray.start.tooltip")
+	TrayStartPreset    = Key("tray.start.preset")
+	TrayCustom         = Key("tray.custom")
+	TrayCustomTooltip  = Key("tray.custom.tooltip")
+	TrayPause          = Key("tray.pause")
+	TrayResume         = Key("tray.resume")
+	TrayPauseTooltip   = Key("tray.pause.tooltip")
+	TrayStop           = Key("tray.stop")
+	TrayStopTooltip    = Key("tray.stop.tooltip")
+	TraySound          = Key("tray.sound")
+	TraySoundTooltip   = Key("tray.sound.tooltip")
+	TrayStartup        = Key("tray.startup")
+	TrayStartupTooltip = Key("tray.startup.tooltip")
+	TrayQuit           = Key("tray.quit")
+	TrayQuitTooltip    = Key("tray.quit.tooltip")
+	TrayCurrentTooltip = Key("tray.current.tooltip")
 )
 
 var texts = map[Key]string{
@@ -115,9 +150,16 @@ var texts = map[Key]string{
 	TimeAt:           "at %s",
 	Completed:        "%s completed",
 
-	ControlsIdle:    "p presets · t theme · s sound · ? help · q quit",
-	ControlsRunning: "space pause · esc cancel · + / - 1 min · ? help · q quit",
-	ControlsPaused:  "space resume · esc cancel · + / - 1 min · ? help · q quit",
+	ControlsIdle:     "p presets · t theme · s sound · ? help · q quit",
+	ControlsRunning:  "space pause · esc cancel · + / - 1 min · ? help · q quit",
+	ControlsPaused:   "space resume · esc cancel · + / - 1 min · ? help · q quit",
+	ControlsFinished: "? help · q quit",
+	HeroFinished:     "TIME'S UP!",
+	LabelFocus:       "Focus",
+	RepeatHint:       "r repeat",
+	CloseHint:        "enter close",
+	HelpFormats:      "25 min · 12:30 · 90s · 1h30m",
+	HelpFinished:     "finished: r repeat · enter close",
 
 	Pause:    "pause",
 	Resume:   "resume",
@@ -178,6 +220,35 @@ var texts = map[Key]string{
 	Minutes: "min",
 
 	ExitActive: "The countdown is still running in the tray.",
+
+	StartupInstalled: "Tuick-Tack will start with Windows.",
+	StartupRemoved:   "Tuick-Tack will no longer start with Windows.",
+
+	TrayReady:          "Tuick-Tack · ready",
+	TrayRunning:        "Tuick-Tack · %s remaining",
+	TrayPaused:         "Tuick-Tack · %s paused",
+	TrayFinished:       "Tuick-Tack · time's up!",
+	TrayRunningTooltip: "Tuick-Tack · %s remaining (%s)",
+	TrayPausedTooltip:  "Tuick-Tack · %s paused (%s)",
+	TrayOpen:           "Open Tuick-Tack",
+	TrayOpenTooltip:    "Open the terminal UI",
+	TrayStart:          "Start",
+	TrayStartTooltip:   "Start a preset",
+	TrayStartPreset:    "Start %s",
+	TrayCustom:         "Custom…",
+	TrayCustomTooltip:  "Type a duration in the TUI",
+	TrayPause:          "Pause",
+	TrayResume:         "Resume",
+	TrayPauseTooltip:   "Pause the countdown",
+	TrayStop:           "Stop",
+	TrayStopTooltip:    "Stop the countdown",
+	TraySound:          "Sound",
+	TraySoundTooltip:   "Play the chime at zero",
+	TrayStartup:        "Start with Windows",
+	TrayStartupTooltip: "Launch the daemon at sign-in",
+	TrayQuit:           "Quit",
+	TrayQuitTooltip:    "Quit Tuick-Tack",
+	TrayCurrentTooltip: "Current countdown",
 }
 
 // T returns the localized message. Format arguments are applied with

@@ -152,7 +152,7 @@ func (m *Model) drawContent(c *canvas.Canvas, p rect) {
 		if controlsY > metaY {
 			m.drawFinishedControls(c, controlsY, innerX, innerW)
 		}
-		m.drawCentered(c, footerY, "? help · q quit", canvas.Fg(theme.Lerp(m.pal.BG, m.pal.Muted, 0.8)), innerX, innerW)
+		m.drawCentered(c, footerY, copy.T(copy.ControlsFinished), canvas.Fg(theme.Lerp(m.pal.BG, m.pal.Muted, 0.8)), innerX, innerW)
 	default:
 		if inputY > metaY {
 			m.drawInput(c, inputY, innerX, innerW)
@@ -231,7 +231,7 @@ func (m *Model) drawHero(c *canvas.Canvas, y, x, w int) {
 	case engine.Running, engine.Paused:
 		text = duration.Format(m.remaining())
 	case engine.Finished:
-		text = "TIME'S UP!"
+		text = copy.T(copy.HeroFinished)
 	default:
 		ghost = true
 		if strings.TrimSpace(m.input) != "" {
@@ -303,7 +303,7 @@ func (m *Model) drawLabel(c *canvas.Canvas, y, x, w int) {
 	case engine.Running, engine.Paused:
 		text = strings.TrimSpace(m.state.Label)
 		if text == "" {
-			text = "Focus"
+			text = copy.T(copy.LabelFocus)
 		}
 		col = m.pal.Text
 	case engine.Finished:
@@ -565,8 +565,8 @@ func (m *Model) drawFinishedControls(c *canvas.Canvas, y, x, w int) {
 		label  string
 		action hitAction
 	}{
-		{"r " + copy.T(copy.Repeat), hitRepeat},
-		{"enter " + copy.T(copy.Close), hitDismiss},
+		{copy.T(copy.RepeatHint), hitRepeat},
+		{copy.T(copy.CloseHint), hitDismiss},
 	})
 }
 
@@ -651,8 +651,8 @@ func (m *Model) drawHelp(c *canvas.Canvas, base rect) {
 		{copy.T(copy.HelpTimer), m.pal.Text},
 		{copy.T(copy.HelpModal), m.pal.Text},
 		{"", m.pal.Muted},
-		{"25 min · 12:30 · 90s · 1h30m", m.pal.Muted},
-		{"finished: r repeat · enter close", m.pal.Muted},
+		{copy.T(copy.HelpFormats), m.pal.Muted},
+		{copy.T(copy.HelpFinished), m.pal.Muted},
 	}
 	y := r.y + 3
 	for _, line := range lines {

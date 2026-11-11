@@ -17,6 +17,7 @@ import (
 	"tuick-tack/internal/config"
 	"tuick-tack/internal/duration"
 	"tuick-tack/internal/engine"
+	"tuick-tack/internal/tui/copy"
 )
 
 // Actions is the daemon API used by menu items.
@@ -79,19 +80,20 @@ func (t *Tray) onReady() {
 		return
 	}
 	systray.SetOnTapped(t.actions.OpenTUI)
+	systray.SetIcon(assets.IdleIcon)
 
-	t.status = systray.AddMenuItem("Tuick-Tack · ready", "Current countdown")
+	t.status = systray.AddMenuItem(copy.T(copy.TrayReady), copy.T(copy.TrayCurrentTooltip))
 	t.status.Disable()
 	systray.AddSeparator()
-	open := systray.AddMenuItem("Open Tuick-Tack", "Open the terminal UI")
-	t.start = systray.AddMenuItem("Start", "Start a preset")
-	t.pause = systray.AddMenuItem("Pause", "Pause the countdown")
-	t.stop = systray.AddMenuItem("Stop", "Stop the countdown")
+	open := systray.AddMenuItem(copy.T(copy.TrayOpen), copy.T(copy.TrayOpenTooltip))
+	t.start = systray.AddMenuItem(copy.T(copy.TrayStart), copy.T(copy.TrayStartTooltip))
+	t.pause = systray.AddMenuItem(copy.T(copy.TrayPause), copy.T(copy.TrayPauseTooltip))
+	t.stop = systray.AddMenuItem(copy.T(copy.TrayStop), copy.T(copy.TrayStopTooltip))
 	t.stop.Disable()
-	t.sound = systray.AddMenuItemCheckbox("Sound", "Play the chime at zero", true)
-	t.startup = systray.AddMenuItemCheckbox("Start with Windows", "Launch the daemon at sign-in", false)
+	t.sound = systray.AddMenuItemCheckbox(copy.T(copy.TraySound), copy.T(copy.TraySoundTooltip), true)
+	t.startup = systray.AddMenuItemCheckbox(copy.T(copy.TrayStartup), copy.T(copy.TrayStartupTooltip), false)
 	systray.AddSeparator()
-	t.quit = systray.AddMenuItem("Quit", "Quit Tuick-Tack")
+	t.quit = systray.AddMenuItem(copy.T(copy.TrayQuit), copy.T(copy.TrayQuitTooltip))
 	t.ready = true
 	t.mu.Unlock()
 
@@ -148,9 +150,9 @@ func (t *Tray) updateLocked(st engine.State, cfg config.Config) {
 		t.pause.Disable()
 	}
 	if st.Status == engine.Paused {
-		t.pause.SetTitle("Resume")
+		t.pause.SetTitle(copy.T(copy.TrayResume))
 	} else {
-		t.pause.SetTitle("Pause")
+		t.pause.SetTitle(copy.T(copy.TrayPause))
 	}
 	if st.Status == engine.Idle {
 		t.stop.Disable()
@@ -191,11 +193,11 @@ func (t *Tray) rebuildStartLocked(presets []config.Preset) {
 	t.children = nil
 	for _, p := range presets {
 		p := p
-		item := t.start.AddSubMenuItem(presetMenuLabel(p), "Start "+p.Label)
+		item := t.start.AddSubMenuItem(presetMenuLabel(p), copy.T(copy.TrayStartPreset, p.Label))
 		t.children = append(t.children, item)
 		go clicks(item, func() { t.actions.StartPreset(p) })
 	}
-	custom := t.start.AddSubMenuItem("Custom…", "Type a duration in the TUI")
+	custom := t.start.AddSubMenuItem(copy.T(copy.TrayCustom), copy.T(copy.TrayCustomTooltip))
 	t.children = append(t.children, custom)
 	go clicks(custom, t.actions.StartCustom)
 }
@@ -223,23 +225,23 @@ func presetMenuLabel(p config.Preset) string {
 
 func statusText(st engine.State) (menu, tooltip string) {
 	label := strings.TrimSpace(st.Label)
-	suffix := ""
-	if label != "" {
-		suffix = " (" + label + ")"
-	}
 	switch st.Status {
 	case engine.Running:
 		left := duration.Format(st.Remaining)
-		return "Tuick-Tack · " + left + " remaining",
-			"Tuick-Tack · " + left + " remaining" + suffix
+		if label != "" {
+			return copy.T(copy.TrayRunning, left), copy.T(copy.TrayRunningTooltip, left, label)
+		}
+		return copy.T(copy.TrayRunning, left), copy.T(copy.TrayRunning, left)
 	case engine.Paused:
 		left := duration.Format(st.Remaining)
-		return "Tuick-Tack · " + left + " paused",
-			"Tuick-Tack · " + left + " paused" + suffix
+		if label != "" {
+			return copy.T(copy.TrayPaused, left), copy.T(copy.TrayPausedTooltip, left, label)
+		}
+		return copy.T(copy.TrayPaused, left), copy.T(copy.TrayPaused, left)
 	case engine.Finished:
-		return "Tuick-Tack · time's up!", "Tuick-Tack · time's up!"
+		return copy.T(copy.TrayFinished), copy.T(copy.TrayFinished)
 	default:
-		return "Tuick-Tack · ready", "Tuick-Tack · ready"
+		return copy.T(copy.TrayReady), copy.T(copy.TrayReady)
 	}
 }
 
