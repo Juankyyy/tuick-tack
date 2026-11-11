@@ -9,13 +9,11 @@ import (
 	"log"
 	"os"
 
-	"tuick-tack/internal/tray"
+	"tuick-tack/internal/daemon"
 )
 
 func main() {
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 	log.SetPrefix("tuick-tack-tray: ")
-	log.Println("starting systray spike")
-	tray.Run()
-	os.Exit(0)
+	os.Exit(daemon.Run())
 }
