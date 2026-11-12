@@ -295,14 +295,14 @@ Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pa
 
 ### Confeti
 
-- ~220 partículas, tope 260.
-- Ráfagas: centro-abajo (70) a t=0, cañón izquierdo (55) a 0.2 s, derecho (55) a 0.4 s, lluvia superior (40) a 0.9 s.
-- Física: gravedad de 180–300 px/s² escalada a celdas (~22–38 filas/s², una fila ≈ 8 px), rozamiento 0.985, deriva sinusoidal, giro, `dt` limitado a 50 ms.
-- Glifos: `✦ ✧ ◆ ◇ • ▸` + alguna serpentina de 2 celdas; colores del tema + blanco.
-- Estelas cortas en ~35% de las partículas durante el primer 40% de vida.
-- Fade: mezcla del color hacia el fondo (no hay alpha en ANSI).
+- ~230 partículas base; la cifra escala por área hasta ~340 en 120×40, con tope 360.
+- Ráfagas: popper central (60) a t=0, cañones izquierdo y derecho (35 cada uno) a 0.12/0.26 s, lluvia superior (70) a 0.55 s y segunda oleada (30) a 2.4 s. En una TUI que conecta con el temporizador ya terminado, una ráfaga corta de ~90.
+- Física de papel: gravedad 11–16 filas/s² escalada, rozamiento dependiente de la orientación (de canto cae rápido; plano frena), caída terminal ~3–7 filas/s, deriva sinusoidal, bob vertical, giro 2.5–6 rad/s y `dt` limitado a 50 ms.
+- Glifos de una celda: bloques `█ ▀ ▄ ▌ ▐ ▓ ▒ ░`, rombos `◆ ◇` y destellos `✦ ✧ ·`. El ángulo elige cara frontal, canto o dorso; el dorso se oscurece. Nada de emoji ni runas de doble ancho.
+- Estelas de 2 celdas solo mientras la pieza va rápida (lanzamiento); el resto cae limpio. Fade al color real de la celda en el último 15% de vida y fundido global de 5.0 a 5.7 s.
+- Al redimensionar, las posiciones se remapean proporcionalmente; las piezas que salen de pantalla se recortan.
 - Dibujo por capas: fondo → polvo → confeti → texto. La palabra y el resumen se dibujan encima para que el confeti pase por detrás.
-- 30 fps con `tea.Every(33ms, …)`; parar el ticker cuando no queden partículas.
+- 30 fps con `tea.Every(33ms, …)` durante la celebración; después vuelve el tick de 100 ms.
 - RNG con semilla en tests; en producción semilla temporal.
 
 ## 12. Bandeja

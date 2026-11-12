@@ -109,8 +109,8 @@ func TestViewFinishedAndCelebrationOnce(t *testing.T) {
 	if !m.celebrating {
 		t.Fatal("finish should start the celebration")
 	}
-	if m.confetti == nil || m.confetti.Count() != 220 {
-		t.Fatalf("confetti count = %d, want 220", m.confetti.Count())
+	if m.confetti == nil || m.confetti.Count() != 230 {
+		t.Fatalf("confetti count = %d, want 230", m.confetti.Count())
 	}
 	plain := assertFrame(t, m, 80, 24)
 	for _, want := range []string{"time's up!", "5 min completed", "repeat", "close", copy.T(copy.ControlsFinished), copy.T(copy.FinishedMeta)} {
@@ -136,6 +136,24 @@ func TestViewFinishedAndCelebrationOnce(t *testing.T) {
 	})
 	if !m.celebrating {
 		t.Fatal("a new finish_seq should celebrate")
+	}
+}
+
+func TestViewCelebrationRendersConfetti(t *testing.T) {
+	for _, size := range [][2]int{{80, 24}, {120, 40}} {
+		m, _ := testModel(size[0], size[1])
+		applyRunning(m)
+		m.applyState(protocol.StateMessage{
+			Type: protocol.TypeState, Status: "finished",
+			DurationMS: 300000, RemainingMS: 0, Label: "5 min", FinishSeq: 1,
+		})
+		for i := 0; i < 20; i++ {
+			m.confetti.Update(0.033)
+		}
+		plain := assertFrame(t, m, size[0], size[1])
+		if !strings.ContainsAny(plain, "█▀▄▌▐▓▒░◆◇✦✧▸▏") {
+			t.Fatalf("%dx%d celebration did not draw any confetti", size[0], size[1])
+		}
 	}
 }
 
