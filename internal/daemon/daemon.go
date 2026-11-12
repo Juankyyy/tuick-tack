@@ -100,6 +100,9 @@ func Run() int {
 		loopDone: make(chan struct{}),
 	}
 	d.autostart = AutostartEnabled(trayExe)
+	if err := d.sound.Prepare(cfg.SoundName, cfg.Volume); err != nil {
+		logger.Printf("prepare sound: %v", err)
+	}
 	d.tray = tray.New(d)
 
 	server := ipc.NewServer(pipe, buildinfo.Version, d)
@@ -228,6 +231,16 @@ func (d *Daemon) Command(c *ipc.Session, msg protocol.ClientMessage) {
 				c.Send(protocol.NewError(protocol.CodeConfigWrite, err.Error()))
 			}
 		}
+	case protocol.TypeSetSoundName:
+		d.setSoundName(c, msg.SoundName)
+	case protocol.TypeSetVolume:
+		if msg.Volume != nil {
+			d.setVolume(c, *msg.Volume)
+		}
+	case protocol.TypePreviewSound:
+		d.previewSound()
+	case protocol.TypeStopSound:
+		d.sound.Stop()
 	case protocol.TypeGetState:
 		c.Send(protocol.NewState(d.Snapshot()))
 	case protocol.TypeQuitDaemon:
@@ -254,9 +267,10 @@ func (d *Daemon) publish(st engine.State, before engine.Status) {
 
 func (d *Daemon) onFinish(st engine.State) {
 	d.stopSound()
-	if d.SoundEnabled() {
-		if err := d.sound.Play(); err != nil {
-			d.logger.Printf("play chime: %v", err)
+	cfg := d.Config()
+	if cfg.Sound && cfg.Volume > 0 {
+		if err := d.sound.Play(cfg.SoundName, cfg.Volume); err != nil {
+			d.logger.Printf("play sound %q at %d%%: %v", cfg.SoundName, cfg.Volume, err)
 		}
 	}
 	d.logger.Printf("countdown finished: %q (%s)", st.Label, time.Duration(st.Duration))
@@ -313,10 +327,80 @@ func (d *Daemon) setTheme(c *ipc.Session, name string) {
 	d.commitConfig(c, cfg)
 }
 
+func (d *Daemon) setSoundName(c *ipc.Session, name string) {
+	if !config.ValidSound(name) {
+		if c != nil {
+			c.Send(protocol.NewError(protocol.CodeInvalidSound, "unknown sound"))
+		}
+		return
+	}
+	cfg := d.Config()
+	if cfg.SoundName == name {
+		return
+	}
+	cfg.SoundName = name
+	if !d.commitConfig(c, cfg) {
+		return
+	}
+	d.sound.Stop()
+	if err := d.sound.Prepare(name, cfg.Volume); err != nil {
+		d.logger.Printf("prepare sound %q at %d%%: %v", name, cfg.Volume, err)
+		return
+	}
+	if cfg.Sound && cfg.Volume > 0 {
+		if err := d.sound.Play(name, cfg.Volume); err != nil {
+			d.logger.Printf("preview sound %q: %v", name, err)
+		}
+	}
+}
+
+func (d *Daemon) setVolume(c *ipc.Session, volume int) {
+	if !config.ValidVolume(volume) {
+		if c != nil {
+			c.Send(protocol.NewError(protocol.CodeInvalidVolume, "volume out of range"))
+		}
+		return
+	}
+	cfg := d.Config()
+	if cfg.Volume == volume {
+		return
+	}
+	cfg.Volume = volume
+	if !d.commitConfig(c, cfg) {
+		return
+	}
+	d.sound.Stop()
+	if err := d.sound.Prepare(cfg.SoundName, volume); err != nil {
+		d.logger.Printf("prepare sound %q at %d%%: %v", cfg.SoundName, volume, err)
+		return
+	}
+	if cfg.Sound && volume > 0 {
+		if err := d.sound.Play(cfg.SoundName, volume); err != nil {
+			d.logger.Printf("preview sound %q: %v", cfg.SoundName, err)
+		}
+	}
+}
+
+// previewSound plays the current selection even when Sound is off. The tray and
+// TUI use it as an explicit "hear this" action; the finish path still respects
+// the Sound toggle.
+func (d *Daemon) previewSound() {
+	cfg := d.Config()
+	if cfg.Volume <= 0 {
+		d.sound.Stop()
+		return
+	}
+	if err := d.sound.Play(cfg.SoundName, cfg.Volume); err != nil {
+		d.logger.Printf("preview sound %q at %d%%: %v", cfg.SoundName, cfg.Volume, err)
+	}
+}
+
 func (d *Daemon) commitConfig(c *ipc.Session, cfg config.Config) bool {
 	if err := d.store.Save(cfg); err != nil {
 		d.logger.Printf("save config: %v", err)
-		c.Send(protocol.NewError(protocol.CodeConfigWrite, err.Error()))
+		if c != nil {
+			c.Send(protocol.NewError(protocol.CodeConfigWrite, err.Error()))
+		}
 		return false
 	}
 	d.mu.Lock()
@@ -396,6 +480,21 @@ func (d *Daemon) ToggleSound() {
 	if err := d.changeSound(!d.SoundEnabled()); err != nil {
 		d.logger.Printf("toggle sound: %v", err)
 	}
+}
+
+// SetSoundName implements tray.Actions.
+func (d *Daemon) SetSoundName(name string) {
+	d.setSoundName(nil, name)
+}
+
+// SetVolume implements tray.Actions.
+func (d *Daemon) SetVolume(volume int) {
+	d.setVolume(nil, volume)
+}
+
+// PreviewSound implements tray.Actions.
+func (d *Daemon) PreviewSound() {
+	d.previewSound()
 }
 
 // ToggleAutostart implements tray.Actions.

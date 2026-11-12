@@ -62,6 +62,18 @@ func TestStatusText(t *testing.T) {
 	}
 }
 
+func TestVolumeLevels(t *testing.T) {
+	if len(volumeLevels) == 0 || volumeLevels[0] != config.MinVolume ||
+		volumeLevels[len(volumeLevels)-1] != config.MaxVolume {
+		t.Fatalf("volume levels do not cover the full range: %v", volumeLevels)
+	}
+	for i := 1; i < len(volumeLevels); i++ {
+		if volumeLevels[i] <= volumeLevels[i-1] {
+			t.Fatalf("volume levels are not ascending: %v", volumeLevels)
+		}
+	}
+}
+
 func TestIconFor(t *testing.T) {
 	for _, st := range []engine.Status{engine.Idle, engine.Running, engine.Paused, engine.Finished} {
 		if len(iconFor(st)) == 0 {

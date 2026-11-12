@@ -14,7 +14,7 @@ Tuick-Tack es una app de escritorio para Windows con dos caras:
 1. **TUI** en la terminal (Bubble Tea) para elegir presets, escribir minutos, ver el countdown, pausar, ajustar y gestionar presets.
 2. **Icono en la bandeja** gestionado por un daemon en segundo plano que es dueño del temporizador, del sonido y del menú.
 
-El countdown, el chime y el icono siguen funcionando aunque se cierre la TUI. Al llegar a 0 suena un chime de ~4 s y, si la TUI está abierta, se celebra con confeti a pantalla completa. Presets por defecto 5/10/15 min, presets personalizados con nombre y duración, y entrada libre de minutos.
+El countdown, el sonido y el icono siguen funcionando aunque se cierre la TUI. Al llegar a 0 suena el sonido elegido al volumen configurado y, si la TUI está abierta, se celebra con confeti a pantalla completa. Presets por defecto 5/10/15 min, presets personalizados con nombre y duración, y entrada libre de minutos.
 
 ## 2. Decisiones clave
 
@@ -29,7 +29,7 @@ El countdown, el chime y el icono siguen funcionando aunque se cierre la TUI. Al
 | Arquitectura | Daemon + TUI, dos ejecutables, una sola cuenta atrás activa |
 | Idioma | UI en inglés; código, comentarios y commits en inglés; documentación en español |
 | Temas | `midnight` (por defecto), `ember`, `mono` |
-| Aviso al terminar | Chime de 4 s + icono de bandeja en alerta + confeti en la TUI |
+| Aviso al terminar | Sonido elegible (1–5 s) con volumen 0–100 + icono de bandeja en alerta + confeti en la TUI |
 | Toast nativo | Fuera de alcance v1 (ver §16) |
 
 **Por qué dos procesos:** la TUI vive en una terminal. Si fuese un solo proceso, cerrar la terminal mataría el icono, el countdown y el sonido. El daemon posee el estado; la TUI es una vista/controlador que se puede abrir y cerrar.
@@ -68,7 +68,7 @@ tuick-tack.exe (consola)                 tuick-tack-tray.exe (sin ventana)
 │ Bubble Tea v2             │◄─pipe────►│ systray (hilo principal)             │
 │ canvas + bigfont + fx     │  JSON     │ tokio… no: goroutines                │
 │ teclado/ratón, modales    │  frames   │ TimerEngine · IPC server · config    │
-└───────────────────────────┘           │ PlaySoundW · iconos · autostart      │
+└───────────────────────────┘           │ PlaySoundW · volumen · iconos · tray │
                                          └──────────────────────────────────────┘
 ```
 
@@ -87,7 +87,7 @@ tuick-tack.exe (consola)                 tuick-tack-tray.exe (sin ventana)
    - Reintenta durante ~3 s (100 ms entre intentos).
 3. El daemon arranca: logger, config, mutex, engine + servidor IPC en goroutines, `systray.Run` en el hilo principal.
 4. La TUI recibe `hello` + config y renderiza.
-5. Al llegar a 0, el daemon incrementa `finish_seq`, reproduce el chime y actualiza bandeja. La TUI detecta el nuevo `finish_seq` y lanza la celebración.
+5. Al llegar a 0, el daemon incrementa `finish_seq`, reproduce el sonido elegido y actualiza bandeja. La TUI detecta el nuevo `finish_seq` y lanza la celebración.
 6. `q` cierra solo la TUI; el daemon sigue. `Quit` en la bandeja cierra todo.
 7. Al salir: parar sonido, cerrar el pipe, parar el engine y `systray.Quit()`.
 
@@ -142,6 +142,10 @@ Cliente → daemon:
 | `presets_restore_defaults` | — |
 | `set_theme` | `name` |
 | `set_sound` | `enabled` |
+| `set_sound_name` | `sound_name` |
+| `set_volume` | `volume` |
+| `preview_sound` | — |
+| `stop_sound` | — |
 | `get_state` | — |
 | `quit_daemon` | — |
 
@@ -151,23 +155,25 @@ Daemon → cliente:
 |---|---|
 | `hello` | `protocol`, `app_version`, `config` |
 | `state` | snapshot del §6 |
-| `config` | `presets`, `theme`, `sound` |
+| `config` | `presets`, `theme`, `sound`, `sound_name`, `volume` |
 | `error` | `code`, `message` |
 
-Validación: duración 1..86400 s; etiqueta 1..32 caracteres; máximo 16 presets; tema válido. Comando inválido → error, sin cambiar estado.
+Validación: duración 1..86400 s; etiqueta 1..32 caracteres; máximo 16 presets; tema válido; sonido válido (`chime`, `marimba`, `digital`, `deep`); volumen 0..100. Comando inválido → error, sin cambiar estado.
 
 ## 8. Configuración y presets
 
 Rutas (por usuario, sin admin):
 
 - Config: `%APPDATA%\tuick-tack\config.json` (`os.UserConfigDir`).
-- Caché/logs: `%LOCALAPPDATA%\tuick-tack\` (`os.UserCacheDir`): `chime.wav`, `logs\tuick-tack.log`.
+- Caché/logs: `%LOCALAPPDATA%\tuick-tack\` (`os.UserCacheDir`): `sounds\<sonido>-<volumen>.wav`, `logs\tuick-tack.log`.
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "theme": "midnight",
   "sound": true,
+  "sound_name": "digital",
+  "volume": 80,
   "presets": [
     { "id": "p5",  "label": "5 min",  "seconds": 300 },
     { "id": "p10", "label": "10 min", "seconds": 600 },
@@ -177,6 +183,8 @@ Rutas (por usuario, sin admin):
 ```
 
 - Semilla de defaults en el primer arranque; presets editables/borrables; “Restore defaults” en el gestor.
+- Sonido por defecto `digital`; volumen por defecto 80, rango 0..100 y pasos de 5 en la UI.
+- Migración v1 → v2 al cargar: conserva theme, sound y presets; fija `sound_name=digital` y `volume=80`. El daemon guarda la config migrada al arrancar.
 - Escritura atómica (temporal en el mismo directorio + rename). Config corrupta: backup `config.bad-<timestamp>.json` y defaults.
 - El daemon es el único escritor. La TUI manda comandos; el daemon guarda, actualiza el menú y hace broadcast.
 - Etiqueta y duración visibles en el menú; el orden es el almacenado (defaults primero; los nuevos al final).
@@ -191,6 +199,7 @@ Rutas (por usuario, sin admin):
 - **Paused:** como running en ámbar, pill “PAUSED”, barra atenuada, “space to resume”.
 - **Finished / celebración:** flash + confeti + “TIME'S UP!”; tras 6 s, pantalla tranquila con resumen y `r` repeat / `Enter` close.
 - **Gestión de presets:** lista, añadir (`a`), editar (`e`), borrar (`d` con confirmación), restore defaults (`r`), start (`Enter`), close (`Esc`).
+- **Sonido:** modal `v` con on/off, lista Chime/Marimba/Digital/Deep, volumen 0–100 en pasos de 5, preview con `Space` y mute con `m`. Elegir sonido o cambiar volumen previsualiza si el sonido está activo.
 - **Confirmación de cancelar:** overlay “Stop the countdown? Enter yes · Esc no”.
 - **Ayuda:** overlay `?` con título “Help”.
 - **Desconectado:** banner “Daemon disconnected — retrying…” y comandos deshabilitados.
@@ -206,10 +215,11 @@ Rutas (por usuario, sin admin):
 
 | Contexto | Acción |
 |---|---|
-| Idle | dígitos/`:`/`h`/`m`/`s` escriben; `Backspace` borra; `Enter` inicia; `←/→` seleccionan preset; `p` gestor; `t` tema; `s` sonido; `?` ayuda; `q` salir de la TUI |
-| Running | `Space` pausa; `Esc` confirma cancelar; `+`/`-` ±1 min; `?` ayuda; `q` salir |
-| Paused | `Space` reanuda; `Esc` confirma cancelar; `+`/`-` ±1 min; `q` salir |
-| Finished | `Enter`/`Esc` cierran; `r` repiten |
+| Idle | dígitos/`:`/`h`/`m`/`s` escriben; `Backspace` borra; `Enter` inicia; `←/→` seleccionan preset; `p` gestor; `t` tema; `v` sonido; `s` mute; `?` ayuda; `q` salir de la TUI |
+| Running | `Space` pausa; `Esc` confirma cancelar; `+`/`-` ±1 min; `v` sonido; `?` ayuda; `q` salir |
+| Paused | `Space` reanuda; `Esc` confirma cancelar; `+`/`-` ±1 min; `v` sonido; `q` salir |
+| Finished | `Enter`/`Esc` cierran; `r` repiten; `v` sonido |
+| Sonido | `↑/↓` sonido; `←/→` volumen ±5; `Space` preview; `m` mute; `Esc`/`Enter` cerrar |
 | Gestor | `↑/↓` mover; `a` añadir; `e` editar; `d` borrar; `r` defaults; `Enter` iniciar; `Esc` cerrar; en formulario `Tab` campo, `Enter` guardar, `Esc` cancelar |
 
 ### Parser de duraciones
@@ -274,9 +284,9 @@ Rutas (por usuario, sin admin):
 
 ### Secuencia
 
-1. `finish_seq` cambia → flash de fondo (~120 ms) + arranca el chime del daemon.
+1. `finish_seq` cambia → flash de fondo (~120 ms) + arranca el sonido del daemon.
 2. Ráfagas de confeti + “TIME'S UP!” en bloques grandes.
-3. ~6 s de animación; el chime dura 4 s.
+3. ~6 s de animación; el sonido dura entre 1,7 y 4 s según el pack.
 4. Pantalla de celebración tranquila: “5 min completed”, hora, `r` repeat, `Enter` close.
 5. `Enter`/`Esc` → idle y parar sonido; `r` → repetir la misma duración y volver al countdown.
 
@@ -306,6 +316,8 @@ Start              ▸ 5 min · 10 min · 15 min · Custom…
 Pause / Resume
 Stop
 Sound              ✓
+Sound settings     ▸ Chime · Marimba · Digital · Deep · Preview
+Volume 80%         ▸ -5% · +5% · 0% · 25% · 50% · 75% · 100%
 Start with Windows
 ──────────────────────────
 Quit
@@ -317,7 +329,9 @@ Quit
 - **Start:** submenú reconstruido cuando cambian los presets; “Custom…” abre la TUI con el input enfocado.
 - **Pause / Resume:** un solo ítem con título dinámico; habilitado según estado.
 - **Stop:** habilitado en running/paused/finished; en finished actúa como dismiss.
-- **Sound:** check; persiste en config.
+- **Sound:** check; persiste en config y silencia el sonido de fin.
+- **Sound settings:** submenú con los cuatro sonidos y check en el activo; Preview reproduce la selección. Elegir un sonido previsualiza si Sound está activo.
+- **Volume:** submenú con título dinámico; -5%/+5% y atajos 0/25/50/75/100. Cada cambio previsualiza si Sound está activo.
 - **Start with Windows:** check; lee/escribe `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, valor `TuickTack` apuntando a `tuick-tack-tray.exe`. Sin admin.
 - **Quit:** para sonido, cierra pipe y `systray.Quit()`.
 
@@ -341,12 +355,18 @@ Quit
 
 ## 13. Sonido
 
-- WAV de 4.0 s, 44.1 kHz, 16-bit, mono, generado por `tools/gen-chime` (arpegio de campana con armónicos, decay exponencial y fade-out; sin samples con copyright).
-- `assets/chime.wav` commiteado (~350 KB) y embebido con `//go:embed`.
-- Al arrancar el daemon se extrae a `%LOCALAPPDATA%\tuick-tack\chime.wav` si falta o cambia el tamaño.
+- Pack de cuatro WAV originales, 44.1 kHz, 16-bit, mono, generado por `tools/gen-sounds` (sin samples con copyright):
+  - `chime`: arpegio de campana de 4.0 s.
+  - `marimba`: figura de madera de 2.8 s.
+  - `digital`: motivo synth de 1.7 s (predeterminado).
+  - `deep`: gong grave de 4.0 s.
+- Los WAV viven en `assets/sounds/` y se embeben con `//go:embed`; `go generate ./assets` los regenera de forma determinista.
+- Al preparar la reproducción, el daemon escala las muestras PCM por `volume/100` y escribe una variante en `%LOCALAPPDATA%\tuick-tack\sounds\<sonido>-<volumen>.wav` (escritura atómica, limpieza de variantes antiguas).
 - Reproducción: `winmm.dll!PlaySoundW(path, 0, SND_FILENAME|SND_ASYNC|SND_NODEFAULT)`.
-- Parar: `PlaySoundW(nil, 0, 0)` al dismiss, repetir o nuevo start.
-- Config `sound=false` lo silencia. Fallo de audio → log y seguir; la bandeja y la TUI avisan igual.
+- Parar: `PlaySoundW(nil, 0, 0)` al dismiss, repetir, nuevo start, cerrar el modal o cambiar de sonido/volumen.
+- Volumen 0 no reproduce nada. `sound=false` silencia el fin; el preview explícito funciona salvo a volumen 0.
+- Elegir sonido o cambiar volumen desde la TUI o la bandeja previsualiza si `sound=true`; el preview no altera el volumen del sistema.
+- Fallo de caché o audio → log y seguir; la bandeja y la TUI avisan igual.
 - `SND_MEMORY` no se usa (no combina con `SND_ASYNC`); se usa archivo.
 
 ## 14. Render por celdas
@@ -386,12 +406,12 @@ internal/
     theme/
     fx/                       # dust + confetti
 assets/
-  chime.wav
+  sounds/ chime.wav marimba.wav digital.wav deep.wav
   icon.ico
   icon.png                    # fuente 256 px para go-winres
   icons/ idle.ico running.ico paused.ico finished.ico
 tools/
-  gen-chime/main.go
+  gen-sounds/main.go
   gen-icons/main.go
 scripts/
   build.ps1
@@ -407,7 +427,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 
 - `scripts/build.ps1 -Version <ver>` (por defecto `dev`):
   1. comprobar `go`;
-  2. `go generate ./assets` (chime/iconos);
+  2. `go generate ./assets` (sonidos/iconos);
   3. `go generate ./winres` (icono y metadatos del .exe; si falla, sigue con los `.syso` ya commiteados);
   4. `go test ./...`; `go vet ./...`; comprobar `gofmt -l`;
   5. `go build -trimpath -ldflags "-s -w -X ...Version=<ver>" -o dist/tuick-tack.exe ./cmd/tuick-tack`;
@@ -424,29 +444,30 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 ### Automáticos
 
 - `duration`: tabla de formatos válidos/inválidos, clamps.
-- `config`: defaults, carga/guardado, corrupto → backup, validación de presets.
+- `config`: defaults, carga/guardado, corrupto → backup, migración v1→v2, validación de presets/sonido/volumen.
 - `engine`: reloj falso; start/pause/resume/adjust/finish una vez/replace/restart; `finish_seq`.
-- `protocol`: round-trip JSON, versión, errores.
+- `protocol`: round-trip JSON, versión, errores, comandos de sonido y volumen.
 - `ipc`: pipe de test con nombre único, handshake, start/pause/stop, broadcast, múltiples clientes, reconexión.
 - `canvas`/`bigfont`: dimensiones, clipping, ancho de runas, gradiente.
 - `fx`: RNG con semilla, física, caducidad, sin NaN, límites.
-- `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único.
-- `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; 80×24 y 120×40; celebración una vez por `finish_seq`.
+- `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único; catálogo de sonidos, escalado PCM y caché.
+- `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; modal de sonido; 80×24 y 120×40; celebración una vez por `finish_seq`.
 - Comandos: `go test ./...`, `go vet ./...`, `gofmt -l .`.
 
 ### Manual
 
 1. Abrir la TUI sin daemon → se arranca solo y conecta.
 2. Iniciar 1 min; pausar/reanudar desde TUI y bandeja; ajustar ±1 min.
-3. Cerrar la TUI con el timer corriendo → el tooltip cuenta; a 0 suena el chime; icono alerta.
+3. Cerrar la TUI con el timer corriendo → el tooltip cuenta; a 0 suena el sonido elegido; icono alerta.
 4. Abrir la TUI después → pantalla de final con confeti; `r` repite; `Enter` cierra.
-5. Lanzar un preset desde la bandeja con la TUI cerrada → chime y alerta.
+5. Lanzar un preset desde la bandeja con la TUI cerrada → sonido y alerta.
 6. Añadir/editar/borrar preset → el submenú se actualiza; persistencia tras reiniciar.
 7. Entradas `25`, `12:30`, `90s`, `1h30m`, inválida.
-8. Temas; silenciar; “Start with Windows” on/off; “Quit”.
-9. 80×24 y 120×40; resize durante el confeti; con una TUI abierta, el clic en la bandeja la enfoca sin abrir otra; lanzar `tuick-tack.exe` a mano también la enfoca y sale.
-10. El tray exe no muestra consola; el TUI sí.
-11. `go test`, build, ejecutar desde `dist/`.
+8. Temas; abrir `v`, recorrer los cuatro sonidos y probar 0/5/50/80/100 %; preview con `Space`; mute; “Start with Windows” on/off; “Quit”.
+9. Migrar un config v1 → aparece v2 con digital/80 y conserva presets, tema y mute.
+10. 80×24 y 120×40; resize durante el confeti; con una TUI abierta, el clic en la bandeja la enfoca sin abrir otra; lanzar `tuick-tack.exe` a mano también la enfoca y sale.
+11. El tray exe no muestra consola; el TUI sí.
+12. `go test`, build, ejecutar desde `dist/`.
 
 ### Criterios de aceptación (v1)
 
@@ -455,7 +476,8 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - [ ] La bandeja sobrevive al cierre de la TUI; clic izquierdo abre la TUI o enfoca la abierta; clic derecho abre el menú.
 - [ ] Una sola TUI: el tray y una segunda ejecución del exe enfocan la ventana existente sin duplicarla.
 - [ ] Los presets (5/10/15 + personalizados) se inician desde TUI y bandeja; persisten.
-- [ ] Chime de 3–5 s al terminar; se puede silenciar y parar.
+- [ ] Sonido de fin de 1–5 s elegible entre cuatro, con volumen 0–100 y silencio; preview desde TUI y bandeja.
+- [ ] La config v1 migra a v2 (digital/80) sin perder presets, tema ni mute.
 - [ ] Confeti a 0 en la TUI, una vez por final, ~6 s, sin artefactos al redimensionar.
 - [ ] La UI es usable a 80×24 y se ve bien a 120×40.
 - [ ] Dos `.exe`; el de bandeja sin consola; autostart opcional funciona.
@@ -467,7 +489,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 |---|---|---|
 | **M0 · Setup + spike bandeja** | Go instalado, módulo, esqueleto, spike systray | Icono, tooltip, clic izq/dcho, menú y submenú funcionan en Windows |
 | **M1 · Núcleo** | config, duration, engine, protocol + tests | `go test ./...` verde; reloj falso cubre pause/finish |
-| **M2 · Daemon + IPC** | pipe, motor, sonido, instancia única, autostart | Dos clientes ven el mismo estado; chime a 0; sin consola |
+| **M2 · Daemon + IPC** | pipe, motor, sonido, instancia única, autostart | Dos clientes ven el mismo estado; sonido a 0; sin consola |
 | **M3 · TUI funcional** | canvas, bigfont, layout, input, presets, modales | Se puede iniciar/pausar/ajustar/gestionar desde la TUI |
 | **M4 · Estilo + celebración** | aurora, polvo, barra, confeti, finish | Confeti a 0 una vez, 30 fps, 80×24 y 120×40 |
 | **M5 · Integración + release** | menú completo, iconos, abrir TUI, build, README | Criterios de aceptación completos; `dist/` listo |
@@ -481,7 +503,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 | Fuente/or glyphs no disponibles | Windows Terminal + glifos box-drawing; fallback `* + •`; tests de ancho |
 | Sin dispositivo de audio | Log y continuar; alerta visual/tooltip |
 | .exe sin firmar / SmartScreen | Build local; firma fuera de alcance |
-| Toast nativo poco fiable | No es requisito; chime + icono + TUI |
+| Toast nativo poco fiable | No es requisito; sonido + icono + TUI |
 | Pérdida del timer al reiniciar el daemon | Documentado; futura persistencia |
 | Pipe/instancia duplicada | Mutex + `first pipe instance`; test |
 | `go-winres` falla | Build sin icono de .exe; icono de bandeja sigue |
@@ -504,9 +526,11 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "theme": "midnight",
   "sound": true,
+  "sound_name": "digital",
+  "volume": 80,
   "presets": [
     { "id": "p5",  "label": "5 min",  "seconds": 300 },
     { "id": "p10", "label": "10 min", "seconds": 600 },
@@ -522,6 +546,8 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 // cliente → daemon
 {"type":"start","seconds":300,"label":"5 min","preset_id":"p5"}
 {"type":"preset_add","label":"Focus","seconds":1500}
+{"type":"set_sound_name","sound_name":"marimba"}
+{"type":"set_volume","volume":75}
 
 // daemon → cliente
 {"type":"hello","protocol":1,"app_version":"0.1.0","config":{...}}

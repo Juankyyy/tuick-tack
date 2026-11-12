@@ -2,7 +2,11 @@
 // hardcode labels, hints, dialogs or toasts.
 package copy
 
-import "fmt"
+import (
+	"fmt"
+
+	"tuick-tack/internal/config"
+)
 
 // Key identifies a message.
 type Key string
@@ -39,6 +43,20 @@ const (
 	CloseHint        = Key("hint.close")
 	HelpFormats      = Key("help.formats")
 	HelpFinished     = Key("help.finished")
+	HelpSound        = Key("help.sound")
+
+	SoundTitle   = Key("sound.title")
+	SoundOn      = Key("sound.on")
+	SoundOff     = Key("sound.off")
+	SoundVolume  = Key("sound.volume")
+	SoundPreview = Key("sound.preview")
+	SoundMute    = Key("sound.mute")
+	SoundUnmute  = Key("sound.unmute")
+	SoundHint    = Key("sound.hint")
+	SoundChime   = Key("sound.chime")
+	SoundMarimba = Key("sound.marimba")
+	SoundDigital = Key("sound.digital")
+	SoundDeep    = Key("sound.deep")
 
 	Pause    = Key("action.pause")
 	Resume   = Key("action.resume")
@@ -103,31 +121,44 @@ const (
 	StartupInstalled = Key("startup.installed")
 	StartupRemoved   = Key("startup.removed")
 
-	TrayReady          = Key("tray.ready")
-	TrayRunning        = Key("tray.running")
-	TrayPaused         = Key("tray.paused")
-	TrayFinished       = Key("tray.finished")
-	TrayRunningTooltip = Key("tray.running.tooltip")
-	TrayPausedTooltip  = Key("tray.paused.tooltip")
-	TrayOpen           = Key("tray.open")
-	TrayOpenTooltip    = Key("tray.open.tooltip")
-	TrayStart          = Key("tray.start")
-	TrayStartTooltip   = Key("tray.start.tooltip")
-	TrayStartPreset    = Key("tray.start.preset")
-	TrayCustom         = Key("tray.custom")
-	TrayCustomTooltip  = Key("tray.custom.tooltip")
-	TrayPause          = Key("tray.pause")
-	TrayResume         = Key("tray.resume")
-	TrayPauseTooltip   = Key("tray.pause.tooltip")
-	TrayStop           = Key("tray.stop")
-	TrayStopTooltip    = Key("tray.stop.tooltip")
-	TraySound          = Key("tray.sound")
-	TraySoundTooltip   = Key("tray.sound.tooltip")
-	TrayStartup        = Key("tray.startup")
-	TrayStartupTooltip = Key("tray.startup.tooltip")
-	TrayQuit           = Key("tray.quit")
-	TrayQuitTooltip    = Key("tray.quit.tooltip")
-	TrayCurrentTooltip = Key("tray.current.tooltip")
+	TrayReady                = Key("tray.ready")
+	TrayRunning              = Key("tray.running")
+	TrayPaused               = Key("tray.paused")
+	TrayFinished             = Key("tray.finished")
+	TrayRunningTooltip       = Key("tray.running.tooltip")
+	TrayPausedTooltip        = Key("tray.paused.tooltip")
+	TrayOpen                 = Key("tray.open")
+	TrayOpenTooltip          = Key("tray.open.tooltip")
+	TrayStart                = Key("tray.start")
+	TrayStartTooltip         = Key("tray.start.tooltip")
+	TrayStartPreset          = Key("tray.start.preset")
+	TrayCustom               = Key("tray.custom")
+	TrayCustomTooltip        = Key("tray.custom.tooltip")
+	TrayPause                = Key("tray.pause")
+	TrayResume               = Key("tray.resume")
+	TrayPauseTooltip         = Key("tray.pause.tooltip")
+	TrayStop                 = Key("tray.stop")
+	TrayStopTooltip          = Key("tray.stop.tooltip")
+	TraySound                = Key("tray.sound")
+	TraySoundTooltip         = Key("tray.sound.tooltip")
+	TraySoundSettings        = Key("tray.sound.settings")
+	TraySoundSettingsTooltip = Key("tray.sound.settings.tooltip")
+	TraySoundPresetTooltip   = Key("tray.sound.preset.tooltip")
+	TraySoundPreview         = Key("tray.sound.preview")
+	TraySoundPreviewTooltip  = Key("tray.sound.preview.tooltip")
+	TrayVolume               = Key("tray.volume")
+	TrayVolumeTooltip        = Key("tray.volume.tooltip")
+	TrayVolumeValue          = Key("tray.volume.value")
+	TrayVolumeLevel          = Key("tray.volume.level")
+	TrayVolumeDown           = Key("tray.volume.down")
+	TrayVolumeDownTooltip    = Key("tray.volume.down.tooltip")
+	TrayVolumeUp             = Key("tray.volume.up")
+	TrayVolumeUpTooltip      = Key("tray.volume.up.tooltip")
+	TrayStartup              = Key("tray.startup")
+	TrayStartupTooltip       = Key("tray.startup.tooltip")
+	TrayQuit                 = Key("tray.quit")
+	TrayQuitTooltip          = Key("tray.quit.tooltip")
+	TrayCurrentTooltip       = Key("tray.current.tooltip")
 )
 
 var texts = map[Key]string{
@@ -151,16 +182,30 @@ var texts = map[Key]string{
 	TimeAt:           "at %s",
 	Completed:        "%s completed",
 
-	ControlsIdle:     "p presets · t theme · s sound · ? help · q quit",
-	ControlsRunning:  "space pause · esc cancel · + / - 1 min · ? help · q quit",
-	ControlsPaused:   "space resume · esc cancel · + / - 1 min · ? help · q quit",
-	ControlsFinished: "? help · q quit",
+	ControlsIdle:     "p presets · t theme · v sound · s mute · ? help · q quit",
+	ControlsRunning:  "space pause · esc cancel · + / - 1 min · v sound · ? help · q quit",
+	ControlsPaused:   "space resume · esc cancel · + / - 1 min · v sound · ? help · q quit",
+	ControlsFinished: "v sound · ? help · q quit",
 	HeroFinished:     "TIME'S UP!",
 	LabelFocus:       "Focus",
 	RepeatHint:       "r repeat",
 	CloseHint:        "enter close",
 	HelpFormats:      "25 min · 12:30 · 90s · 1h30m",
 	HelpFinished:     "finished: r repeat · enter close",
+	HelpSound:        "sound: v settings · s mute · space preview in the sound panel",
+
+	SoundTitle:   "Sound",
+	SoundOn:      "Sound on",
+	SoundOff:     "Sound off",
+	SoundVolume:  "Volume",
+	SoundPreview: "preview",
+	SoundMute:    "mute",
+	SoundUnmute:  "unmute",
+	SoundHint:    "↑↓ sound · ←→ volume · space preview · m mute · esc close",
+	SoundChime:   "Chime",
+	SoundMarimba: "Marimba",
+	SoundDigital: "Digital",
+	SoundDeep:    "Deep",
 
 	Pause:    "pause",
 	Resume:   "resume",
@@ -183,7 +228,7 @@ var texts = map[Key]string{
 	HelpTitle: "Help",
 	HelpIdle:  "type a duration · enter start · left/right preset",
 	HelpTimer: "space pause/resume · esc cancel · +/- adjust 1 min",
-	HelpModal: "p presets · t theme · s sound · ? help · q quit",
+	HelpModal: "p presets · t theme · v sound · s mute · ? help · q quit",
 	HelpClose: "esc or enter to close",
 
 	PresetsTitle:      "Presets",
@@ -227,31 +272,60 @@ var texts = map[Key]string{
 	StartupInstalled: "Tuick-Tack will start with Windows.",
 	StartupRemoved:   "Tuick-Tack will no longer start with Windows.",
 
-	TrayReady:          "Tuick-Tack · ready",
-	TrayRunning:        "Tuick-Tack · %s remaining",
-	TrayPaused:         "Tuick-Tack · %s paused",
-	TrayFinished:       "Tuick-Tack · time's up!",
-	TrayRunningTooltip: "Tuick-Tack · %s remaining (%s)",
-	TrayPausedTooltip:  "Tuick-Tack · %s paused (%s)",
-	TrayOpen:           "Open Tuick-Tack",
-	TrayOpenTooltip:    "Open the terminal UI",
-	TrayStart:          "Start",
-	TrayStartTooltip:   "Start a preset",
-	TrayStartPreset:    "Start %s",
-	TrayCustom:         "Custom…",
-	TrayCustomTooltip:  "Type a duration in the TUI",
-	TrayPause:          "Pause",
-	TrayResume:         "Resume",
-	TrayPauseTooltip:   "Pause the countdown",
-	TrayStop:           "Stop",
-	TrayStopTooltip:    "Stop the countdown",
-	TraySound:          "Sound",
-	TraySoundTooltip:   "Play the chime at zero",
-	TrayStartup:        "Start with Windows",
-	TrayStartupTooltip: "Launch the daemon at sign-in",
-	TrayQuit:           "Quit",
-	TrayQuitTooltip:    "Quit Tuick-Tack",
-	TrayCurrentTooltip: "Current countdown",
+	TrayReady:                "Tuick-Tack · ready",
+	TrayRunning:              "Tuick-Tack · %s remaining",
+	TrayPaused:               "Tuick-Tack · %s paused",
+	TrayFinished:             "Tuick-Tack · time's up!",
+	TrayRunningTooltip:       "Tuick-Tack · %s remaining (%s)",
+	TrayPausedTooltip:        "Tuick-Tack · %s paused (%s)",
+	TrayOpen:                 "Open Tuick-Tack",
+	TrayOpenTooltip:          "Open the terminal UI",
+	TrayStart:                "Start",
+	TrayStartTooltip:         "Start a preset",
+	TrayStartPreset:          "Start %s",
+	TrayCustom:               "Custom…",
+	TrayCustomTooltip:        "Type a duration in the TUI",
+	TrayPause:                "Pause",
+	TrayResume:               "Resume",
+	TrayPauseTooltip:         "Pause the countdown",
+	TrayStop:                 "Stop",
+	TrayStopTooltip:          "Stop the countdown",
+	TraySound:                "Sound",
+	TraySoundTooltip:         "Play the selected sound at zero",
+	TraySoundSettings:        "Sound settings",
+	TraySoundSettingsTooltip: "Choose the completion sound",
+	TraySoundPresetTooltip:   "Use %s at zero",
+	TraySoundPreview:         "Preview",
+	TraySoundPreviewTooltip:  "Play the selected sound",
+	TrayVolume:               "Volume",
+	TrayVolumeTooltip:        "Completion sound volume",
+	TrayVolumeValue:          "Volume %d%%",
+	TrayVolumeLevel:          "%d%%",
+	TrayVolumeDown:           "-5%",
+	TrayVolumeDownTooltip:    "Lower the volume by 5%",
+	TrayVolumeUp:             "+5%",
+	TrayVolumeUpTooltip:      "Raise the volume by 5%",
+	TrayStartup:              "Start with Windows",
+	TrayStartupTooltip:       "Launch the daemon at sign-in",
+	TrayQuit:                 "Quit",
+	TrayQuitTooltip:          "Quit Tuick-Tack",
+	TrayCurrentTooltip:       "Current countdown",
+}
+
+// SoundLabel returns the user-facing label for a stable sound ID.
+func SoundLabel(id string) string {
+	switch id {
+	case config.SoundChime:
+		return T(SoundChime)
+	case config.SoundMarimba:
+		return T(SoundMarimba)
+	case config.SoundDigital:
+		return T(SoundDigital)
+	case config.SoundDeep:
+		return T(SoundDeep)
+	default:
+		return id
+	}
 }
 
 // T returns the localized message. Format arguments are applied with

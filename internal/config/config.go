@@ -1,4 +1,5 @@
-// Package config owns the persisted preferences: presets, theme and sound.
+// Package config owns the persisted preferences: presets, theme, sound
+// selection and volume.
 //
 // The daemon is the only writer. Load falls back to defaults when the file is
 // missing, and backs up an unreadable or invalid file before doing the same.
@@ -17,7 +18,7 @@ import (
 
 const (
 	// Version is the schema version understood by this build.
-	Version = 1
+	Version = 2
 	// MaxPresets is the maximum number of stored presets.
 	MaxPresets = 16
 	// MinSeconds and MaxSeconds bound a preset or countdown.
@@ -25,6 +26,25 @@ const (
 	MaxSeconds = 86400
 	// MaxLabelRunes bounds preset labels and countdown names.
 	MaxLabelRunes = 32
+)
+
+// Sound names are stable identifiers stored in config.json.
+const (
+	SoundChime   = "chime"
+	SoundMarimba = "marimba"
+	SoundDigital = "digital"
+	SoundDeep    = "deep"
+)
+
+// Sounds lists the supported completion sounds in UI order.
+var Sounds = []string{SoundChime, SoundMarimba, SoundDigital, SoundDeep}
+
+// Volume bounds and the defaults used by a fresh or migrated config.
+const (
+	DefaultSound  = SoundDigital
+	DefaultVolume = 80
+	MinVolume     = 0
+	MaxVolume     = 100
 )
 
 // Theme names are stable identifiers stored in config.json.
@@ -46,24 +66,43 @@ type Preset struct {
 
 // Config is the on-disk configuration.
 type Config struct {
-	Version int      `json:"version"`
-	Theme   string   `json:"theme"`
-	Sound   bool     `json:"sound"`
-	Presets []Preset `json:"presets"`
+	Version   int      `json:"version"`
+	Theme     string   `json:"theme"`
+	Sound     bool     `json:"sound"`
+	SoundName string   `json:"sound_name"`
+	Volume    int      `json:"volume"`
+	Presets   []Preset `json:"presets"`
 }
 
 // Default returns a fresh default configuration.
 func Default() Config {
 	return Config{
-		Version: Version,
-		Theme:   ThemeMidnight,
-		Sound:   true,
+		Version:   Version,
+		Theme:     ThemeMidnight,
+		Sound:     true,
+		SoundName: DefaultSound,
+		Volume:    DefaultVolume,
 		Presets: []Preset{
 			{ID: "p5", Label: "5 min", Seconds: 300},
 			{ID: "p10", Label: "10 min", Seconds: 600},
 			{ID: "p15", Label: "15 min", Seconds: 900},
 		},
 	}
+}
+
+// ValidSound reports whether name is a supported completion sound.
+func ValidSound(name string) bool {
+	for _, s := range Sounds {
+		if s == name {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidVolume reports whether n is inside the accepted volume range.
+func ValidVolume(n int) bool {
+	return n >= MinVolume && n <= MaxVolume
 }
 
 // ValidTheme reports whether name is a supported theme.
@@ -111,6 +150,19 @@ func ValidPresetID(id string) bool {
 	return true
 }
 
+// Migrate upgrades a decoded configuration to the current schema. Version 1
+// had no sound selection or volume, so both take the v2 defaults. It returns
+// the migrated config and whether anything changed.
+func Migrate(c Config) (Config, bool) {
+	if c.Version >= Version {
+		return c, false
+	}
+	c.Version = Version
+	c.SoundName = DefaultSound
+	c.Volume = DefaultVolume
+	return c, true
+}
+
 // Validate checks the schema and every preset. It does not normalize values.
 func Validate(c Config) error {
 	if c.Version != Version {
@@ -118,6 +170,12 @@ func Validate(c Config) error {
 	}
 	if !ValidTheme(c.Theme) {
 		return fmt.Errorf("unknown theme %q", c.Theme)
+	}
+	if !ValidSound(c.SoundName) {
+		return fmt.Errorf("unknown sound %q", c.SoundName)
+	}
+	if !ValidVolume(c.Volume) {
+		return fmt.Errorf("volume %d is outside %d..%d", c.Volume, MinVolume, MaxVolume)
 	}
 	if len(c.Presets) > MaxPresets {
 		return fmt.Errorf("too many presets: %d (max %d)", len(c.Presets), MaxPresets)

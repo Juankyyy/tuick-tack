@@ -7,8 +7,8 @@
 - Stack: Go 1.26+ (pinned Bubble Tea v2/go-winio require it), Bubble Tea v2.1.1, Lipgloss v2.1.0, `fyne.io/systray` v1.12.2, `github.com/Microsoft/go-winio` v0.6.4, `golang.org/x/sys/windows`; `CGO_ENABLED=0`.
 - App code lives in `cmd/` and `internal/`. Windows-specific code lives in `internal/tray/`, `internal/ipc/` and the `*_windows.go` files under `internal/daemon/`.
 - Platform features that cannot live in the shared layer stay in the native layer behind small, documented bridges: systray/menu (`internal/tray`), `PlaySoundW` (`internal/daemon/sound_windows.go`), registry/autostart (`internal/daemon/autostart_windows.go`) and named pipes (`internal/ipc`).
-- Current state: v1 implemented in `dev` (M0–M5 complete); `SPEC.md` is the functional source. Next work is polish/QA and, only on request, the release build from `main`.
-- Generated assets (`assets/chime.wav`, `assets/icon.ico`, `assets/icon.png`, `assets/icons/*.ico`, the `.syso` files under `cmd/`) are committed; do not hand-edit them. Regenerate with `go generate ./...` / `scripts/build.ps1`.
+- Current state: v1 implemented in `dev` (M0–M5 complete) plus the selectable sound pack and volume; `SPEC.md` is the functional source. Next work is polish/QA and, only on request, the release build from `main`.
+- Generated assets (`assets/sounds/*.wav`, `assets/icon.ico`, `assets/icon.png`, `assets/icons/*.ico`, the `.syso` files under `cmd/`) are committed; do not hand-edit them. Regenerate with `go generate ./...` / `scripts/build.ps1`.
 
 ## Commands
 
@@ -22,7 +22,7 @@ go test ./...                  # tests
 go run ./cmd/tuick-tack        # TUI (console)
 go run ./cmd/tuick-tack-tray   # daemon (console in dev; windowsgui in release)
 go fmt ./...                   # format
-go generate ./...              # regenerate chime/icons and .syso resources
+go generate ./...              # regenerate sounds/icons and .syso resources
 .\scripts\build.ps1            # vet + test + build both exes into dist/
 .\scripts\build.ps1 -Version v1.0.0
 ```
@@ -46,25 +46,25 @@ internal/
   daemon/               wiring, sound, autostart, logging
   tray/                 systray menu, icons, tooltip
   tui/                  Bubble Tea model/view, canvas, bigfont, theme, fx
-assets/                 chime.wav, icon.ico, icons/
-tools/                  gen-chime, gen-icons
+assets/                 sounds/*.wav, icon.ico, icons/
+tools/                  gen-sounds, gen-icons
 scripts/build.ps1
 winres/                 go-winres metadata
 ```
 
-- State management: the **daemon is the single source of truth** (timer, presets, theme, sound, tray). The TUI is a client; it renders snapshots and interpolates locally for smoothness. `finish_seq` dedupes celebrations. No client-side timer truth, no external state library.
+- State management: the **daemon is the single source of truth** (timer, presets, theme, sound selection, volume, tray). The TUI is a client; it renders snapshots and interpolates locally for smoothness. `finish_seq` dedupes celebrations. No client-side timer truth, no external state library.
 - Local persistence: JSON config at `%APPDATA%\tuick-tack\config.json`; the daemon is the only writer; atomic writes; no DB. The Windows registry is used **only** for autostart (`HKCU\...\Run`), never for app state. Do not add SQLite or a second config store.
 - Localization: all user-facing copy lives in `internal/tui/copy`; UI code reads it via `copy.T(...)`. Do not hardcode labels, tooltips, dialogs or toasts in widgets. The v1 UI is English; if Spanish is added later, its messages live in the same package.
 - Dependencies pinned for a reason keep a comment next to them; do not bump until the packages are compatible. Bubble Tea/Lipgloss v2 use the `charm.land/...` module paths and the v2 API; `systray` v1.12.2 is the Fyne fork with left/right-click callbacks and package-level menu state.
 - Keep time-dependent logic testable by injecting a clock; never call `time.Now()` in domain logic that has tests. `time.Now()` belongs in `main`/wiring; tests use a fake clock. The engine relies on the monotonic reading inside `time.Time`.
-- Config schema version is `1`. Bump it and add a migration before adding/changing fields; back up a corrupt config and fall back to defaults.
+- Config schema version is `2`. Bump it and add a migration before adding/changing fields; back up a corrupt config and fall back to defaults.
 - No cgo: build with `CGO_ENABLED=0`. `systray` and `go-winio` are pure Go on Windows.
 - No wide runes or emoji in the TUI. Every glyph must be one terminal cell; test layouts at 80×24 and 120×40.
 - All TUI rendering goes through `internal/tui/canvas`; do not scatter raw ANSI outside the canvas serializer.
 - `systray.Run` must run on the main goroutine; do not call systray APIs before `onReady`. The rest of its API is safe from other goroutines.
-- The daemon must remain fully usable with the TUI closed (tray, timer, chime).
+- The daemon must remain fully usable with the TUI closed (tray, timer, selected sound at the configured volume).
 - The IPC protocol is versioned. Bump the protocol version for incompatible message changes; do not silently break the TUI/daemon pair.
-- `PlaySoundW` uses a WAV file path with `SND_ASYNC`; do not use `SND_MEMORY` (it does not combine with async).
+- `PlaySoundW` uses a WAV file path with `SND_ASYNC`; do not use `SND_MEMORY` (it does not combine with async). Volume is applied by scaling the PCM samples into a cached WAV; never change the system or wave-out device volume.
 - Truecolor is assumed; Windows Terminal is the reference terminal. `conhost` is a fallback, not a design target.
 
 ## Convenciones

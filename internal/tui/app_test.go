@@ -265,10 +265,95 @@ func TestApplyConfig(t *testing.T) {
 	cfg := config.Default()
 	cfg.Theme = config.ThemeEmber
 	cfg.Sound = false
+	cfg.SoundName = config.SoundMarimba
+	cfg.Volume = 35
 	cfg.Presets = cfg.Presets[:1]
 	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.NewConfigPayload(cfg)})
-	if m.pal.Name != config.ThemeEmber || m.cfg.Sound || len(m.cfg.Presets) != 1 {
+	if m.pal.Name != config.ThemeEmber || m.cfg.Sound || len(m.cfg.Presets) != 1 ||
+		m.cfg.SoundName != config.SoundMarimba || m.cfg.Volume != 35 {
 		t.Fatalf("config not applied: %+v", m.cfg)
+	}
+}
+
+func TestApplyConfigFallsBackMissingSound(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.ConfigPayload{
+		Theme: config.ThemeMono,
+		Sound: true,
+	}})
+	if m.cfg.SoundName != config.DefaultSound || m.cfg.Volume != config.DefaultVolume {
+		t.Fatalf("missing sound fields did not fall back: %+v", m.cfg)
+	}
+}
+
+func TestSoundModal(t *testing.T) {
+	m, _ := testModel(80, 24)
+	press(m, 'v', "v")
+	if m.modal != modalSound {
+		t.Fatalf("modal = %v, want sound", m.modal)
+	}
+	if m.soundCursor != 2 {
+		t.Fatalf("sound cursor = %d, want digital", m.soundCursor)
+	}
+	plain := assertFrame(t, m, 80, 24)
+	for _, want := range []string{"Sound", "Digital", "Volume", "80%", "preview", "mute"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("sound modal missing %q", want)
+		}
+	}
+
+	press(m, tea.KeyDown, "")
+	if m.cfg.SoundName != config.SoundDeep || m.soundCursor != 3 {
+		t.Fatalf("down did not select deep: %+v", m.cfg)
+	}
+	press(m, tea.KeyUp, "")
+	if m.cfg.SoundName != config.SoundDigital {
+		t.Fatalf("up did not return to digital: %+v", m.cfg)
+	}
+	press(m, tea.KeyLeft, "")
+	if m.cfg.Volume != 75 {
+		t.Fatalf("left volume = %d, want 75", m.cfg.Volume)
+	}
+	press(m, tea.KeyRight, "")
+	if m.cfg.Volume != 80 {
+		t.Fatalf("right volume = %d, want 80", m.cfg.Volume)
+	}
+	press(m, 'm', "m")
+	if m.cfg.Sound {
+		t.Fatal("m should mute the sound")
+	}
+	press(m, tea.KeyEscape, "")
+	if m.modal != modalNone {
+		t.Fatal("escape should close the sound modal")
+	}
+
+	m.width, m.height = 120, 40
+	press(m, 'v', "v")
+	assertFrame(t, m, 120, 40)
+}
+
+func TestSoundModalDuringRunning(t *testing.T) {
+	m, _ := testModel(80, 24)
+	applyRunning(m)
+	press(m, 'v', "v")
+	if m.modal != modalSound {
+		t.Fatalf("modal = %v, want sound during running", m.modal)
+	}
+	assertFrame(t, m, 80, 24)
+}
+
+func TestVolumeClampsAtBounds(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.cfg.Volume = 0
+	press(m, 'v', "v")
+	press(m, tea.KeyLeft, "")
+	if m.cfg.Volume != 0 {
+		t.Fatalf("volume below zero = %d", m.cfg.Volume)
+	}
+	m.cfg.Volume = 100
+	press(m, tea.KeyRight, "")
+	if m.cfg.Volume != 100 {
+		t.Fatalf("volume above 100 = %d", m.cfg.Volume)
 	}
 }
 

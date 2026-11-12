@@ -1,16 +1,32 @@
-// Package assets embeds the generated runtime assets: the chime and the tray
-// icons. The files are committed; regenerate them with `go generate ./...`.
+// Package assets embeds the generated runtime assets: the completion sound
+// pack and the tray icons. The files are committed; regenerate them with
+// `go generate ./...`.
 package assets
 
 import _ "embed"
 
-//go:generate go run ../tools/gen-chime
+//go:generate go run ../tools/gen-sounds
 //go:generate go run ../tools/gen-icons
 
-// ChimeWAV is the 4-second completion chime (44.1 kHz, 16-bit, mono).
+// ChimeWAV is the original 4-second bell arpeggio (44.1 kHz, 16-bit, mono).
 //
-//go:embed chime.wav
+//go:embed sounds/chime.wav
 var ChimeWAV []byte
+
+// MarimbaWAV is a warm wooden-mallet figure (44.1 kHz, 16-bit, mono).
+//
+//go:embed sounds/marimba.wav
+var MarimbaWAV []byte
+
+// DigitalWAV is a clean synth motif (44.1 kHz, 16-bit, mono).
+//
+//go:embed sounds/digital.wav
+var DigitalWAV []byte
+
+// DeepWAV is a low resonant gong (44.1 kHz, 16-bit, mono).
+//
+//go:embed sounds/deep.wav
+var DeepWAV []byte
 
 // AppIcon is the icon used for the executable and the tray's default state.
 //

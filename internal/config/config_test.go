@@ -21,6 +21,9 @@ func TestDefault(t *testing.T) {
 	if c.Theme != ThemeMidnight || !c.Sound {
 		t.Fatalf("unexpected defaults: %+v", c)
 	}
+	if c.Version != Version || c.SoundName != DefaultSound || c.Volume != DefaultVolume {
+		t.Fatalf("unexpected sound defaults: %+v", c)
+	}
 }
 
 func TestValidate(t *testing.T) {
@@ -32,8 +35,11 @@ func TestValidate(t *testing.T) {
 	}{
 		{"valid", func(*Config) {}, true},
 		{"no presets", func(c *Config) { c.Presets = nil }, true},
-		{"bad version", func(c *Config) { c.Version = 2 }, false},
+		{"bad version", func(c *Config) { c.Version = Version + 1 }, false},
 		{"bad theme", func(c *Config) { c.Theme = "neon" }, false},
+		{"bad sound", func(c *Config) { c.SoundName = "airhorn" }, false},
+		{"low volume", func(c *Config) { c.Volume = -1 }, false},
+		{"high volume", func(c *Config) { c.Volume = 101 }, false},
 		{"too many", func(c *Config) {
 			for i := 0; i < MaxPresets+1; i++ {
 				c.Presets = append(c.Presets, Preset{ID: NewPresetID(), Label: "x", Seconds: 1})
@@ -84,12 +90,52 @@ func TestLoadMissingReturnsDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadMigratesV1(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	v1 := `{
+  "version": 1,
+  "theme": "ember",
+  "sound": false,
+  "presets": [
+    { "id": "p5", "label": "5 min", "seconds": 300 }
+  ]
+}`
+	if err := os.WriteFile(path, []byte(v1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(path)
+	c, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Version != Version || c.SoundName != SoundDigital || c.Volume != DefaultVolume {
+		t.Fatalf("v1 was not migrated: %+v", c)
+	}
+	if c.Theme != ThemeEmber || c.Sound || len(c.Presets) != 1 {
+		t.Fatalf("migration lost settings: %+v", c)
+	}
+	if err := store.Save(c); err != nil {
+		t.Fatalf("Save migrated: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"version": 2`) ||
+		!strings.Contains(string(data), `"sound_name": "digital"`) {
+		t.Fatalf("migrated file not written as v2: %s", data)
+	}
+}
+
 func TestSaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "config.json")
 	store := NewStore(path)
 	c := Default()
 	c.Theme = ThemeEmber
 	c.Sound = false
+	c.SoundName = SoundMarimba
+	c.Volume = 35
 	c.Presets = append(c.Presets, NewPreset("Focus", 1500))
 	if err := store.Save(c); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -101,7 +147,8 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got.Theme != ThemeEmber || got.Sound || len(got.Presets) != 4 {
+	if got.Theme != ThemeEmber || got.Sound || len(got.Presets) != 4 ||
+		got.SoundName != SoundMarimba || got.Volume != 35 {
 		t.Fatalf("round trip mismatch: %+v", got)
 	}
 	entries, err := os.ReadDir(filepath.Dir(path))
@@ -183,7 +230,13 @@ func TestSaveRejectsInvalid(t *testing.T) {
 }
 
 func TestNormalizeTrimsLabels(t *testing.T) {
-	c := Config{Version: 1, Theme: ThemeMono, Presets: []Preset{{ID: "p1", Label: "  hi  ", Seconds: 10}}}
+	c := Config{
+		Version:   Version,
+		Theme:     ThemeMono,
+		SoundName: DefaultSound,
+		Volume:    DefaultVolume,
+		Presets:   []Preset{{ID: "p1", Label: "  hi  ", Seconds: 10}},
+	}
 	c = Normalize(c)
 	if c.Presets[0].Label != "hi" {
 		t.Fatalf("label = %q", c.Presets[0].Label)

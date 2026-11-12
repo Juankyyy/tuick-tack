@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"image/color"
 	"math"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"tuick-tack/internal/buildinfo"
+	"tuick-tack/internal/config"
 	"tuick-tack/internal/duration"
 	"tuick-tack/internal/engine"
 	"tuick-tack/internal/tui/bigfont"
@@ -619,6 +621,8 @@ func (m *Model) drawModal(c *canvas.Canvas, base rect) {
 		m.drawPresets(c, base)
 	case modalPresetForm:
 		m.drawForm(c, base)
+	case modalSound:
+		m.drawSound(c, base)
 	}
 }
 
@@ -651,6 +655,7 @@ func (m *Model) drawHelp(c *canvas.Canvas, base rect) {
 		{copy.T(copy.HelpIdle), m.pal.Text},
 		{copy.T(copy.HelpTimer), m.pal.Text},
 		{copy.T(copy.HelpModal), m.pal.Text},
+		{copy.T(copy.HelpSound), m.pal.Muted},
 		{"", m.pal.Muted},
 		{copy.T(copy.HelpFormats), m.pal.Muted},
 		{copy.T(copy.HelpFinished), m.pal.Muted},
@@ -749,6 +754,101 @@ func (m *Model) drawPresets(c *canvas.Canvas, base rect) {
 		{copy.T(copy.Start), hitPresetStart},
 		{copy.T(copy.Close), hitClose},
 	})
+}
+
+func (m *Model) drawSound(c *canvas.Canvas, base rect) {
+	r := m.modalRect(base, 62, 15)
+	m.drawOverlay(c, r, copy.T(copy.SoundTitle))
+	leftX := r.x + 3
+	width := r.w - 6
+
+	// Enabled row. The whole row is clickable, like the mute button below.
+	y := r.y + 2
+	mark := "[ ]"
+	status := copy.T(copy.SoundOff)
+	col := m.pal.Muted
+	if m.cfg.Sound {
+		mark = "[x]"
+		status = copy.T(copy.SoundOn)
+		col = m.pal.Accent
+	}
+	c.Text(leftX, y, mark, canvas.Style{FG: col, HasFG: true, Bold: true})
+	c.Text(leftX+4, y, status, canvas.Style{FG: col, HasFG: true, Bold: m.cfg.Sound})
+	m.addHit(leftX, y, width, 1, hitSoundMute, 0)
+
+	// Sound list.
+	for i, name := range config.Sounds {
+		row := r.y + 4 + i
+		selected := name == m.cfg.SoundName
+		if selected {
+			c.Fill(leftX, row, width, 1,
+				canvas.Full(m.pal.Text, theme.Lerp(m.pal.Panel, m.pal.Accent, 0.22)))
+			c.Set(leftX, row, '›', canvas.Fg(m.pal.Accent))
+		}
+		dot := "○"
+		dotCol := m.pal.Muted
+		if selected {
+			dot = "●"
+			dotCol = m.pal.Accent
+		}
+		c.Text(leftX+2, row, dot, canvas.Style{FG: dotCol, HasFG: true, Bold: selected})
+		c.Text(leftX+4, row, copy.SoundLabel(name),
+			canvas.Style{FG: m.pal.Text, HasFG: true, Bold: selected})
+		m.addHit(leftX, row, width, 1, hitSoundRow, i)
+	}
+
+	// Volume row: [-5] [20 cells] [+5] 80%.
+	y = r.y + 9
+	c.Text(leftX, y, copy.T(copy.SoundVolume),
+		canvas.Style{FG: m.pal.Muted, HasFG: true, Bold: true})
+	minusX := leftX + 9
+	m.drawSoundStep(c, minusX, y, "-5", hitSoundVolumeDown)
+	barX := minusX + 6
+	barW := 20
+	filled := (m.cfg.Volume + 2) / 5
+	if filled > barW {
+		filled = barW
+	}
+	for i := 0; i < barW; i++ {
+		ch := '░'
+		col := theme.Lerp(m.pal.Border, m.pal.Panel, 0.25)
+		if i < filled {
+			ch = '█'
+			col = theme.Lerp(m.pal.Accent, m.pal.Accent2, float64(i)/float64(barW-1))
+		}
+		c.Set(barX+i, y, ch, canvas.Fg(col))
+		m.addHit(barX+i, y, 1, 1, hitSoundBar, (i+1)*5)
+	}
+	plusX := barX + barW + 1
+	m.drawSoundStep(c, plusX, y, "+5", hitSoundVolumeUp)
+	pct := fmt.Sprintf("%d%%", m.cfg.Volume)
+	c.Text(plusX+6, y, pct, canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
+
+	m.drawCenteredIn(c, r.x+2, r.y+11, r.w-4, copy.T(copy.SoundHint), canvas.Fg(m.pal.Muted))
+
+	muteLabel := copy.T(copy.SoundUnmute)
+	if m.cfg.Sound {
+		muteLabel = copy.T(copy.SoundMute)
+	}
+	by := r.y + r.h - 3
+	m.drawButtons(c, by, r.x+2, r.w-4, []struct {
+		label  string
+		action hitAction
+	}{
+		{copy.T(copy.SoundPreview), hitSoundPreview},
+		{muteLabel, hitSoundMute},
+		{copy.T(copy.Close), hitSoundClose},
+	})
+}
+
+func (m *Model) drawSoundStep(c *canvas.Canvas, x, y int, label string, action hitAction) {
+	w := canvas.Width(label) + 2
+	bg := theme.Lerp(m.pal.Panel, m.pal.Accent, 0.12)
+	c.Fill(x, y, w, 1, canvas.Full(m.pal.Accent, bg))
+	c.Set(x, y, '[', canvas.Fg(m.pal.Muted))
+	c.Set(x+w-1, y, ']', canvas.Fg(m.pal.Muted))
+	c.Text(x+1, y, label, canvas.Style{FG: m.pal.Accent, HasFG: true, Bold: true})
+	m.addHit(x, y, w, 1, action, 0)
 }
 
 func (m *Model) drawForm(c *canvas.Canvas, base rect) {

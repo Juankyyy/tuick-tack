@@ -55,6 +55,7 @@ func (s *Store) Load() (Config, error) {
 	if err := json.Unmarshal(data, &c); err != nil {
 		return s.recover(data, fmt.Errorf("%w: %v", ErrInvalid, err))
 	}
+	c, _ = Migrate(c)
 	c = Normalize(c)
 	if err := Validate(c); err != nil {
 		return s.recover(data, fmt.Errorf("%w: %v", ErrInvalid, err))

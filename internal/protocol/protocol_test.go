@@ -11,6 +11,7 @@ import (
 
 func TestClientRoundTrip(t *testing.T) {
 	enabled := true
+	volume := 35
 	msgs := []ClientMessage{
 		{Type: TypeHello, Protocol: Version},
 		{Type: TypeStart, Seconds: 300, Label: "5 min", PresetID: "p5"},
@@ -20,6 +21,10 @@ func TestClientRoundTrip(t *testing.T) {
 		{Type: TypePresetDelete, ID: "abc"},
 		{Type: TypeSetTheme, Name: config.ThemeEmber},
 		{Type: TypeSetSound, Enabled: &enabled},
+		{Type: TypeSetSoundName, SoundName: config.SoundMarimba},
+		{Type: TypeSetVolume, Volume: &volume},
+		{Type: TypePreviewSound},
+		{Type: TypeStopSound},
 		{Type: TypePause},
 	}
 	for _, want := range msgs {
@@ -33,11 +38,15 @@ func TestClientRoundTrip(t *testing.T) {
 		}
 		if got.Type != want.Type || got.Seconds != want.Seconds ||
 			got.Label != want.Label || got.ID != want.ID || got.Name != want.Name ||
+			got.SoundName != want.SoundName ||
 			got.DeltaSeconds != want.DeltaSeconds {
 			t.Fatalf("round trip %s -> %+v", data, got)
 		}
 		if want.Enabled != nil && (got.Enabled == nil || *got.Enabled != *want.Enabled) {
 			t.Fatalf("enabled did not round trip: %+v", got)
+		}
+		if want.Volume != nil && (got.Volume == nil || *got.Volume != *want.Volume) {
+			t.Fatalf("volume did not round trip: %+v", got)
 		}
 	}
 }
@@ -87,7 +96,8 @@ func TestHelloAndConfigRoundTrip(t *testing.T) {
 	}
 	h, ok := back.(HelloMessage)
 	if !ok || h.Protocol != Version || h.Config.Theme != config.ThemeMono ||
-		len(h.Config.Presets) != 3 {
+		len(h.Config.Presets) != 3 || h.Config.SoundName != c.SoundName ||
+		h.Config.Volume != c.Volume {
 		t.Fatalf("unexpected hello: %#v", back)
 	}
 
@@ -98,7 +108,8 @@ func TestHelloAndConfigRoundTrip(t *testing.T) {
 		t.Fatalf("DecodeServer config: %v", err)
 	}
 	cm, ok := back.(ConfigMessage)
-	if !ok || cm.Sound != c.Sound || len(cm.Presets) != 3 {
+	if !ok || cm.Sound != c.Sound || len(cm.Presets) != 3 ||
+		cm.SoundName != c.SoundName || cm.Volume != c.Volume {
 		t.Fatalf("unexpected config: %#v", back)
 	}
 }
@@ -128,6 +139,10 @@ func TestDecodeServerUnknown(t *testing.T) {
 func TestValidate(t *testing.T) {
 	enabled := true
 	disabled := false
+	volume := 35
+	volumeZero := 0
+	volumeLow := -1
+	volumeHigh := 101
 	tests := []struct {
 		name string
 		msg  ClientMessage
@@ -155,6 +170,15 @@ func TestValidate(t *testing.T) {
 		{"sound on", ClientMessage{Type: TypeSetSound, Enabled: &enabled}, ""},
 		{"sound off", ClientMessage{Type: TypeSetSound, Enabled: &disabled}, ""},
 		{"sound missing", ClientMessage{Type: TypeSetSound}, CodeInvalidCommand},
+		{"sound name", ClientMessage{Type: TypeSetSoundName, SoundName: config.SoundDeep}, ""},
+		{"bad sound name", ClientMessage{Type: TypeSetSoundName, SoundName: "airhorn"}, CodeInvalidSound},
+		{"volume", ClientMessage{Type: TypeSetVolume, Volume: &volume}, ""},
+		{"volume zero", ClientMessage{Type: TypeSetVolume, Volume: &volumeZero}, ""},
+		{"volume low", ClientMessage{Type: TypeSetVolume, Volume: &volumeLow}, CodeInvalidVolume},
+		{"volume high", ClientMessage{Type: TypeSetVolume, Volume: &volumeHigh}, CodeInvalidVolume},
+		{"volume missing", ClientMessage{Type: TypeSetVolume}, CodeInvalidCommand},
+		{"preview sound", ClientMessage{Type: TypePreviewSound}, ""},
+		{"stop sound", ClientMessage{Type: TypeStopSound}, ""},
 		{"get state", ClientMessage{Type: TypeGetState}, ""},
 		{"quit", ClientMessage{Type: TypeQuitDaemon}, ""},
 		{"empty", ClientMessage{}, CodeInvalidMessage},

@@ -40,6 +40,11 @@ const (
 	TypeSetSound   = "set_sound"
 	TypeGetState   = "get_state"
 	TypeQuitDaemon = "quit_daemon"
+
+	TypeSetSoundName = "set_sound_name"
+	TypeSetVolume    = "set_volume"
+	TypePreviewSound = "preview_sound"
+	TypeStopSound    = "stop_sound"
 )
 
 // Error codes.
@@ -49,6 +54,8 @@ const (
 	CodeInvalidDuration     = "invalid_duration"
 	CodeInvalidLabel        = "invalid_label"
 	CodeInvalidTheme        = "invalid_theme"
+	CodeInvalidSound        = "invalid_sound"
+	CodeInvalidVolume       = "invalid_volume"
 	CodePresetLimit         = "preset_limit"
 	CodePresetNotFound      = "preset_not_found"
 	CodeUnsupportedProtocol = "unsupported_protocol"
@@ -67,14 +74,18 @@ type ClientMessage struct {
 	DeltaSeconds int    `json:"delta_seconds,omitempty"`
 	ID           string `json:"id,omitempty"`
 	Name         string `json:"name,omitempty"`
+	SoundName    string `json:"sound_name,omitempty"`
+	Volume       *int   `json:"volume,omitempty"`
 	Enabled      *bool  `json:"enabled,omitempty"`
 }
 
-// ConfigPayload is the shared preset/theme/sound shape.
+// ConfigPayload is the shared preset, theme, sound and volume shape.
 type ConfigPayload struct {
-	Presets []config.Preset `json:"presets"`
-	Theme   string          `json:"theme"`
-	Sound   bool            `json:"sound"`
+	Presets   []config.Preset `json:"presets"`
+	Theme     string          `json:"theme"`
+	Sound     bool            `json:"sound"`
+	SoundName string          `json:"sound_name"`
+	Volume    int             `json:"volume"`
 }
 
 // ServerMessage is implemented by every daemon-to-client message.
@@ -153,9 +164,11 @@ func NewState(st engine.State) StateMessage {
 // NewConfigPayload copies the configuration into the wire shape.
 func NewConfigPayload(c config.Config) ConfigPayload {
 	return ConfigPayload{
-		Presets: append([]config.Preset(nil), c.Presets...),
-		Theme:   c.Theme,
-		Sound:   c.Sound,
+		Presets:   append([]config.Preset(nil), c.Presets...),
+		Theme:     c.Theme,
+		Sound:     c.Sound,
+		SoundName: c.SoundName,
+		Volume:    c.Volume,
 	}
 }
 
@@ -241,7 +254,8 @@ func (m ClientMessage) Validate() *ErrorMessage {
 		}
 		return nil
 	case TypePause, TypeResume, TypeStop, TypeDismiss, TypeRestart,
-		TypePresetsRestoreDefault, TypeGetState, TypeQuitDaemon:
+		TypePresetsRestoreDefault, TypeGetState, TypeQuitDaemon,
+		TypePreviewSound, TypeStopSound:
 		return nil
 	case TypeAdjust:
 		if m.DeltaSeconds == 0 || math.Abs(float64(m.DeltaSeconds)) > config.MaxSeconds {
@@ -280,6 +294,20 @@ func (m ClientMessage) Validate() *ErrorMessage {
 	case TypeSetSound:
 		if m.Enabled == nil {
 			return invalid(CodeInvalidCommand, "set_sound requires enabled")
+		}
+		return nil
+	case TypeSetSoundName:
+		if !config.ValidSound(m.SoundName) {
+			return invalid(CodeInvalidSound, fmt.Sprintf("unknown sound %q", m.SoundName))
+		}
+		return nil
+	case TypeSetVolume:
+		if m.Volume == nil {
+			return invalid(CodeInvalidCommand, "set_volume requires volume")
+		}
+		if !config.ValidVolume(*m.Volume) {
+			return invalid(CodeInvalidVolume,
+				fmt.Sprintf("volume must be between %d and %d", config.MinVolume, config.MaxVolume))
 		}
 		return nil
 	case "":

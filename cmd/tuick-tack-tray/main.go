@@ -1,5 +1,5 @@
 // Command tuick-tack-tray is the background daemon. It owns the timer, the
-// configuration, the chime and the notification-area icon.
+// configuration, the sound pack and the notification-area icon.
 //
 // In release builds this executable uses the windowsgui subsystem and does not
 // open a console. In development it can be started from a terminal.

@@ -28,6 +28,7 @@ const (
 	modalConfirmDelete
 	modalPresets
 	modalPresetForm
+	modalSound
 )
 
 type formMode int
@@ -71,6 +72,13 @@ const (
 	hitFormCancel
 	hitRepeat
 	hitDismiss
+	hitSoundRow
+	hitSoundBar
+	hitSoundVolumeDown
+	hitSoundVolumeUp
+	hitSoundPreview
+	hitSoundMute
+	hitSoundClose
 )
 
 type hitbox struct {
@@ -122,6 +130,7 @@ type Model struct {
 	modal        modalKind
 	presetCursor int
 	presetScroll int
+	soundCursor  int
 	form         formState
 	deleteTarget config.Preset
 
@@ -310,16 +319,31 @@ func (m *Model) handleTick() tea.Cmd {
 
 func (m *Model) applyConfig(cfg protocol.ConfigMessage) {
 	c := config.Config{
-		Version: config.Version,
-		Theme:   cfg.Theme,
-		Sound:   cfg.Sound,
-		Presets: append([]config.Preset(nil), cfg.Presets...),
+		Version:   config.Version,
+		Theme:     cfg.Theme,
+		Sound:     cfg.Sound,
+		SoundName: cfg.SoundName,
+		Volume:    cfg.Volume,
+		Presets:   append([]config.Preset(nil), cfg.Presets...),
 	}
 	if !config.ValidTheme(c.Theme) {
 		c.Theme = "midnight"
 	}
+	if c.SoundName == "" {
+		// An older daemon does not send the sound fields at all.
+		c.SoundName = config.DefaultSound
+		c.Volume = config.DefaultVolume
+	} else if !config.ValidSound(c.SoundName) {
+		c.SoundName = config.DefaultSound
+	}
+	if !config.ValidVolume(c.Volume) {
+		c.Volume = config.DefaultVolume
+	}
 	m.cfg = c
 	m.pal = theme.Get(c.Theme)
+	if m.modal == modalSound {
+		m.soundCursor = soundIndex(c.SoundName)
+	}
 	if m.selected >= len(c.Presets) {
 		m.selected = maxInt(0, len(c.Presets)-1)
 	}
@@ -441,6 +465,9 @@ func (m *Model) handleIdleKey(key tea.Key) tea.Cmd {
 	case text == "?":
 		m.modal = modalHelp
 		return nil
+	case text == "v":
+		m.openSound()
+		return nil
 	case text == "p":
 		m.openPresets()
 		return nil
@@ -476,6 +503,9 @@ func (m *Model) handleTimerKey(key tea.Key) tea.Cmd {
 	case text == "?":
 		m.modal = modalHelp
 		return nil
+	case text == "v":
+		m.openSound()
+		return nil
 	}
 	return nil
 }
@@ -493,6 +523,9 @@ func (m *Model) handleFinishedKey(key tea.Key) tea.Cmd {
 		return m.send(protocol.ClientMessage{Type: protocol.TypeRestart})
 	case text == "?":
 		m.modal = modalHelp
+		return nil
+	case text == "v":
+		m.openSound()
 		return nil
 	}
 	return nil
@@ -527,6 +560,8 @@ func (m *Model) handleModalKey(key tea.Key) tea.Cmd {
 		return m.handlePresetListKey(key)
 	case modalPresetForm:
 		return m.handleFormKey(key)
+	case modalSound:
+		return m.handleSoundKey(key)
 	}
 	return nil
 }
@@ -609,6 +644,29 @@ func (m *Model) handleFormKey(key tea.Key) tea.Cmd {
 	if len(m.form.duration) < 16 && (isDigitRune(r) || r == ':' || r == 'h' || r == 'm' || r == 's') {
 		m.form.duration += string(r)
 		m.form.err = ""
+	}
+	return nil
+}
+
+func (m *Model) handleSoundKey(key tea.Key) tea.Cmd {
+	text := key.Text
+	switch {
+	case key.Code == tea.KeyEscape || key.Code == tea.KeyEnter:
+		return m.closeSound()
+	case key.Code == tea.KeyUp:
+		m.soundCursor = (m.soundCursor - 1 + len(config.Sounds)) % len(config.Sounds)
+		return m.selectSound(config.Sounds[m.soundCursor])
+	case key.Code == tea.KeyDown:
+		m.soundCursor = (m.soundCursor + 1) % len(config.Sounds)
+		return m.selectSound(config.Sounds[m.soundCursor])
+	case key.Code == tea.KeyLeft || text == "-":
+		return m.setVolume(m.cfg.Volume - 5)
+	case key.Code == tea.KeyRight || text == "+" || text == "=":
+		return m.setVolume(m.cfg.Volume + 5)
+	case key.Code == tea.KeySpace || text == " ":
+		return m.previewSound()
+	case text == "m" || text == "M":
+		return m.toggleSound()
 	}
 	return nil
 }
@@ -697,6 +755,23 @@ func (m *Model) performHit(hit hitbox) tea.Cmd {
 		m.celebrating = false
 		m.confetti = nil
 		return m.send(protocol.ClientMessage{Type: protocol.TypeDismiss})
+	case hitSoundRow:
+		if hit.index >= 0 && hit.index < len(config.Sounds) {
+			m.soundCursor = hit.index
+			return m.selectSound(config.Sounds[hit.index])
+		}
+	case hitSoundBar:
+		return m.setVolume(hit.index)
+	case hitSoundVolumeDown:
+		return m.setVolume(m.cfg.Volume - 5)
+	case hitSoundVolumeUp:
+		return m.setVolume(m.cfg.Volume + 5)
+	case hitSoundPreview:
+		return m.previewSound()
+	case hitSoundMute:
+		return m.toggleSound()
+	case hitSoundClose:
+		return m.closeSound()
 	}
 	return nil
 }
@@ -764,6 +839,62 @@ func (m *Model) cycleTheme() tea.Cmd {
 	m.pal = theme.Get(next)
 	m.showToast(copy.T(copy.ToastTheme, next))
 	return m.send(protocol.ClientMessage{Type: protocol.TypeSetTheme, Name: next})
+}
+
+func (m *Model) openSound() {
+	m.modal = modalSound
+	m.soundCursor = soundIndex(m.cfg.SoundName)
+}
+
+func (m *Model) closeSound() tea.Cmd {
+	m.modal = modalNone
+	if !m.connected {
+		return nil
+	}
+	return m.send(protocol.ClientMessage{Type: protocol.TypeStopSound})
+}
+
+func (m *Model) selectSound(name string) tea.Cmd {
+	if !config.ValidSound(name) {
+		return nil
+	}
+	if !m.connected {
+		m.showToast(copy.T(copy.ErrorOffline))
+		return nil
+	}
+	m.soundCursor = soundIndex(name)
+	if m.cfg.SoundName == name {
+		return m.previewSound()
+	}
+	m.cfg.SoundName = name
+	return m.send(protocol.ClientMessage{Type: protocol.TypeSetSoundName, SoundName: name})
+}
+
+func (m *Model) setVolume(volume int) tea.Cmd {
+	if !m.connected {
+		m.showToast(copy.T(copy.ErrorOffline))
+		return nil
+	}
+	if volume < config.MinVolume {
+		volume = config.MinVolume
+	}
+	if volume > config.MaxVolume {
+		volume = config.MaxVolume
+	}
+	volume = ((volume + 2) / 5) * 5
+	if volume == m.cfg.Volume {
+		return nil
+	}
+	m.cfg.Volume = volume
+	return m.send(protocol.ClientMessage{Type: protocol.TypeSetVolume, Volume: &volume})
+}
+
+func (m *Model) previewSound() tea.Cmd {
+	if !m.connected {
+		m.showToast(copy.T(copy.ErrorOffline))
+		return nil
+	}
+	return m.send(protocol.ClientMessage{Type: protocol.TypePreviewSound})
 }
 
 func (m *Model) toggleSound() tea.Cmd {
@@ -1055,6 +1186,15 @@ func isDigitText(s string) bool {
 }
 
 func isDigitRune(r rune) bool { return r >= '0' && r <= '9' }
+
+func soundIndex(name string) int {
+	for i, s := range config.Sounds {
+		if s == name {
+			return i
+		}
+	}
+	return 0
+}
 
 func maxInt(a, b int) int {
 	if a > b {
