@@ -1,12 +1,11 @@
 #Requires -Version 7.0
 <#
 .SYNOPSIS
-  Build the two portable Tuick-Tack executables plus SHA256SUMS.txt.
+  Build the portable Tuick-Tack executable plus SHA256SUMS.txt.
 
 .DESCRIPTION
   Runs go generate, formatting/vet/tests and builds:
-    dist/tuick-tack.exe       console TUI
-    dist/tuick-tack-tray.exe  windowsgui daemon (no console)
+    dist/tuick-tack.exe  console TUI and background daemon (--daemon)
 
   Pass -Version v1.0.0 to stamp a release build. The default "dev" keeps
   internal/buildinfo.Version at its development value.
@@ -36,7 +35,7 @@ Step "generating assets"
 go generate ./assets
 if ($LASTEXITCODE -ne 0) { throw "asset generation failed" }
 
-# The .syso files are committed. Regenerate them when the icon or winres files
+# The .syso file is committed. Regenerate it when the icon or winres files
 # change; a failure here must not block the build (SPEC §16).
 try {
     go generate ./winres
@@ -62,16 +61,16 @@ if ($LASTEXITCODE -ne 0) { throw "go test failed" }
 
 Step "building $Version"
 $null = New-Item -ItemType Directory -Force -Path dist
-$tuiLdflags = "-s -w -X tuick-tack/internal/buildinfo.Version=$Version"
-$trayLdflags = "-s -w -H windowsgui -X tuick-tack/internal/buildinfo.Version=$Version"
+# The old layout shipped a second executable. Remove it so dist/ never mixes
+# versions or leaves a confusing stale tray binary.
+Remove-Item -Force -ErrorAction SilentlyContinue "dist/tuick-tack-tray.exe", "dist/tuick-tack-tray.exe~"
 
-go build -trimpath -ldflags $tuiLdflags -o dist/tuick-tack.exe ./cmd/tuick-tack
-if ($LASTEXITCODE -ne 0) { throw "TUI build failed" }
-go build -trimpath -ldflags $trayLdflags -o dist/tuick-tack-tray.exe ./cmd/tuick-tack-tray
-if ($LASTEXITCODE -ne 0) { throw "tray build failed" }
+$ldflags = "-s -w -X tuick-tack/internal/buildinfo.Version=$Version"
+go build -trimpath -ldflags $ldflags -o dist/tuick-tack.exe ./cmd/tuick-tack
+if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
 Step "stamping hashes"
-$files = @("dist/tuick-tack.exe", "dist/tuick-tack-tray.exe")
+$files = @("dist/tuick-tack.exe")
 $hashes = foreach ($file in $files) {
     $hash = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLowerInvariant()
     "$hash  $(Split-Path -Leaf $file)"
@@ -84,7 +83,5 @@ Get-ChildItem dist | Select-Object Name, Length, LastWriteTime | Format-Table
 Write-Host ""
 Write-Host "Version:"
 & .\dist\tuick-tack.exe --version
-$trayVersion = (Get-Item .\dist\tuick-tack-tray.exe).VersionInfo.FileVersion
-Write-Host "Tuick-Tack tray $trayVersion"
 Write-Host ""
-Write-Host "Run dist\tuick-tack.exe. It starts the tray daemon on its own."
+Write-Host "Run dist\tuick-tack.exe. It starts the background daemon on its own."

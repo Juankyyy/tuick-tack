@@ -13,10 +13,49 @@ import (
 const (
 	autostartKey   = `Software\Microsoft\Windows\CurrentVersion\Run`
 	autostartValue = "TuickTack"
+
+	// autostartArgs runs the daemon without a console. The Run key starts the
+	// console executable at sign-in, so --hidden detaches it from the console
+	// Windows creates for it.
+	autostartArgs = " --daemon --hidden"
 )
 
-// AutostartEnabled reports whether the current executable is registered for
-// sign-in. A registration for a different path is treated as off.
+// SelfExecutable returns the absolute path of the running executable.
+func SelfExecutable() (string, error) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(exe)
+}
+
+// AutostartExecutable returns the executable path to register for sign-in. It
+// rejects `go run` builds: their cache path is temporary, so registering one
+// would leave a broken Run entry after the development session.
+func AutostartExecutable() (string, error) {
+	exe, err := SelfExecutable()
+	if err != nil {
+		return "", err
+	}
+	if isDevelopmentPath(exe) {
+		return "", errors.New("autostart is unavailable for development builds")
+	}
+	return exe, nil
+}
+
+func isDevelopmentPath(exe string) bool {
+	lower := strings.ToLower(exe)
+	return strings.Contains(lower, `\go-build`) || strings.Contains(lower, `/go-build`)
+}
+
+// AutostartCommand returns the Run value that starts the daemon at sign-in.
+func AutostartCommand(exePath string) string {
+	return `"` + exePath + `"` + autostartArgs
+}
+
+// AutostartEnabled reports whether the given executable is registered for
+// sign-in. The Run value may include arguments; only the executable path is
+// compared. A registration for a different path is treated as off.
 func AutostartEnabled(exePath string) bool {
 	key, err := registry.OpenKey(registry.CURRENT_USER, autostartKey, registry.QUERY_VALUE)
 	if err != nil {
@@ -27,7 +66,29 @@ func AutostartEnabled(exePath string) bool {
 	if err != nil {
 		return false
 	}
-	return sameExecutable(value, exePath)
+	return sameExecutable(autostartPath(value), exePath)
+}
+
+// autostartPath extracts the executable path from a Run value. Values written
+// by Tuick-Tack are quoted and may carry arguments; legacy values are plain
+// paths.
+func autostartPath(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if value[0] == '"' {
+		if end := strings.IndexByte(value[1:], '"'); end >= 0 {
+			return value[1 : end+1]
+		}
+		return strings.Trim(value, `"`)
+	}
+	// An unquoted path cannot contain spaces before its arguments; cut at the
+	// first argument separator.
+	if i := strings.Index(value, " --"); i >= 0 {
+		value = value[:i]
+	}
+	return strings.TrimSpace(value)
 }
 
 func sameExecutable(value, exePath string) bool {
@@ -47,7 +108,7 @@ func sameExecutable(value, exePath string) bool {
 
 // SetAutostart adds or removes HKCU\...\Run\TuickTack without admin rights.
 func SetAutostart(exePath string, enabled bool) error {
-	if exePath == "" {
+	if enabled && exePath == "" {
 		return errors.New("executable path is empty")
 	}
 	key, err := registry.OpenKey(registry.CURRENT_USER, autostartKey, registry.SET_VALUE)
@@ -56,8 +117,7 @@ func SetAutostart(exePath string, enabled bool) error {
 	}
 	defer key.Close()
 	if enabled {
-		quoted := `"` + exePath + `"`
-		if err := key.SetStringValue(autostartValue, quoted); err != nil {
+		if err := key.SetStringValue(autostartValue, AutostartCommand(exePath)); err != nil {
 			return fmt.Errorf("write Run value: %w", err)
 		}
 		return nil
@@ -68,43 +128,56 @@ func SetAutostart(exePath string, enabled bool) error {
 	return nil
 }
 
-// TrayExecutable finds tuick-tack-tray.exe next to the current executable.
-func TrayExecutable() (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
+// autostartNeedsMigration reports whether an existing Run value predates the
+// single-executable layout (tuick-tack-tray.exe) or points at this executable
+// without the daemon arguments.
+func autostartNeedsMigration(value, exePath string) bool {
+	oldPath := autostartPath(value)
+	if oldPath == "" || exePath == "" {
+		return false
 	}
-	base := strings.ToLower(filepath.Base(exe))
-	if base == "tuick-tack-tray.exe" {
-		return exe, nil
+	if strings.EqualFold(filepath.Base(oldPath), "tuick-tack-tray.exe") {
+		return true
 	}
-	candidate := filepath.Join(filepath.Dir(exe), "tuick-tack-tray.exe")
-	if _, err := os.Stat(candidate); err != nil {
-		return "", fmt.Errorf("tuick-tack-tray.exe not found next to %s", exe)
+	if !sameExecutable(oldPath, exePath) {
+		return false
 	}
-	return candidate, nil
+	return !strings.EqualFold(strings.TrimSpace(value), AutostartCommand(exePath))
 }
 
-// TUIExecutable finds tuick-tack.exe next to the current executable.
-func TUIExecutable() (string, error) {
-	exe, err := os.Executable()
+// MigrateAutostart rewrites a legacy Run value so an upgrade keeps the
+// sign-in preference. It returns true when the registry was changed.
+func MigrateAutostart(exePath string) (bool, error) {
+	if exePath == "" {
+		return false, nil
+	}
+	key, err := registry.OpenKey(registry.CURRENT_USER, autostartKey, registry.QUERY_VALUE|registry.SET_VALUE)
 	if err != nil {
-		return "", err
+		if errors.Is(err, registry.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("open Run key: %w", err)
 	}
-	base := strings.ToLower(filepath.Base(exe))
-	if base == "tuick-tack.exe" {
-		return exe, nil
+	defer key.Close()
+	value, _, err := key.GetStringValue(autostartValue)
+	if err != nil {
+		if errors.Is(err, registry.ErrNotExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("read Run value: %w", err)
 	}
-	candidate := filepath.Join(filepath.Dir(exe), "tuick-tack.exe")
-	if _, err := os.Stat(candidate); err != nil {
-		return "", fmt.Errorf("tuick-tack.exe not found next to %s", exe)
+	if !autostartNeedsMigration(value, exePath) {
+		return false, nil
 	}
-	return candidate, nil
+	if err := key.SetStringValue(autostartValue, AutostartCommand(exePath)); err != nil {
+		return false, fmt.Errorf("write Run value: %w", err)
+	}
+	return true, nil
 }
 
-// InstallStartup registers the tray daemon for sign-in.
+// InstallStartup registers the daemon for sign-in.
 func InstallStartup() error {
-	exe, err := TrayExecutable()
+	exe, err := AutostartExecutable()
 	if err != nil {
 		return err
 	}
@@ -113,9 +186,5 @@ func InstallStartup() error {
 
 // UninstallStartup removes the sign-in registration.
 func UninstallStartup() error {
-	exe, err := TrayExecutable()
-	if err != nil {
-		return err
-	}
-	return SetAutostart(exe, false)
+	return SetAutostart("", false)
 }

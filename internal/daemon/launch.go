@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -22,27 +21,14 @@ const (
 	createNoWindow   = 0x08000000
 )
 
-// LaunchDaemon starts the tray daemon without a console. It prefers
-// tuick-tack-tray.exe next to the current executable and falls back to the
-// current executable with --daemon for `go run` development.
+// LaunchDaemon starts the background daemon as a hidden copy of the current
+// executable. CREATE_NO_WINDOW keeps its console out of sight.
 func LaunchDaemon() error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(exe)
-	if candidate := filepath.Join(dir, "tuick-tack-tray.exe"); fileExists(candidate) {
-		return startHidden(candidate)
-	}
-	if strings.EqualFold(filepath.Base(exe), "tuick-tack-tray.exe") {
-		return nil
-	}
-	return startHidden(exe, "--daemon")
-}
-
-func fileExists(path string) bool {
-	st, err := os.Stat(path)
-	return err == nil && !st.IsDir()
+	return startHidden(exe, "--daemon", "--hidden")
 }
 
 func startHidden(path string, args ...string) error {
@@ -78,8 +64,9 @@ func Ensure(pipe string) (*ipc.Client, protocol.HelloMessage, error) {
 	return nil, protocol.HelloMessage{}, lastErr
 }
 
-// OpenTUI launches the terminal UI in a new console window or focuses the
-// running one. It is used by the tray's left click and Custom… item.
+// OpenTUI launches the terminal UI from the same executable in a new console
+// window or focuses the running one. It is used by the tray's left click and
+// Custom… item.
 func OpenTUI() error {
 	pipe, err := ipc.PipePath()
 	if err != nil {
@@ -91,7 +78,7 @@ func OpenTUI() error {
 		}
 		return nil
 	}
-	exe, err := TUIExecutable()
+	exe, err := SelfExecutable()
 	if err != nil {
 		return err
 	}

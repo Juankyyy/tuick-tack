@@ -12,9 +12,39 @@ import (
 	"tuick-tack/internal/config"
 )
 
+func TestAutostartCommand(t *testing.T) {
+	exe := filepath.Join(t.TempDir(), "tuick-tack.exe")
+	want := `"` + exe + `" --daemon --hidden`
+	if got := AutostartCommand(exe); got != want {
+		t.Fatalf("AutostartCommand = %q, want %q", got, want)
+	}
+}
+
+func TestAutostartPath(t *testing.T) {
+	exe := `C:\Program Files\Tuick-Tack\tuick-tack.exe`
+	tests := []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{"quoted with args", `"` + exe + `" --daemon --hidden`, exe},
+		{"quoted without args", `"` + exe + `"`, exe},
+		{"unquoted with args", `C:\Tuick-Tack\tuick-tack.exe --daemon --hidden`, `C:\Tuick-Tack\tuick-tack.exe`},
+		{"unquoted without args", `C:\Tuick-Tack\tuick-tack.exe`, `C:\Tuick-Tack\tuick-tack.exe`},
+		{"empty", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := autostartPath(tt.value); got != tt.want {
+				t.Fatalf("autostartPath(%q) = %q, want %q", tt.value, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSameExecutable(t *testing.T) {
 	dir := t.TempDir()
-	exe := filepath.Join(dir, "tuick-tack-tray.exe")
+	exe := filepath.Join(dir, "tuick-tack.exe")
 	if !sameExecutable(`"`+exe+`"`, exe) {
 		t.Fatal("quoted path should match")
 	}
@@ -26,6 +56,45 @@ func TestSameExecutable(t *testing.T) {
 	}
 	if sameExecutable("", exe) {
 		t.Fatal("empty value should not match")
+	}
+}
+
+func TestIsDevelopmentPath(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{`C:\Users\A\AppData\Local\Temp\go-build123\b001\exe\tuick-tack.exe`, true},
+		{`C:\Users\A\AppData\Local\go-build\fb\tuick-tack.exe`, true},
+		{`C:\Apps\Tuick-Tack\tuick-tack.exe`, false},
+	}
+	for _, tt := range tests {
+		if got := isDevelopmentPath(tt.path); got != tt.want {
+			t.Errorf("isDevelopmentPath(%q) = %v, want %v", tt.path, got, tt.want)
+		}
+	}
+}
+
+func TestAutostartNeedsMigration(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "tuick-tack.exe")
+	tests := []struct {
+		name  string
+		value string
+		want  bool
+	}{
+		{"legacy tray", `"` + filepath.Join(dir, "tuick-tack-tray.exe") + `"`, true},
+		{"current command", AutostartCommand(exe), false},
+		{"current exe without args", `"` + exe + `"`, true},
+		{"different executable", `"` + filepath.Join(dir, "other.exe") + `" --daemon --hidden`, false},
+		{"empty", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := autostartNeedsMigration(tt.value, exe); got != tt.want {
+				t.Fatalf("autostartNeedsMigration(%q) = %v, want %v", tt.value, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -256,13 +325,4 @@ func wavSamples(data []byte) []int16 {
 		out[i] = int16(binary.LittleEndian.Uint16(data[44+i*2:]))
 	}
 	return out
-}
-
-func TestLaunchHelpersDoNotPanic(t *testing.T) {
-	if got := InstanceMutexName(`\\.\pipe\x`); got != "x-mutex" {
-		t.Fatalf("mutex name = %q", got)
-	}
-	if fileExists(filepath.Join(t.TempDir(), "missing")) {
-		t.Fatal("missing file reported as existing")
-	}
 }

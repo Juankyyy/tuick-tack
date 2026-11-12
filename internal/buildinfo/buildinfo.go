@@ -1,4 +1,4 @@
-// Package buildinfo exposes version metadata for both executables.
+// Package buildinfo exposes version metadata for the application executable.
 package buildinfo
 
 // Version is the application version. Release builds override it with

@@ -26,7 +26,7 @@ type Daemon struct {
 	server  *ipc.Server
 	tray    *tray.Tray
 	sound   *soundPlayer
-	trayExe string
+	exePath string
 
 	mu        sync.RWMutex
 	cfg       config.Config
@@ -84,22 +84,30 @@ func Run() int {
 		player = &soundPlayer{}
 	}
 
-	trayExe, err := TrayExecutable()
+	exePath, err := AutostartExecutable()
 	if err != nil {
 		logger.Printf("autostart unavailable: %v", err)
-		trayExe = ""
+		exePath = ""
+	}
+	if exePath != "" {
+		migrated, err := MigrateAutostart(exePath)
+		if err != nil {
+			logger.Printf("autostart migration: %v", err)
+		} else if migrated {
+			logger.Printf("autostart: migrated to %s", exePath)
+		}
 	}
 	d := &Daemon{
 		logger:   logger,
 		store:    store,
 		engine:   engine.New(engine.SystemClock()),
 		sound:    player,
-		trayExe:  trayExe,
+		exePath:  exePath,
 		cfg:      cfg,
 		quitCh:   make(chan struct{}),
 		loopDone: make(chan struct{}),
 	}
-	d.autostart = AutostartEnabled(trayExe)
+	d.autostart = AutostartEnabled(exePath)
 	if err := d.sound.Prepare(cfg.SoundName, cfg.Volume); err != nil {
 		logger.Printf("prepare sound: %v", err)
 	}
@@ -500,11 +508,11 @@ func (d *Daemon) PreviewSound() {
 // ToggleAutostart implements tray.Actions.
 func (d *Daemon) ToggleAutostart() {
 	next := !d.AutostartEnabled()
-	if d.trayExe == "" {
+	if d.exePath == "" {
 		d.logger.Printf("autostart: executable path unavailable")
 		return
 	}
-	if err := SetAutostart(d.trayExe, next); err != nil {
+	if err := SetAutostart(d.exePath, next); err != nil {
 		d.logger.Printf("autostart: %v", err)
 		return
 	}

@@ -8,7 +8,7 @@
 - App code lives in `cmd/` and `internal/`. Windows-specific code lives in `internal/tray/`, `internal/ipc/` and the `*_windows.go` files under `internal/daemon/`.
 - Platform features that cannot live in the shared layer stay in the native layer behind small, documented bridges: systray/menu (`internal/tray`), `PlaySoundW` (`internal/daemon/sound_windows.go`), registry/autostart (`internal/daemon/autostart_windows.go`) and named pipes (`internal/ipc`).
 - Current state: v1 implemented in `dev` (M0–M5 complete) plus the selectable sound pack and volume; `SPEC.md` is the functional source. Next work is polish/QA and, only on request, the release build from `main`.
-- Generated assets (`assets/sounds/*.wav`, `assets/icon.ico`, `assets/icon.png`, `assets/icons/*.ico`, the `.syso` files under `cmd/`) are committed; do not hand-edit them. Regenerate with `go generate ./...` / `scripts/build.ps1`.
+- Generated assets (`assets/sounds/*.wav`, `assets/icon.ico`, `assets/icon.png`, `assets/icons/*.ico`, the `.syso` file under `cmd/`) are committed; do not hand-edit them. Regenerate with `go generate ./...` / `scripts/build.ps1`.
 
 ## Commands
 
@@ -19,11 +19,11 @@ go mod download                # install dependencies
 go vet ./...                   # lint
 go build ./...                 # compile / typecheck
 go test ./...                  # tests
-go run ./cmd/tuick-tack        # TUI (console)
-go run ./cmd/tuick-tack-tray   # daemon (console in dev; windowsgui in release)
-go fmt ./...                   # format
-go generate ./...              # regenerate sounds/icons and .syso resources
-.\scripts\build.ps1            # vet + test + build both exes into dist/
+go run ./cmd/tuick-tack          # TUI (console; starts the hidden daemon)
+go run ./cmd/tuick-tack --daemon # daemon (console in dev; --hidden at sign-in)
+go fmt ./...                     # format
+go generate ./...                # regenerate sounds/icons and .syso resources
+.\scripts\build.ps1              # vet + test + build the single exe into dist/
 .\scripts\build.ps1 -Version v1.0.0
 ```
 
@@ -34,8 +34,7 @@ go generate ./...              # regenerate sounds/icons and .syso resources
 
 ```text
 cmd/
-  tuick-tack/           TUI (console)
-  tuick-tack-tray/      daemon (windowsgui, no console)
+  tuick-tack/           single entrypoint: TUI (default) and daemon (--daemon)
 internal/
   buildinfo/            version metadata
   config/               config + presets load/save/validate
@@ -97,9 +96,9 @@ La fuente funcional es `SPEC.md`; este documento manda en el proceso.
 4. **`main` y releases, solo a petición**: el merge o push a `main` se hace únicamente
    cuando el usuario lo pide, tras verificar el bloque en su máquina. El agente nunca toca
    `main` por iniciativa propia, ni siquiera con «Haz los commits». Para este proyecto,
-   “release” v1 significa una build local portable en `dist/` (dos `.exe`); no hay CI de
+   “release” v1 significa una build local portable en `dist/` (un `.exe`); no hay CI de
    release ni instalador. Si el usuario pide publicar, se hace desde `main` con un tag
-   `vX.Y.Z` y se adjuntan los dos `.exe` + `SHA256SUMS.txt`; sin firma de código en v1.
+   `vX.Y.Z` y se adjuntan el `.exe` + `SHA256SUMS.txt`; sin firma de código en v1.
 5. **Versiones y notas**: no hay manifiesto de versión en el repo. `internal/buildinfo.Version`
    vale `dev` por defecto; las builds de release la fijan con `-ldflags "-X ..."`. Las notas,
    si se piden, van en inglés y se escriben a mano. No crear tags ni releases sin pedido
@@ -109,11 +108,11 @@ La fuente funcional es `SPEC.md`; este documento manda en el proceso.
 
 ## Releases
 
-- **v1**: carpeta `dist/` con `tuick-tack.exe` (TUI, consola) y `tuick-tack-tray.exe`
-  (daemon, `windowsgui`), generada por `scripts/build.ps1`. Portable, sin instalador, sin
+- **v1**: carpeta `dist/` con un único `tuick-tack.exe` (TUI de consola y daemon de
+  bandeja con `--daemon`), generada por `scripts/build.ps1`. Portable, sin instalador, sin
   auto-update y sin firma. SmartScreen puede avisar la primera vez.
 - **Publicación**: solo a petición, desde `main` y tras verificación del usuario. Tag
-  `vX.Y.Z`; adjuntar ambos `.exe` y `SHA256SUMS.txt`. Notas en inglés, manuales.
+  `vX.Y.Z`; adjuntar el `.exe` y `SHA256SUMS.txt`. Notas en inglés, manuales.
 - **Nada automático**: no hay workflow de release, secrets ni artefactos firmados. No añadir
   CI de release sin pedirlo.
 - **Nunca** push/tag/merge a `main` por iniciativa propia.
@@ -124,5 +123,5 @@ La fuente funcional es `SPEC.md`; este documento manda en el proceso.
 - [ ] Assets generados regenerados y commiteados; `.syso` regenerado si cambió el icono.
 - [ ] `SPEC.md` / `README.md` actualizados si cambió el comportamiento o la UI.
 - [ ] La respuesta dice qué debe probar el usuario y qué quedó fuera.
-- [ ] Ambos `.exe` compilan; el tray no abre consola; QA manual a 80×24 y 120×40.
+- [ ] El `.exe` compila; el daemon no abre consola con `--hidden`; QA manual a 80×24 y 120×40.
 - [ ] Sin `time.Now()` en lógica de dominio; sin runas anchas en la TUI.

@@ -26,13 +26,13 @@ El countdown, el sonido y el icono siguen funcionando aunque se cierre la TUI. A
 | IPC | `github.com/Microsoft/go-winio` v0.6.4, named pipe + JSON |
 | Win32 | `golang.org/x/sys/windows` (`PlaySoundW`, mutex, registro) |
 | Icono del .exe | `go-winres` generando un `.syso` |
-| Arquitectura | Daemon + TUI, dos ejecutables, una sola cuenta atrás activa |
+| Arquitectura | Un ejecutable con dos modos (TUI y daemon), una sola cuenta atrás activa |
 | Idioma | UI en inglés; código, comentarios y commits en inglés; documentación en español |
 | Temas | `midnight` (por defecto), `ember`, `mono` |
 | Aviso al terminar | Sonido elegible (1–5 s) con volumen 0–100 + icono de bandeja en alerta + confeti en la TUI |
 | Toast nativo | Fuera de alcance v1 (ver §16) |
 
-**Por qué dos procesos:** la TUI vive en una terminal. Si fuese un solo proceso, cerrar la terminal mataría el icono, el countdown y el sonido. El daemon posee el estado; la TUI es una vista/controlador que se puede abrir y cerrar.
+**Por qué un ejecutable y dos procesos:** un solo archivo evita que el usuario tenga que emparejar dos binarios. Por debajo siguen siendo dos procesos porque la TUI vive en una terminal: si fuese un solo proceso, cerrar la terminal mataría el icono, el countdown y el sonido. El daemon posee el estado; la TUI es una vista/controlador que se puede abrir y cerrar. Ambos modos viven en `tuick-tack.exe`: sin argumentos arranca la TUI y con `--daemon` el daemon.
 
 **Por qué Go + Bubble Tea:** `systray` cubre exactamente el requisito (menú, submenús, tooltip, clic izquierdo/derecho, actualización dinámica) sin bucle de eventos propio; Bubble Tea/Lipgloss permite iterar el acabado visual rápido. Rust/ratatui se descartó por más ceremonia en la bandeja y el render.
 
@@ -48,7 +48,7 @@ El countdown, el sonido y el icono siguen funcionando aunque se cierre la TUI. A
 - Celebración con confeti en la TUI al llegar a 0.
 - Estilo cuidado: fondo aurora, panel de cristal, dígitos grandes con degradado, barra de progreso viva.
 - El countdown y el sonido sobreviven al cierre de la TUI.
-- Configuración persistente, temas, autostart opcional, build reproducible de dos `.exe`.
+- Configuración persistente, temas, autostart opcional, build reproducible de un solo `.exe`.
 
 ### No objetivos v1
 
@@ -63,17 +63,18 @@ El countdown, el sonido y el icono siguen funcionando aunque se cierre la TUI. A
 ## 4. Arquitectura
 
 ```
-tuick-tack.exe (consola)                 tuick-tack-tray.exe (sin ventana)
+        un solo ejecutable, dos procesos
 ┌───────────────────────────┐  named    ┌──────────────────────────────────────┐
-│ Bubble Tea v2             │◄─pipe────►│ systray (hilo principal)             │
-│ canvas + bigfont + fx     │  JSON     │ tokio… no: goroutines                │
-│ teclado/ratón, modales    │  frames   │ TimerEngine · IPC server · config    │
-└───────────────────────────┘           │ PlaySoundW · volumen · iconos · tray │
-                                         └──────────────────────────────────────┘
+│ tuick-tack.exe            │◄─pipe────►│ tuick-tack.exe --daemon              │
+│ TUI (consola)             │  JSON     │ systray (hilo principal)             │
+│ Bubble Tea v2             │  frames   │ TimerEngine · IPC server · config    │
+│ canvas + bigfont + fx     │           │ PlaySoundW · volumen · iconos · tray │
+└───────────────────────────┘           └──────────────────────────────────────┘
 ```
 
-- **Daemon** = `tuick-tack-tray.exe`, subsistema `windowsgui`, sin consola. Es la única fuente de verdad: motor, config, sonido, bandeja.
-- **TUI** = `tuick-tack.exe`, app de consola. Se conecta por el pipe; si el daemon no está, lo arranca y reintenta.
+- **Ejecutable** = `tuick-tack.exe`, app de consola. Sin argumentos arranca la TUI; con `--daemon`, el daemon; con `--daemon --hidden`, el daemon sin consola (autostart).
+- **Daemon** = proceso `--daemon`. Es la única fuente de verdad: motor, config, sonido, bandeja. Al arrancar desde el registro libera su consola con `--hidden` y sigue como app de bandeja.
+- **TUI** = proceso sin argumentos. Se conecta por el pipe; si el daemon no está, lanza una copia oculta de sí mismo con `--daemon` y reintenta.
 - Una sola TUI por sesión; el tray reutiliza la ventana abierta. Los comandos afectan al único timer.
 - El pipe es local, por usuario y sesión: `\\.\pipe\tuick-tack-<usuario>-<sesión>`. ACL para el usuario actual y acceso remoto denegado.
 - Instancia única: mutex con nombre (`CreateMutexW`) + fallo al escuchar el pipe. Si ya hay daemon, el segundo proceso sale con código 0.
@@ -83,7 +84,7 @@ tuick-tack.exe (consola)                 tuick-tack-tray.exe (sin ventana)
 
 1. El usuario abre `tuick-tack.exe`. Si ya hay una TUI (mutex `<pipe>-tui-mutex`), la nueva instancia enfoca la ventana existente y sale.
 2. La TUI intenta conectar al pipe. Si falla:
-   - Busca `tuick-tack-tray.exe` junto a ella y lo lanza detached con `CREATE_NO_WINDOW` (fallback de desarrollo: el propio `tuick-tack.exe --daemon`).
+   - Lanza una copia oculta de `tuick-tack.exe --daemon` detached con `CREATE_NO_WINDOW`.
    - Reintenta durante ~3 s (100 ms entre intentos).
 3. El daemon arranca: logger, config, mutex, engine + servidor IPC en goroutines, `systray.Run` en el hilo principal.
 4. La TUI recibe `hello` + config y renderiza.
@@ -334,7 +335,7 @@ Quit
 - **Sound:** check; persiste en config y silencia el sonido de fin.
 - **Sound settings:** submenú con los cuatro sonidos y check en el activo; Preview reproduce la selección. Elegir un sonido previsualiza si Sound está activo.
 - **Volume:** submenú con título dinámico; -5%/+5% y atajos 0/25/50/75/100. Cada cambio previsualiza si Sound está activo.
-- **Start with Windows:** check; lee/escribe `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, valor `TuickTack` apuntando a `tuick-tack-tray.exe`. Sin admin.
+- **Start with Windows:** check; lee/escribe `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, valor `TuickTack` apuntando a `"tuick-tack.exe" --daemon --hidden`. Sin admin. Al arrancar, el daemon migra un valor antiguo de `tuick-tack-tray.exe` para conservar el ajuste. En builds de `go run` el autostart queda deshabilitado: la ruta del ejecutable es temporal.
 - **Quit:** para sonido, cierra pipe y `systray.Quit()`.
 
 ### Iconos
@@ -346,14 +347,13 @@ Quit
 
 ### Abrir la TUI
 
-- `os.Executable()` → directorio → `tuick-tack.exe`; lanzar con `windows.CreateProcess` y `CREATE_NEW_CONSOLE`.
+- `os.Executable()` (el propio `tuick-tack.exe`) → lanzar sin argumentos con `windows.CreateProcess` y `CREATE_NEW_CONSOLE`.
 - No se usa `os/exec`: conecta stdin/stdout/stderr a `NUL` y activa `STARTF_USESTDHANDLES`, así que la consola nueva queda vacía y la TUI pinta en `NUL`. Con `CreateProcess` sin ese flag, Windows enlaza los handles del hijo con la consola recién creada.
 - La TUI mantiene el mutex `<pipe>-tui-mutex`; una segunda instancia llama a `FocusTUI()` y sale.
 - `OpenTUI` consulta `TUIRunning` antes de lanzar: si existe, enfoca la ventana y no crea ningún proceso.
 - `FocusTUI` busca una ventana visible con título exacto `Tuick-Tack` y clase `ConsoleWindowClass` o `CASCADIA_HOSTING_WINDOW_CLASS`, la restaura si está minimizada, suelta el foreground lock con un toque de Alt y usa `SetForegroundWindow`; si falla, `SwitchToThisWindow`. El título exacto y la clase evitan coincidir con editores o con OpenChamber.
 - Limitación: si la TUI está en una pestaña no activa de Windows Terminal, el título de la ventana no coincide; no se duplica, pero puede no enfocarse.
-- Si falta, log y tooltip “Can't find tuick-tack.exe”.
-- En dev se construyen ambos binarios en `dist/` para que se encuentren.
+- No hay búsqueda de un segundo binario: TUI y daemon son el mismo archivo.
 
 ## 13. Sonido
 
@@ -387,10 +387,8 @@ Quit
 ```
 go.mod
 cmd/
-  tuick-tack/main.go          # TUI (consola)
-  tuick-tack-tray/main.go     # daemon (windowsgui)
+  tuick-tack/main.go          # TUI sin args; daemon con --daemon
   tuick-tack/rsrc_windows_amd64.syso
-  tuick-tack-tray/rsrc_windows_amd64.syso
 internal/
   config/                     # load/save/validate, defaults
   duration/                   # parser
@@ -418,9 +416,8 @@ tools/
 scripts/
   build.ps1
 winres/
-  winres.json                 # icono, manifiesto y versión de la TUI
-  winres-tray.json            # variante del daemon
-  generate.go                 # directivas go:generate de los .syso
+  winres.json                 # icono, manifiesto y versión del ejecutable
+  generate.go                 # directiva go:generate del .syso
 ```
 
 Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de GitHub al publicar.
@@ -430,15 +427,15 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - `scripts/build.ps1 -Version <ver>` (por defecto `dev`):
   1. comprobar `go`;
   2. `go generate ./assets` (sonidos/iconos);
-  3. `go generate ./winres` (icono y metadatos del .exe; si falla, sigue con los `.syso` ya commiteados);
+  3. `go generate ./winres` (icono y metadatos del .exe; si falla, sigue con el `.syso` ya commiteado);
   4. `go test ./...`; `go vet ./...`; comprobar `gofmt -l`;
   5. `go build -trimpath -ldflags "-s -w -X ...Version=<ver>" -o dist/tuick-tack.exe ./cmd/tuick-tack`;
-  6. `go build -trimpath -ldflags "-s -w -H windowsgui -X ...Version=<ver>" -o dist/tuick-tack-tray.exe ./cmd/tuick-tack-tray`;
-  7. generar `dist/SHA256SUMS.txt` y mostrar versiones.
-- `go-winres` genera un `rsrc_windows_amd64.syso` por comando desde `winres/winres.json` y `winres/winres-tray.json` (icono `assets/icon.png`, manifiesto y versión); los `.syso` se commitean para que `go build` funcione sin regenerarlos.
+  6. borrar cualquier `dist/tuick-tack-tray.exe` obsoleto;
+  7. generar `dist/SHA256SUMS.txt` y mostrar la versión.
+- `go-winres` genera un único `rsrc_windows_amd64.syso` desde `winres/winres.json` (icono `assets/icon.png`, manifiesto y versión); el `.syso` se commitea para que `go build` funcione sin regenerarlo.
 - `CGO_ENABLED=0`; no se necesita compilador C.
-- Entrega: carpeta `dist/` con los dos `.exe` y `SHA256SUMS.txt`. Sin instalador. Firma de código fuera de alcance (SmartScreen puede avisar).
-- `tuick-tack --version`; `tuick-tack --install-startup` / `--uninstall-startup` (apuntan al tray exe; error si no está).
+- Entrega: carpeta `dist/` con `tuick-tack.exe` y `SHA256SUMS.txt`. Sin instalador. Firma de código fuera de alcance (SmartScreen puede avisar).
+- `tuick-tack --version`; `tuick-tack --install-startup` / `--uninstall-startup` escriben el comando de autostart del propio ejecutable.
 - README: requisitos, build, uso, teclas, presets, autostart, arquitectura, troubleshooting y licencia.
 
 ## 17. Tests y QA
@@ -452,7 +449,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - `ipc`: pipe de test con nombre único, handshake, start/pause/stop, broadcast, múltiples clientes, reconexión.
 - `canvas`/`bigfont`: dimensiones, clipping, ancho de runas, gradiente.
 - `fx`: RNG con semilla, física, caducidad, sin NaN, límites.
-- `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único; catálogo de sonidos, escalado PCM y caché.
+- `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único; parseo y migración del valor de autostart; catálogo de sonidos, escalado PCM y caché.
 - `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; modal de sonido; 80×24 y 120×40; celebración una vez por `finish_seq`.
 - Comandos: `go test ./...`, `go vet ./...`, `gofmt -l .`.
 
@@ -468,8 +465,8 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 8. Temas; abrir `v`, recorrer los cuatro sonidos y probar 0/5/50/80/100 %; preview con `Space`; mute; “Start with Windows” on/off; “Quit”.
 9. Migrar un config v1 → aparece v2 con digital/80 y conserva presets, tema y mute.
 10. 80×24 y 120×40; resize durante el confeti; con una TUI abierta, el clic en la bandeja la enfoca sin abrir otra; lanzar `tuick-tack.exe` a mano también la enfoca y sale.
-11. El tray exe no muestra consola; el TUI sí.
-12. `go test`, build, ejecutar desde `dist/`.
+11. El daemon (`--daemon --hidden`) no muestra consola; la TUI sí.
+12. `dist/` contiene un solo `tuick-tack.exe`; `go test`, build y ejecución desde `dist/`.
 
 ### Criterios de aceptación (v1)
 
@@ -482,7 +479,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - [ ] La config v1 migra a v2 (digital/80) sin perder presets, tema ni mute.
 - [ ] Confeti a 0 en la TUI, una vez por final, ~6 s, sin artefactos al redimensionar.
 - [ ] La UI es usable a 80×24 y se ve bien a 120×40.
-- [ ] Dos `.exe`; el de bandeja sin consola; autostart opcional funciona.
+- [ ] Un solo `.exe`; el daemon no abre consola con `--hidden`; autostart opcional funciona.
 - [ ] Tests, vet y gofmt limpios.
 
 ## 18. Hitos

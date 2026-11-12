@@ -24,7 +24,7 @@ Presets, free-form minutes, a sound pack with volume and confetti. Windows 10/11
 | 🔔 **At zero** | The selected sound at the configured volume, an alert icon and full-screen confetti. |
 | 🎚 **Sound pack** | Chime, Marimba, Digital and Deep; 0–100% volume in 5% steps with preview. |
 | 🎨 **Three themes** | Midnight, Ember and Mono. |
-| 📦 **Portable** | Two `.exe` files, no installer, no admin, no cgo. |
+| 📦 **Portable** | One `.exe` file, no installer, no admin, no cgo. |
 
 ## 🖥️ A quick look
 
@@ -65,23 +65,22 @@ the tests, and produces:
 
 ```text
 dist/
-  tuick-tack.exe         console TUI
-  tuick-tack-tray.exe    windowsgui daemon (no console)
+  tuick-tack.exe         console TUI and background daemon
   SHA256SUMS.txt
 ```
 
-Run `dist\tuick-tack.exe`. If the daemon is not running, the TUI starts
-`tuick-tack-tray.exe` from the same folder and connects. Keep both `.exe`
-files together; there is no installer.
+Run `dist\tuick-tack.exe`. If the daemon is not running, the TUI starts a
+hidden copy of itself with `--daemon` and connects. One file; there is no
+installer.
 
 ### Development
 
 ```powershell
-go run ./cmd/tuick-tack-tray    # daemon in a console
-go run ./cmd/tuick-tack         # TUI
-go test ./...                   # tests
-go vet ./...                    # lint
-go generate ./...               # regenerate sounds, icons and .syso
+go run ./cmd/tuick-tack          # TUI (starts the hidden daemon)
+go run ./cmd/tuick-tack --daemon # daemon in a console
+go test ./...                    # tests
+go vet ./...                     # lint
+go generate ./...                # regenerate sounds, icons and .syso
 ```
 
 On first launch SmartScreen may warn because the executable is unsigned. That
@@ -139,7 +138,7 @@ daemon restart loses the active countdown; persistence is future work.
 - **Presets, theme and sound settings:** `%APPDATA%\tuick-tack\config.json`
 - **Logs and sound cache:** `%LOCALAPPDATA%\tuick-tack\` (`sounds\`)
 - **Autostart:** only if you enable it — `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
-  value `TuickTack`, pointing to `tuick-tack-tray.exe`. No admin rights.
+  value `TuickTack`, pointing to `tuick-tack.exe --daemon --hidden`. No admin rights.
 
 ```json
 {
@@ -160,8 +159,8 @@ The daemon is the only writer and writes atomically. A corrupt config is backed
 up as `config.bad-<timestamp>.json` and replaced with defaults. A version 1
 config is migrated to version 2 on first load with Digital at 80%.
 
-> After replacing the executables, use **Quit** in the tray and start the new
-> `tuick-tack-tray.exe`; a daemon from a previous build keeps its old sound.
+> After replacing the executable, use **Quit** in the tray and start the new
+> `tuick-tack.exe`; a daemon from a previous build keeps its old sound.
 
 ### CLI flags
 
@@ -169,18 +168,20 @@ config is migrated to version 2 on first load with Digital at 80%.
 tuick-tack --version
 tuick-tack --install-startup
 tuick-tack --uninstall-startup
-tuick-tack --daemon            # development fallback, no separate tray exe
+tuick-tack --daemon            # background daemon with a console (development)
+tuick-tack --daemon --hidden   # daemon without a console (used by autostart)
 ```
 
 ## 🏗️ Architecture
 
 ```text
-tuick-tack.exe (console)                 tuick-tack-tray.exe (windowsgui)
-┌───────────────────────────┐   named   ┌────────────────────────────────────┐
-│ Bubble Tea v2             │◄──pipe───►│ systray on the main goroutine      │
-│ canvas + bigfont + fx     │   JSON    │ timer engine · IPC · config        │
-│ keyboard, mouse, modals   │  10 Hz    │ PlaySoundW · PCM gain · autostart  │
-└───────────────────────────┘           └────────────────────────────────────┘
+        one executable, two processes (both are tuick-tack.exe)
+┌────────────────────────────┐  named pipe  ┌────────────────────────────────────┐
+│ TUI (no arguments)         │◄────JSON────►│ daemon (--daemon)                  │
+│ Bubble Tea v2              │    10 Hz     │ systray on the main goroutine      │
+│ canvas + bigfont + fx      │              │ timer engine · IPC · config        │
+│ keyboard, mouse, modals    │              │ PlaySoundW · PCM gain · autostart  │
+└────────────────────────────┘              └────────────────────────────────────┘
 ```
 
 - The daemon is the single source of truth. The TUI renders snapshots and
@@ -193,8 +194,7 @@ tuick-tack.exe (console)                 tuick-tack-tray.exe (windowsgui)
   the new sequence.
 
 ```text
-cmd/tuick-tack        TUI
-cmd/tuick-tack-tray   daemon
+cmd/tuick-tack        single entrypoint: TUI and daemon (--daemon)
 internal/             engine, IPC, config, daemon, tray, TUI
 assets/               sounds, icons and embedded asset helpers
 tools/                sound and icon generators
@@ -210,7 +210,7 @@ scripts/build.ps1     portable release build
 
 | Symptom | What to check |
 |---|---|
-| TUI cannot connect | Is `tuick-tack-tray.exe` next to `tuick-tack.exe`? Check `%LOCALAPPDATA%\tuick-tack\logs\tuick-tack.log`. |
+| TUI cannot connect | The TUI starts the daemon itself; check `%LOCALAPPDATA%\tuick-tack\logs\tuick-tack.log`. |
 | No sound | Check the Windows volume/sound device, that Sound is checked in the tray, and that the selected sound is not at 0%. The countdown still finishes visually. |
 | Tray icon missing | Windows hides new tray icons; open the overflow chevron. |
 | Presets disappeared | A corrupt config is backed up and defaults are restored. Look for `config.bad-*.json` in `%APPDATA%\tuick-tack`. |

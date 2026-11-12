@@ -1,5 +1,7 @@
-// Command tuick-tack is the terminal UI. It connects to the daemon over the
-// local named pipe and never owns the timer itself.
+// Command tuick-tack is the single application executable. Without arguments
+// it runs the terminal UI; with --daemon it runs the background daemon that
+// owns the timer, presets, sound and tray icon. The TUI never owns the timer
+// itself: it connects to the daemon over the local named pipe.
 package main
 
 import (
@@ -19,6 +21,7 @@ import (
 func main() {
 	version := flag.Bool("version", false, "print the version and exit")
 	daemonMode := flag.Bool("daemon", false, "run the background daemon in this process")
+	hidden := flag.Bool("hidden", false, "hide the console when running the daemon (used by autostart)")
 	installStartup := flag.Bool("install-startup", false, "start the tray daemon at sign-in")
 	uninstallStartup := flag.Bool("uninstall-startup", false, "do not start the tray daemon at sign-in")
 	flag.Parse()
@@ -28,6 +31,9 @@ func main() {
 		return
 	}
 	if *daemonMode {
+		if *hidden {
+			daemon.DetachConsole()
+		}
 		os.Exit(daemon.Run())
 	}
 	if *installStartup {

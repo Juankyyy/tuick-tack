@@ -22,8 +22,8 @@ func CacheDir() (string, error) {
 
 // SetupLogging creates the per-user log file and returns a logger, a closer
 // and the cache directory. A failure to open the log never prevents the daemon
-// from running: it falls back to a discarding logger so a windowsgui build
-// without a console stays quiet.
+// from running: it falls back to a discarding logger so a daemon without a
+// console stays quiet.
 func SetupLogging() (*log.Logger, func(), string, error) {
 	cache, cacheErr := CacheDir()
 	logDir := filepath.Join(cache, "logs")
