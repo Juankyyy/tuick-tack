@@ -11,7 +11,7 @@
       "0409": {
         "identity": {
           "name": "Tuick-Tack",
-          "version": "1.0.0.0"
+          "version": "0.1.1.0"
         },
         "description": "Tuick-Tack countdown",
         "minimum-os": "win10",
@@ -35,22 +35,22 @@
     "#1": {
       "0000": {
         "fixed": {
-          "file_version": "0.1.0.0",
-          "product_version": "0.1.0.0"
+          "file_version": "0.1.1.0",
+          "product_version": "0.1.1.0"
         },
         "info": {
           "0409": {
             "Comments": "Countdown in the terminal and in the tray.",
             "CompanyName": "",
             "FileDescription": "Tuick-Tack",
-            "FileVersion": "0.1.0.0",
+            "FileVersion": "0.1.1.0",
             "InternalName": "tuick-tack",
             "LegalCopyright": "GPL-3.0",
             "LegalTrademarks": "",
             "OriginalFilename": "tuick-tack.exe",
             "PrivateBuild": "",
             "ProductName": "Tuick-Tack",
-            "ProductVersion": "0.1.0.0",
+            "ProductVersion": "0.1.1.0",
             "SpecialBuild": ""
           }
         }
