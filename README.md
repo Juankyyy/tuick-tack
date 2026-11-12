@@ -6,7 +6,7 @@
 
 Presets, free-form minutes, a sound pack with volume and confetti. Windows 10/11.
 
-<sub>v0.1.0 · first public release · Go + Bubble Tea · GPL-3.0</sub>
+<sub>v0.1.1 · Go + Bubble Tea · GPL-3.0</sub>
 
 </div>
 
@@ -44,7 +44,7 @@ Presets, free-form minutes, a sound pack with volume and confetti. Windows 10/11
    │                    04:32 remaining · ends at 14:04                     │
    │                                                                        │
    │             [ pause ]  [ +1 min ]  [ -1 min ]  [ cancel ]              │
-   │     space pause · esc cancel · + / - 1 min · v sound · ? help · q quit │
+   │   [Space] pause · [Esc] cancel · [+/-] 1 min · [v] sound · [q] quit    │
    ╰────────────────────────────────────────────────────────────────────────╯
 ```
 
@@ -57,7 +57,7 @@ Requires **Go 1.26+** on Windows 10/11. No C compiler is needed (`CGO_ENABLED=0`
 ```powershell
 go mod download
 .\scripts\build.ps1              # dev build into dist/
-.\scripts\build.ps1 -Version v0.1.0
+.\scripts\build.ps1 -Version v0.1.1
 ```
 
 The build script regenerates the sounds/icons, checks formatting, runs vet and
@@ -159,8 +159,19 @@ The daemon is the only writer and writes atomically. A corrupt config is backed
 up as `config.bad-<timestamp>.json` and replaced with defaults. A version 1
 config is migrated to version 2 on first load with Digital at 80%.
 
-> After replacing the executable, use **Quit** in the tray and start the new
-> `tuick-tack.exe`; a daemon from a previous build keeps its old sound.
+### Upgrading from v0.1.0
+
+v0.1.0 shipped two executables. This release ships a single one.
+
+1. In the TUI, press `q` to close it.
+2. Right-click the tray icon and choose **Quit**. This ends any active countdown.
+3. Replace `tuick-tack.exe` and `tuick-tack-tray.exe` with the new `tuick-tack.exe`.
+4. Run `tuick-tack.exe`. If **Start with Windows** was enabled, the new daemon
+   rewrites the Run entry automatically.
+
+A daemon from v0.1.0 keeps answering on the named pipe until it exits. The new
+TUI falls back to Digital at 80%, but the new sound commands are rejected, so
+quit the old daemon before replacing the file.
 
 ### CLI flags
 

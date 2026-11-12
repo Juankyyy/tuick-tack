@@ -549,7 +549,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 {"type":"set_volume","volume":75}
 
 // daemon → cliente
-{"type":"hello","protocol":1,"app_version":"0.1.0","config":{...}}
+{"type":"hello","protocol":1,"app_version":"0.1.1","config":{...}}
 {"type":"state","status":"running","duration_ms":300000,"remaining_ms":271500,
  "label":"5 min","preset_id":"p5","finish_seq":3,"end_at_unix_ms":1762839120000}
 ```
