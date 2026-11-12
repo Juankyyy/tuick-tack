@@ -57,6 +57,14 @@ func TestPresetCopyExists(t *testing.T) {
 	}
 }
 
+func TestHeaderCopyExists(t *testing.T) {
+	for _, key := range []Key{RunningMeta, EndsAt, TimeAt, HeaderOnHold, HeaderNoTimer} {
+		if T(key) == "" || T(key) == string(key) {
+			t.Errorf("header copy key %q has no text", key)
+		}
+	}
+}
+
 func TestKeyHintsUseBracketFormat(t *testing.T) {
 	keys := []Key{
 		ControlsIdle, ControlsRunning, ControlsPaused, ControlsFinished,

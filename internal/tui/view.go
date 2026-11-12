@@ -29,6 +29,24 @@ type button struct {
 	disabled bool
 }
 
+// viewLayout is the open-stage composition: a centred measure, a two-line
+// masthead and a footer pinned to the last row. The timer block grows airier
+// with the height of the terminal.
+type viewLayout struct {
+	x, w      int
+	headerY   int
+	heroY     int
+	labelY    int
+	barY      int
+	metaY     int
+	controlsY int
+	inputY    int
+	chipsY    int
+	footerY   int
+	barX      int
+	barW      int
+}
+
 // View renders the whole TUI through the canvas package.
 func (m *Model) View() tea.View {
 	w, h := m.viewSize()
@@ -42,19 +60,14 @@ func (m *Model) View() tea.View {
 	if m.dust != nil {
 		m.dust.Draw(c, theme.Lerp(m.pal.BG, m.pal.Muted, 0.55))
 	}
-	p := m.panelRect(w, h)
-	c.Frame(p.x, p.y, p.w, p.h, m.pal.Accent, m.pal.Accent2, m.pal.Panel)
-	if m.dust != nil {
-		m.dust.DrawWithin(c, theme.Lerp(m.pal.Panel, m.pal.Muted, 0.22),
-			p.x+1, p.y+1, p.w-2, p.h-2)
-	}
 	if m.celebrating && m.confetti != nil {
 		m.confetti.Draw(c)
 	}
-	m.drawContent(c, p)
+	m.drawContent(c, m.layout(w, h))
 	if m.modal != modalNone {
 		m.hits = m.hits[:0]
-		m.drawModal(c, p)
+		c.Dim(0.70)
+		m.drawModal(c, rect{x: 0, y: 0, w: w, h: h})
 	}
 
 	v := tea.NewView(c.Render())
@@ -66,22 +79,58 @@ func (m *Model) View() tea.View {
 	return v
 }
 
-func (m *Model) panelRect(w, h int) rect {
-	pw := w - 6
-	if pw > 100 {
-		pw = 100
+func (m *Model) layout(w, h int) viewLayout {
+	sw := w - 8
+	if sw > 100 {
+		sw = 100
 	}
-	if pw < 10 {
-		pw = w
+	if sw < 10 {
+		sw = w
 	}
-	ph := h - 2
-	if ph > 23 {
-		ph = 23
+	sx := (w - sw) / 2
+
+	headerY := 2
+	footerY := h - 1
+	gap := 1
+	if h >= 30 {
+		gap = 2
 	}
-	if ph < 8 {
-		ph = h
+	blockH := bigfont.GlyphH + 3*gap + 3
+	groupH := blockH + 2*gap + 1
+	top := headerY + 3
+	bottom := footerY - 2
+	heroY := top
+	if avail := bottom - top + 1; avail > groupH {
+		heroY += (avail - groupH) / 2
 	}
-	return rect{x: (w - pw) / 2, y: (h - ph) / 2, w: pw, h: ph}
+	if heroY < top {
+		heroY = top
+	}
+	labelY := heroY + bigfont.GlyphH + gap
+	barY := labelY + 1 + gap
+	metaY := barY + 1 + gap
+	controlsY := metaY + 2*gap + 1
+
+	barX := sx + 4
+	barW := sw - 8
+	if barW < 10 {
+		barW = sw
+	}
+	return viewLayout{
+		x:         sx,
+		w:         sw,
+		headerY:   headerY,
+		heroY:     heroY,
+		labelY:    labelY,
+		barY:      barY,
+		metaY:     metaY,
+		controlsY: controlsY,
+		inputY:    controlsY - 1,
+		chipsY:    controlsY + 1,
+		footerY:   footerY,
+		barX:      barX,
+		barW:      barW,
+	}
 }
 
 func (m *Model) drawBackground(c *canvas.Canvas, w, h int) {
@@ -127,52 +176,41 @@ func (m *Model) drawBackground(c *canvas.Canvas, w, h int) {
 	}
 }
 
-func (m *Model) drawContent(c *canvas.Canvas, p rect) {
-	innerX := p.x + 2
-	innerW := p.w - 4
-	if innerW < 10 || p.h < 10 {
+func (m *Model) drawContent(c *canvas.Canvas, l viewLayout) {
+	if l.w < 10 {
 		return
 	}
-	headerY := p.y + 1
-	heroY := p.y + 3
-	labelY := heroY + bigfont.GlyphH
-	barY := labelY + 1
-	metaY := barY + 1
-	footerY := p.y + p.h - 2
-	controlsY := footerY - 2
-	inputY := footerY - 3
-	chipsY := footerY - 2
+	m.drawHeader(c, l.x, l.headerY, l.w)
+	m.drawHero(c, l.heroY, l.x, l.w)
+	m.drawLabel(c, l.labelY, l.x, l.w)
+	m.drawProgress(c, l.barY, l.barX, l.barW)
+	m.drawMeta(c, l.metaY, l.x, l.w)
 
-	m.drawHeader(c, innerX, headerY, innerW)
-	m.drawHero(c, heroY, innerX, innerW)
-	m.drawLabel(c, labelY, innerX, innerW)
-	m.drawProgress(c, barY, innerX+3, innerW-6)
-	m.drawMeta(c, metaY, innerX, innerW)
-
+	footStyle := canvas.Fg(theme.Lerp(m.pal.BG, m.pal.Muted, 0.8))
 	switch m.status() {
 	case engine.Running, engine.Paused:
-		if controlsY > metaY {
-			m.drawTimerControls(c, controlsY, innerX, innerW)
+		if l.controlsY > l.metaY {
+			m.drawTimerControls(c, l.controlsY, l.x, l.w)
 		}
-		m.drawCentered(c, footerY, copy.T(copy.ControlsRunning), canvas.Fg(theme.Lerp(m.pal.BG, m.pal.Muted, 0.8)), innerX, innerW)
+		m.drawCentered(c, l.footerY, copy.T(copy.ControlsRunning), footStyle, l.x, l.w)
 		if m.status() == engine.Paused {
-			m.drawCentered(c, footerY, copy.T(copy.ControlsPaused), canvas.Fg(theme.Lerp(m.pal.BG, m.pal.Muted, 0.8)), innerX, innerW)
+			m.drawCentered(c, l.footerY, copy.T(copy.ControlsPaused), footStyle, l.x, l.w)
 		}
 	case engine.Finished:
-		if controlsY > metaY {
-			m.drawFinishedControls(c, controlsY, innerX, innerW)
+		if l.controlsY > l.metaY {
+			m.drawFinishedControls(c, l.controlsY, l.x, l.w)
 		}
-		m.drawCentered(c, footerY, copy.T(copy.ControlsFinished), canvas.Fg(theme.Lerp(m.pal.BG, m.pal.Muted, 0.8)), innerX, innerW)
+		m.drawCentered(c, l.footerY, copy.T(copy.ControlsFinished), footStyle, l.x, l.w)
 	default:
-		if inputY > metaY {
-			m.drawInput(c, inputY, innerX, innerW)
+		if l.inputY > l.metaY {
+			m.drawInput(c, l.inputY, l.x, l.w)
 		}
 		if m.inputErr != "" {
-			m.drawCentered(c, chipsY, m.inputErr, canvas.Fg(m.pal.Danger), innerX, innerW)
-		} else if chipsY > labelY {
-			m.drawChips(c, chipsY, innerX, innerW)
+			m.drawCentered(c, l.chipsY, m.inputErr, canvas.Fg(m.pal.Danger), l.x, l.w)
+		} else if l.chipsY > l.labelY {
+			m.drawChips(c, l.chipsY, l.x, l.w)
 		}
-		m.drawCentered(c, footerY, copy.T(copy.ControlsIdle), canvas.Fg(theme.Lerp(m.pal.BG, m.pal.Muted, 0.8)), innerX, innerW)
+		m.drawCentered(c, l.footerY, copy.T(copy.ControlsIdle), footStyle, l.x, l.w)
 	}
 
 	if !m.connected {
@@ -182,37 +220,74 @@ func (m *Model) drawContent(c *canvas.Canvas, p rect) {
 			msg = copy.T(copy.Disconnected)
 			col = m.pal.Danger
 		}
-		m.drawCentered(c, footerY-1, msg, canvas.Fg(col), innerX, innerW)
+		m.drawCentered(c, l.footerY-1, msg, canvas.Fg(col), l.x, l.w)
 	} else if m.toastActive() {
-		m.drawCentered(c, footerY-1, m.toast, canvas.Fg(m.pal.Warn), innerX, innerW)
+		m.drawCentered(c, l.footerY-1, m.toast, canvas.Fg(m.pal.Warn), l.x, l.w)
 	}
 }
 
+// drawHeader paints the two-line masthead: the wordmark on the left and the
+// state on the right, with its detail (end time, hold, finish time) below it.
 func (m *Model) drawHeader(c *canvas.Canvas, x, y, w int) {
-	dot := m.pal.Accent
+	label, col := m.statusInfo()
+	dot := m.headerDot(col)
+	right := x + w - 1
+	label = strings.ToUpper(label)
+	lx := right - canvas.Width(label) + 1
+	if lx < x+2 {
+		lx = x + 2
+	}
+	dotX := lx - 2
+	if dotX < x+2 {
+		dotX = x + 2
+	}
+
+	c.Set(x, y, '●', canvas.Fg(dot))
+	c.Text(x+2, y, copy.T(copy.Brand), canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
+	c.Set(dotX, y, '●', canvas.Fg(dot))
+	c.Text(lx, y, label, canvas.Style{FG: col, HasFG: true, Bold: true})
+	if sub := m.headerSubline(); sub != "" {
+		c.Text(right-canvas.Width(sub)+1, y+1, sub, canvas.Fg(m.pal.Muted))
+	}
+}
+
+func (m *Model) headerDot(col color.RGBA) color.RGBA {
 	phase := m.animTime * 2.4
 	switch m.status() {
 	case engine.Running:
-		dot = theme.Pulse(m.pal.Accent, m.pal.Accent2, phase)
+		return theme.Pulse(m.pal.Accent, m.pal.Accent2, phase)
 	case engine.Paused:
-		dot = m.pal.Warn
+		return m.pal.Warn
 	case engine.Finished:
-		dot = theme.Pulse(m.pal.Warn, m.pal.Danger, phase)
-	}
-	c.Set(x, y, '●', canvas.Fg(dot))
-	c.Text(x+2, y, copy.T(copy.Brand), canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
-
-	label, col := m.statusPill()
-	pillW := canvas.Width(label) + 2
-	px := x + w - pillW
-	if px > x {
-		bg := theme.Lerp(m.pal.Panel, col, 0.18)
-		c.Fill(px, y, pillW, 1, canvas.Full(col, bg))
-		c.Text(px+1, y, label, canvas.Style{FG: col, HasFG: true, Bold: true})
+		return theme.Pulse(m.pal.Warn, m.pal.Danger, phase)
+	default:
+		return col
 	}
 }
 
-func (m *Model) statusPill() (string, color.RGBA) {
+// headerSubline is the quiet second line under the state. It carries the end
+// time while running and disappears when the daemon is offline.
+func (m *Model) headerSubline() string {
+	if !m.connected {
+		return ""
+	}
+	switch m.status() {
+	case engine.Running:
+		return copy.T(copy.EndsAt, m.endClock())
+	case engine.Paused:
+		return copy.T(copy.HeaderOnHold)
+	case engine.Finished:
+		at := m.finishedAt
+		if at.IsZero() {
+			at = m.now()
+		}
+		return copy.T(copy.TimeAt, at.Format("15:04"))
+	default:
+		return copy.T(copy.HeaderNoTimer)
+	}
+}
+
+func (m *Model) statusInfo() (string, color.RGBA) {
 	if !m.connected {
 		if m.connecting {
 			return copy.T(copy.StatusConnecting), m.pal.Muted
@@ -384,17 +459,13 @@ func (m *Model) drawMeta(c *canvas.Canvas, y, x, w int) {
 	col := m.pal.Muted
 	switch m.status() {
 	case engine.Running:
-		text = copy.T(copy.RunningMeta, duration.Format(m.remaining()), m.endClock())
+		text = copy.T(copy.RunningMeta, duration.Format(m.remaining()))
 		col = m.pal.Muted
 	case engine.Paused:
 		text = copy.T(copy.PausedMeta, duration.Format(m.remaining()))
 		col = m.pal.Warn
 	case engine.Finished:
-		at := m.finishedAt
-		if at.IsZero() {
-			at = m.now()
-		}
-		text = copy.T(copy.TimeAt, at.Format("15:04")) + " · " + copy.T(copy.FinishedMeta)
+		text = copy.T(copy.FinishedMeta)
 		col = m.pal.Muted
 	}
 	m.drawCentered(c, y, text, canvas.Fg(col), x, w)
@@ -648,9 +719,8 @@ func (m *Model) modalRect(base rect, w, h int) rect {
 
 func (m *Model) drawOverlay(c *canvas.Canvas, r rect, title string) {
 	c.Fill(r.x, r.y, r.w, r.h, canvas.Full(m.pal.Panel, m.pal.Panel))
-	c.Frame(r.x, r.y, r.w, r.h, m.pal.Accent, m.pal.Accent2, m.pal.Panel)
-	m.drawCenteredIn(c, r.x+2, r.y+1, r.w-4, title,
-		canvas.Style{FG: m.pal.Accent, HasFG: true, Bold: true})
+	c.Set(r.x+2, r.y+1, '●', canvas.Fg(m.pal.Accent))
+	c.Text(r.x+4, r.y+1, title, canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
 }
 
 func (m *Model) drawHelp(c *canvas.Canvas, base rect) {

@@ -1,6 +1,6 @@
 # Tuick-Tack — SPEC
 
-> **Estado:** implementado (v1) · **Fecha:** 2026-11-11
+> **Estado:** implementado (v1) · **Fecha:** 2026-11-12
 > **Plataforma:** Windows 10/11 x64 · **Licencia:** GPL-3.0 (repo)
 > **Stack:** Go 1.26+ + Bubble Tea v2 + Lipgloss v2 + systray + go-winio
 > **Repo:** `tuick-tack` (v1 implementado en `dev`; builds locales portables en `dist/`)
@@ -46,7 +46,7 @@ El countdown, el sonido y el icono siguen funcionando aunque se cierre la TUI. A
 - Icono de bandeja con menú contextual para lanzar cualquier preset.
 - Chime de 3–5 s al llegar a 0.
 - Celebración con confeti en la TUI al llegar a 0.
-- Estilo cuidado: fondo aurora, panel de cristal, dígitos grandes con degradado, barra de progreso viva.
+- Estilo cuidado: fondo aurora a pantalla completa, cabecera de dos alturas, dígitos grandes con degradado y barra de progreso viva con checkpoints.
 - El countdown y el sonido sobreviven al cierre de la TUI.
 - Configuración persistente, temas, autostart opcional, build reproducible de un solo `.exe`.
 
@@ -195,10 +195,10 @@ Rutas (por usuario, sin admin):
 
 ### Pantallas y estados
 
-- **Idle:** dígitos fantasma `00:00`, input enfocado, chips de presets, footer de teclas. Mientras escribes una duración válida, los dígitos fantasma la previsualizan.
-- **Running:** header con preset/estado, dígitos grandes, barra, “X remaining”, “ends at HH:MM”, footer de controles. Sin chips (foco).
-- **Paused:** como running en ámbar, pill “PAUSED”, barra atenuada, “[Space] resume”.
-- **Finished / celebración:** flash + confeti + “TIME'S UP!”; tras 6 s, pantalla tranquila con resumen y `r` repeat / `Enter` close.
+- **Idle:** cabecera `READY` con `no countdown`, dígitos fantasma `00:00`, input enfocado, chips de presets y footer de teclas. Mientras escribes una duración válida, los dígitos fantasma la previsualizan.
+- **Running:** cabecera `RUNNING` con `ends at HH:MM`; dígitos grandes, barra, “X remaining”, botones y footer de controles. Sin chips (foco).
+- **Paused:** como running en ámbar, cabecera `PAUSED` con `on hold`, barra atenuada, meta con “[Space] resume”.
+- **Finished / celebración:** flash + confeti + “TIME'S UP!”; la cabecera muestra `TIME'S UP!` y `at HH:MM`; tras 6 s, pantalla tranquila con resumen y `r` repeat / `Enter` close.
 - **Gestión de presets:** lista, añadir (`a`), editar (`e`), borrar (`d` con confirmación), restore defaults (`r`), start (`Enter`), close (`Esc`). `Tab` lleva el foco a la barra de acciones; `←/→` eligen acción y `Enter` la ejecuta. Las acciones que necesitan un preset se atenúan y se saltan si la lista está vacía.
 - **Sonido:** modal `v` con on/off, lista Chime/Marimba/Digital/Deep, volumen 0–100 en pasos de 5, preview con `Space` y mute con `m`. Elegir sonido o cambiar volumen previsualiza si el sonido está activo.
 - **Confirmación de cancelar:** overlay “Stop the countdown? Enter yes · Esc no”.
@@ -208,9 +208,11 @@ Rutas (por usuario, sin admin):
 ### Layout
 
 - Alt screen, cursor oculto, mouse habilitado para chips/botones.
-- Mínimo 80×24. Modo compacto si ancho < 100 o alto < 30; modo amplio si no.
-- Estructura vertical: header (1) · aire · hero dígitos (7) · etiqueta (1) · barra (1) · meta (1) · aire · [input + chips | controles] · footer (1).
-- Todo centrado en una columna de máximo ~100 celdas.
+- Mínimo 80×24. El reloj usa escala 1 en compacto y 2 desde 100×30. La separación entre piezas es de una fila por debajo de 30 de alto y de dos filas desde 30.
+- Sin panel ni marco: la aurora ocupa toda la pantalla y el contenido vive en una columna centrada de máximo 100 celdas. En 80×24 quedan 4 celdas de margen a cada lado.
+- Estructura vertical: cabecera de dos alturas (marca arriba; estado + sub-línea `ends at` / `on hold` / `at` / `no countdown` a la derecha) · aire · hero dígitos (7) · aire · etiqueta · aire · barra · aire · meta · aire · [input + chips | botones] · footer en la última fila.
+- La cabecera y el footer se alinean a la medida; el footer queda pegado al borde inferior de la terminal.
+- Los modales se dibujan sobre un scrim que atenúa el escenario y una hoja plana sin marco, con el mismo contenido y botones.
 
 ### Teclas
 
@@ -269,10 +271,11 @@ Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pa
 
 ### Elementos
 
-- **Fondo aurora:** degradado vertical + dos halos radiales suaves; deriva lenta ligada al progreso.
-- **Panel de cristal:** fondo un paso más claro, borde redondeado con degradado, 1 celda de margen interior.
+- **Fondo aurora:** degradado vertical + dos halos radiales suaves; deriva lenta ligada al progreso. Ocupa toda la pantalla, sin recorte por ningún panel.
+- **Escenario abierto:** sin panel, sin marco y sin borde. El contenido flota directamente sobre la aurora en una columna centrada de hasta 100 celdas; no hay caja que simule una ventana.
+- **Cabecera de dos alturas:** marca y dot a la izquierda; estado en mayúsculas y dot a la derecha; sub-línea derecha con `ends at HH:MM`, `on hold`, `at HH:MM` o `no countdown`. Sin píldora de estado.
 - **Dígitos:** fuente de bloques 7×5, escala horizontal 1 en compacto y 2 en amplio, degradado por fila, sombra de 1 celda (abajo-derecha) y halo tenue.
-- **Barra de progreso:** 1 fila, relleno con degradado accent→accent2, pista oscura, cabeza blanca brillante, marcas cada 25%.
+- **Barra de progreso:** 1 fila, relleno con degradado accent→accent2, pista oscura, cabeza blanca brillante y checkpoints `┆` cada 25%.
 - **Detalles vivos:** colon parpadeante, dot de estado pulsante, ~30 motas de polvo lentas, pulso ámbar en los últimos 10 s.
 - **Sin emoji ni runas de doble ancho.** Todo el contenido usa glifos de una celda y box-drawing.
 - **Truecolor**; Windows Terminal recomendado. `conhost` moderno también soporta 24-bit.
@@ -280,6 +283,7 @@ Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pa
 ### Anti-patrones
 
 - No llenar la pantalla de cajas y bordes.
+- No simular una ventana: ni panel centrado, ni marco redondeado, ni píldora de estado.
 - No cambiar el color del texto completo por estado; solo acentos, barra y cifras.
 - No animar a 60 fps el idle: 10 Hz para polvo/estado; 30 fps solo en la celebración.
 
@@ -373,7 +377,7 @@ Quit
 
 ## 14. Render por celdas
 
-- `internal/tui/canvas`: rejilla de celdas `{ch rune; fg, bg color.RGBA; bold bool}` con `Set`, `Text`, `Box`, `Fill`, `Gradient`, `Blit`, `Center` y `Render() string` (ANSI SGR 24-bit, reset por fila, sin runas anchas).
+- `internal/tui/canvas`: rejilla de celdas `{ch rune; fg, bg color.RGBA; bold bool}` con `Set`, `Text`, `Box`, `Fill`, `Gradient`, `Blit`, `Center`, `Dim` (scrim de modales) y `Render() string` (ANSI SGR 24-bit, reset por fila, sin runas anchas).
 - `internal/tui/bigfont`: fuente 7×5 para `0-9 : T I E M P O ¡ !`; dibuja con gradiente por fila y sombra.
 - `internal/tui/theme`: paletas y utilidades de mezcla/lerp.
 - `internal/tui/fx`: polvo ambiental y sistema de partículas del confeti.

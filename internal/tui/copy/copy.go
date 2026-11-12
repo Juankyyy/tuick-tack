@@ -31,6 +31,8 @@ const (
 	FinishedMeta     = Key("finished.meta")
 	EndsAt           = Key("ends.at")
 	TimeAt           = Key("time.at")
+	HeaderOnHold     = Key("header.onhold")
+	HeaderNoTimer    = Key("header.notimer")
 	Completed        = Key("completed")
 
 	ControlsIdle     = Key("controls.idle")
@@ -178,11 +180,13 @@ var texts = map[Key]string{
 	ReadyMeta:        "Type a duration or pick a preset",
 	InputPlaceholder: "25 · 12:30 · 90s · 1h30m",
 	PausedMeta:       "%s remaining · [Space] resume",
-	RunningMeta:      "%s remaining · ends at %s",
+	RunningMeta:      "%s remaining",
 	FinishedTitle:    "%s completed",
 	FinishedMeta:     "[r] repeat · [Enter] close",
 	EndsAt:           "ends at %s",
 	TimeAt:           "at %s",
+	HeaderOnHold:     "on hold",
+	HeaderNoTimer:    "no countdown",
 	Completed:        "%s completed",
 
 	ControlsIdle:     "[p] presets · [t] theme · [v] sound · [s] mute · [?] help · [q] quit",

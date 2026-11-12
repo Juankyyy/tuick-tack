@@ -80,11 +80,26 @@ func TestViewIdle(t *testing.T) {
 	}
 }
 
+func TestViewHasNoWindowFrame(t *testing.T) {
+	for _, size := range [][2]int{{80, 24}, {120, 40}} {
+		m, _ := testModel(size[0], size[1])
+		for _, status := range []string{"idle", "running"} {
+			if status == "running" {
+				applyRunning(m)
+			}
+			plain := assertFrame(t, m, size[0], size[1])
+			if strings.ContainsAny(plain, "╭╮╰╯┌┐└┘") {
+				t.Fatalf("%dx%d %s view draws a window frame", size[0], size[1], status)
+			}
+		}
+	}
+}
+
 func TestViewRunningPaused(t *testing.T) {
 	m, _ := testModel(80, 24)
 	applyRunning(m)
 	plain := assertFrame(t, m, 80, 24)
-	for _, want := range []string{"running", "5 min", "remaining", "ends at", "pause", "cancel", copy.T(copy.ControlsRunning)} {
+	for _, want := range []string{"RUNNING", "5 min", "remaining", "ends at", "pause", "cancel", copy.T(copy.ControlsRunning)} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("running view missing %q", want)
 		}
@@ -113,7 +128,7 @@ func TestViewFinishedAndCelebrationOnce(t *testing.T) {
 		t.Fatalf("confetti count = %d, want 230", m.confetti.Count())
 	}
 	plain := assertFrame(t, m, 80, 24)
-	for _, want := range []string{"time's up!", "5 min completed", "repeat", "close", copy.T(copy.ControlsFinished), copy.T(copy.FinishedMeta)} {
+	for _, want := range []string{"TIME'S UP!", "5 min completed", "repeat", "close", copy.T(copy.ControlsFinished), copy.T(copy.FinishedMeta)} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("finished view missing %q", want)
 		}

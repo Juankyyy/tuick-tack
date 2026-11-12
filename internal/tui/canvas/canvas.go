@@ -127,6 +127,23 @@ func (c *Canvas) Set(x, y int, ch rune, st Style) {
 	}
 }
 
+// Dim moves every cell toward black by t (0 keeps the canvas, 1 leaves it
+// completely black). It is used to push the stage behind a modal overlay.
+func (c *Canvas) Dim(t float64) {
+	if t <= 0 {
+		return
+	}
+	if t > 1 {
+		t = 1
+	}
+	black := color.RGBA{A: 0xFF}
+	for i := range c.cells {
+		cell := &c.cells[i]
+		cell.FG = lerp(cell.FG, black, t)
+		cell.BG = lerp(cell.BG, black, t)
+	}
+}
+
 // Fill paints a rectangle with spaces and the style's background.
 func (c *Canvas) Fill(x, y, w, h int, st Style) {
 	for yy := y; yy < y+h; yy++ {

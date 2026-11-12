@@ -67,6 +67,21 @@ func TestFrame(t *testing.T) {
 	}
 }
 
+func TestDim(t *testing.T) {
+	th := theme.Get("midnight")
+	c := New(2, 1)
+	c.Clear(th.BG)
+	c.Text(0, 0, "a", Full(th.Text, th.Panel))
+	c.Dim(0.5)
+	got := c.At(0, 0)
+	if got.FG.R >= th.Text.R || got.BG.R >= th.Panel.R {
+		t.Fatalf("dim did not darken cell: %+v", got)
+	}
+	if got.Ch != 'a' {
+		t.Fatalf("dim changed the glyph: %q", got.Ch)
+	}
+}
+
 func TestResize(t *testing.T) {
 	c := New(2, 2)
 	c.Set(0, 0, 'a', Fg(theme.Get("midnight").Text))
