@@ -30,8 +30,10 @@ type button struct {
 }
 
 // viewLayout is the open-stage composition: a centred measure, a two-line
-// masthead and a footer pinned to the last row. The timer block grows airier
-// with the height of the terminal.
+// masthead and the key hints tucked just under the presets/controls row. The
+// whole block is centred, so the spare air falls below the hints instead of
+// splitting the content. The timer block grows airier with the height of the
+// terminal.
 type viewLayout struct {
 	x, w      int
 	headerY   int
@@ -42,7 +44,8 @@ type viewLayout struct {
 	controlsY int
 	inputY    int
 	chipsY    int
-	footerY   int
+	hintY     int
+	statusY   int
 	barX      int
 	barW      int
 }
@@ -90,17 +93,18 @@ func (m *Model) layout(w, h int) viewLayout {
 	sx := (w - sw) / 2
 
 	headerY := 2
-	footerY := h - 1
 	gap := 1
 	if h >= 30 {
 		gap = 2
 	}
+	// The block now ends with the key hints, one or two rows below the
+	// presets/controls, so it is centred as a whole and the spare rows stay
+	// under the hints rather than between the presets and the bottom edge.
 	blockH := bigfont.GlyphH + 3*gap + 3
-	groupH := blockH + 2*gap + 1
+	groupH := blockH + 3*gap + 3
 	top := headerY + 3
-	bottom := footerY - 2
 	heroY := top
-	if avail := bottom - top + 1; avail > groupH {
+	if avail := h - top; avail > groupH {
 		heroY += (avail - groupH) / 2
 	}
 	if heroY < top {
@@ -110,6 +114,15 @@ func (m *Model) layout(w, h int) viewLayout {
 	barY := labelY + 1 + gap
 	metaY := barY + 1 + gap
 	controlsY := metaY + 2*gap + 1
+	chipsY := controlsY + 1
+	hintY := chipsY + 1 + gap
+	if hintY > h-1 {
+		hintY = h - 1
+	}
+	statusY := hintY - 1
+	if statusY < 0 {
+		statusY = 0
+	}
 
 	barX := sx + 4
 	barW := sw - 8
@@ -126,8 +139,9 @@ func (m *Model) layout(w, h int) viewLayout {
 		metaY:     metaY,
 		controlsY: controlsY,
 		inputY:    controlsY - 1,
-		chipsY:    controlsY + 1,
-		footerY:   footerY,
+		chipsY:    chipsY,
+		hintY:     hintY,
+		statusY:   statusY,
 		barX:      barX,
 		barW:      barW,
 	}
@@ -186,21 +200,21 @@ func (m *Model) drawContent(c *canvas.Canvas, l viewLayout) {
 	m.drawProgress(c, l.barY, l.barX, l.barW)
 	m.drawMeta(c, l.metaY, l.x, l.w)
 
-	footStyle := canvas.Fg(theme.Lerp(m.pal.BG, m.pal.Muted, 0.8))
+	hintStyle := canvas.Fg(theme.Lerp(m.pal.BG, m.pal.Muted, 0.8))
 	switch m.status() {
 	case engine.Running, engine.Paused:
 		if l.controlsY > l.metaY {
 			m.drawTimerControls(c, l.controlsY, l.x, l.w)
 		}
-		m.drawCentered(c, l.footerY, copy.T(copy.ControlsRunning), footStyle, l.x, l.w)
+		m.drawCentered(c, l.hintY, copy.T(copy.ControlsRunning), hintStyle, l.x, l.w)
 		if m.status() == engine.Paused {
-			m.drawCentered(c, l.footerY, copy.T(copy.ControlsPaused), footStyle, l.x, l.w)
+			m.drawCentered(c, l.hintY, copy.T(copy.ControlsPaused), hintStyle, l.x, l.w)
 		}
 	case engine.Finished:
 		if l.controlsY > l.metaY {
 			m.drawFinishedControls(c, l.controlsY, l.x, l.w)
 		}
-		m.drawCentered(c, l.footerY, copy.T(copy.ControlsFinished), footStyle, l.x, l.w)
+		m.drawCentered(c, l.hintY, copy.T(copy.ControlsFinished), hintStyle, l.x, l.w)
 	default:
 		if l.inputY > l.metaY {
 			m.drawInput(c, l.inputY, l.x, l.w)
@@ -210,7 +224,7 @@ func (m *Model) drawContent(c *canvas.Canvas, l viewLayout) {
 		} else if l.chipsY > l.labelY {
 			m.drawChips(c, l.chipsY, l.x, l.w)
 		}
-		m.drawCentered(c, l.footerY, copy.T(copy.ControlsIdle), footStyle, l.x, l.w)
+		m.drawCentered(c, l.hintY, copy.T(copy.ControlsIdle), hintStyle, l.x, l.w)
 	}
 
 	if !m.connected {
@@ -220,9 +234,9 @@ func (m *Model) drawContent(c *canvas.Canvas, l viewLayout) {
 			msg = copy.T(copy.Disconnected)
 			col = m.pal.Danger
 		}
-		m.drawCentered(c, l.footerY-1, msg, canvas.Fg(col), l.x, l.w)
+		m.drawCentered(c, l.statusY, msg, canvas.Fg(col), l.x, l.w)
 	} else if m.toastActive() {
-		m.drawCentered(c, l.footerY-1, m.toast, canvas.Fg(m.pal.Warn), l.x, l.w)
+		m.drawCentered(c, l.statusY, m.toast, canvas.Fg(m.pal.Warn), l.x, l.w)
 	}
 }
 

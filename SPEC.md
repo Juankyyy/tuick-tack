@@ -195,8 +195,8 @@ Rutas (por usuario, sin admin):
 
 ### Pantallas y estados
 
-- **Idle:** cabecera `READY` con `no countdown`, dígitos fantasma `00:00`, input enfocado, chips de presets y footer de teclas. Mientras escribes una duración válida, los dígitos fantasma la previsualizan.
-- **Running:** cabecera `RUNNING` con `ends at HH:MM`; dígitos grandes, barra, “X remaining”, botones y footer de controles. Sin chips (foco).
+- **Idle:** cabecera `READY` con `no countdown`, dígitos fantasma `00:00`, input enfocado, chips de presets y atajos de teclas bajo los presets. Mientras escribes una duración válida, los dígitos fantasma la previsualizan.
+- **Running:** cabecera `RUNNING` con `ends at HH:MM`; dígitos grandes, barra, “X remaining”, botones y atajos de controles bajo los botones. Sin chips (foco).
 - **Paused:** como running en ámbar, cabecera `PAUSED` con `on hold`, barra atenuada, meta con “[Space] resume”.
 - **Finished / celebración:** flash + confeti + “TIME'S UP!”; la cabecera muestra `TIME'S UP!` y `at HH:MM`; tras 6 s, pantalla tranquila con resumen y `r` repeat / `Enter` close.
 - **Gestión de presets:** lista, añadir (`a`), editar (`e`), borrar (`d` con confirmación), restore defaults (`r`), start (`Enter`), close (`Esc`). `Tab` lleva el foco a la barra de acciones; `←/→` eligen acción y `Enter` la ejecuta. Las acciones que necesitan un preset se atenúan y se saltan si la lista está vacía.
@@ -210,8 +210,8 @@ Rutas (por usuario, sin admin):
 - Alt screen, cursor oculto, mouse habilitado para chips/botones.
 - Mínimo 80×24. El reloj usa escala 1 en compacto y 2 desde 100×30. La separación entre piezas es de una fila por debajo de 30 de alto y de dos filas desde 30.
 - Sin panel ni marco: la aurora ocupa toda la pantalla y el contenido vive en una columna centrada de máximo 100 celdas. En 80×24 quedan 4 celdas de margen a cada lado.
-- Estructura vertical: cabecera de dos alturas (marca arriba; estado + sub-línea `ends at` / `on hold` / `at` / `no countdown` a la derecha) · aire · hero dígitos (7) · aire · etiqueta · aire · barra · aire · meta · aire · [input + chips | botones] · footer en la última fila.
-- La cabecera y el footer se alinean a la medida; el footer queda pegado al borde inferior de la terminal.
+- Estructura vertical: cabecera de dos alturas (marca arriba; estado + sub-línea `ends at` / `on hold` / `at` / `no countdown` a la derecha) · aire · hero dígitos (7) · aire · etiqueta · aire · barra · aire · meta · aire · [input + chips | botones] · aire · atajos de teclas.
+- La cabecera se alinea a la medida y el bloque completo (dígitos → atajos) se centra verticalmente: los atajos quedan bajo los presets/botones, separados por el mismo aire (una fila por debajo de 30 de alto, dos desde 30), y el espacio sobrante queda bajo ellos. En 80×24 el bloque llena justo el alto disponible. La línea de estado (desconectado / aviso) se dibuja en la fila inmediatamente superior a los atajos.
 - Los modales se dibujan sobre un scrim que atenúa el escenario y una hoja plana sin marco, con el mismo contenido y botones.
 
 ### Teclas

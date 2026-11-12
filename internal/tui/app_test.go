@@ -80,6 +80,38 @@ func TestViewIdle(t *testing.T) {
 	}
 }
 
+func TestKeyHintsSitBelowPresets(t *testing.T) {
+	for _, tc := range []struct {
+		w, h int
+		gap  int
+	}{
+		{80, 24, 1},
+		{120, 40, 2},
+	} {
+		m, _ := testModel(tc.w, tc.h)
+		l := m.layout(tc.w, tc.h)
+		if got, want := l.hintY-l.chipsY, 1+tc.gap; got != want {
+			t.Fatalf("%dx%d hint is %d rows under the presets, want %d", tc.w, tc.h, got, want)
+		}
+		if l.statusY != l.hintY-1 {
+			t.Fatalf("%dx%d status row = %d, want %d", tc.w, tc.h, l.statusY, l.hintY-1)
+		}
+		if l.hintY >= tc.h {
+			t.Fatalf("%dx%d hint row = %d, outside the frame", tc.w, tc.h, l.hintY)
+		}
+		lines := render(m)
+		hintLine := -1
+		for i, line := range lines {
+			if strings.Contains(line, copy.T(copy.ControlsIdle)) {
+				hintLine = i
+			}
+		}
+		if hintLine != l.hintY {
+			t.Fatalf("%dx%d hints render at row %d, want %d", tc.w, tc.h, hintLine, l.hintY)
+		}
+	}
+}
+
 func TestViewHasNoWindowFrame(t *testing.T) {
 	for _, size := range [][2]int{{80, 24}, {120, 40}} {
 		m, _ := testModel(size[0], size[1])
