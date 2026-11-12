@@ -97,8 +97,10 @@ is expected for an unsigned build.
 | Paused | `Space` resume; `Esc` confirm cancel; `+` / `-` ±1 min; `v` sound settings; `?` help |
 | Finished | `r` repeat; `v` sound settings; `Enter` / `Esc` close the celebration |
 | Sound | `↑` `↓` select the sound; `←` `→` volume ±5%; `Space` preview; `m` mute; `Esc` close |
-| Presets | `↑` `↓` move; `a` add; `e` edit; `d` delete; `r` restore defaults; `Enter` start; `Esc` close |
+| Presets | `↑` `↓` move; `Tab` actions; `←` `→` choose action; `Enter` start/run; `a` add; `e` edit; `d` delete; `r` restore defaults; `Esc` close |
 | Form | `Tab` field; `Enter` save; `Esc` cancel |
+
+In the app, key hints use the `[key] action` format (for example, `[Space] pause`).
 
 Duration formats: `25` = 25 min · `12:30` = 12 min 30 s · `90s` · `1h30m` ·
 `1:02:03`. The accepted range is 1 second to 24 hours.

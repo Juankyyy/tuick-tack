@@ -1,6 +1,7 @@
 package copy
 
 import (
+	"strings"
 	"testing"
 
 	"tuick-tack/internal/config"
@@ -28,7 +29,7 @@ func TestSoundLabelsAreSingleCell(t *testing.T) {
 func TestSoundAndTrayCopyExists(t *testing.T) {
 	keys := []Key{
 		SoundTitle, SoundOn, SoundOff, SoundVolume, SoundPreview,
-		SoundMute, SoundUnmute, SoundHint,
+		SoundMute, SoundUnmute, SoundHint, SoundActionHint,
 		SoundChime, SoundMarimba, SoundDigital, SoundDeep,
 		HelpSound,
 		TraySoundSettings, TraySoundSettingsTooltip, TraySoundPresetTooltip,
@@ -39,6 +40,35 @@ func TestSoundAndTrayCopyExists(t *testing.T) {
 	for _, key := range keys {
 		if T(key) == "" || T(key) == string(key) {
 			t.Errorf("copy key %q has no text", key)
+		}
+	}
+}
+
+func TestPresetCopyExists(t *testing.T) {
+	keys := []Key{
+		PresetsTitle, PresetsEmpty, PresetsHint, PresetsActionHint,
+		PresetNewTitle, PresetEditTitle, PresetName, PresetDuration,
+		PresetFormHint, PresetDeleteTitle, HelpPresets,
+	}
+	for _, key := range keys {
+		if T(key) == "" || T(key) == string(key) {
+			t.Errorf("copy key %q has no text", key)
+		}
+	}
+}
+
+func TestKeyHintsUseBracketFormat(t *testing.T) {
+	keys := []Key{
+		ControlsIdle, ControlsRunning, ControlsPaused, ControlsFinished,
+		FinishedMeta, PausedMeta,
+		HelpIdle, HelpTimer, HelpModal, HelpSound, HelpFinished, HelpClose, HelpPresets,
+		SoundHint, SoundActionHint,
+		PresetFormHint, PresetsEmpty, PresetsHint, PresetsActionHint,
+	}
+	for _, key := range keys {
+		text := T(key)
+		if !strings.Contains(text, "[") || !strings.Contains(text, "]") {
+			t.Errorf("key hint %q does not use [key] labels: %q", key, text)
 		}
 	}
 }

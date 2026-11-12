@@ -44,19 +44,21 @@ const (
 	HelpFormats      = Key("help.formats")
 	HelpFinished     = Key("help.finished")
 	HelpSound        = Key("help.sound")
+	HelpPresets      = Key("help.presets")
 
-	SoundTitle   = Key("sound.title")
-	SoundOn      = Key("sound.on")
-	SoundOff     = Key("sound.off")
-	SoundVolume  = Key("sound.volume")
-	SoundPreview = Key("sound.preview")
-	SoundMute    = Key("sound.mute")
-	SoundUnmute  = Key("sound.unmute")
-	SoundHint    = Key("sound.hint")
-	SoundChime   = Key("sound.chime")
-	SoundMarimba = Key("sound.marimba")
-	SoundDigital = Key("sound.digital")
-	SoundDeep    = Key("sound.deep")
+	SoundTitle      = Key("sound.title")
+	SoundOn         = Key("sound.on")
+	SoundOff        = Key("sound.off")
+	SoundVolume     = Key("sound.volume")
+	SoundPreview    = Key("sound.preview")
+	SoundMute       = Key("sound.mute")
+	SoundUnmute     = Key("sound.unmute")
+	SoundHint       = Key("sound.hint")
+	SoundActionHint = Key("sound.action.hint")
+	SoundChime      = Key("sound.chime")
+	SoundMarimba    = Key("sound.marimba")
+	SoundDigital    = Key("sound.digital")
+	SoundDeep       = Key("sound.deep")
 
 	Pause    = Key("action.pause")
 	Resume   = Key("action.resume")
@@ -85,6 +87,7 @@ const (
 	PresetsTitle      = Key("presets.title")
 	PresetsEmpty      = Key("presets.empty")
 	PresetsHint       = Key("presets.hint")
+	PresetsActionHint = Key("presets.action.hint")
 	PresetNewTitle    = Key("preset.new")
 	PresetEditTitle   = Key("preset.edit")
 	PresetName        = Key("preset.name")
@@ -174,38 +177,40 @@ var texts = map[Key]string{
 	ReadyTitle:       "Ready when you are",
 	ReadyMeta:        "Type a duration or pick a preset",
 	InputPlaceholder: "25 · 12:30 · 90s · 1h30m",
-	PausedMeta:       "%s remaining · space to resume",
+	PausedMeta:       "%s remaining · [Space] resume",
 	RunningMeta:      "%s remaining · ends at %s",
 	FinishedTitle:    "%s completed",
-	FinishedMeta:     "r repeat · enter close",
+	FinishedMeta:     "[r] repeat · [Enter] close",
 	EndsAt:           "ends at %s",
 	TimeAt:           "at %s",
 	Completed:        "%s completed",
 
-	ControlsIdle:     "p presets · t theme · v sound · s mute · ? help · q quit",
-	ControlsRunning:  "space pause · esc cancel · + / - 1 min · v sound · ? help · q quit",
-	ControlsPaused:   "space resume · esc cancel · + / - 1 min · v sound · ? help · q quit",
-	ControlsFinished: "v sound · ? help · q quit",
+	ControlsIdle:     "[p] presets · [t] theme · [v] sound · [s] mute · [?] help · [q] quit",
+	ControlsRunning:  "[Space] pause · [Esc] cancel · [+/-] 1 min · [v] sound · [q] quit",
+	ControlsPaused:   "[Space] resume · [Esc] cancel · [+/-] 1 min · [v] sound · [q] quit",
+	ControlsFinished: "[v] sound · [?] help · [q] quit",
 	HeroFinished:     "TIME'S UP!",
 	LabelFocus:       "Focus",
 	RepeatHint:       "r repeat",
 	CloseHint:        "enter close",
 	HelpFormats:      "25 min · 12:30 · 90s · 1h30m",
-	HelpFinished:     "finished: r repeat · enter close",
-	HelpSound:        "sound: v settings · s mute · space preview in the sound panel",
+	HelpFinished:     "finished: [r] repeat · [Enter] close",
+	HelpSound:        "sound: [v] settings · [s] mute · [Space] preview",
+	HelpPresets:      "presets: [a] add · [e] edit · [d] delete · [r] defaults",
 
-	SoundTitle:   "Sound",
-	SoundOn:      "Sound on",
-	SoundOff:     "Sound off",
-	SoundVolume:  "Volume",
-	SoundPreview: "preview",
-	SoundMute:    "mute",
-	SoundUnmute:  "unmute",
-	SoundHint:    "↑↓ sound · ←→ volume · space preview · m mute · esc close",
-	SoundChime:   "Chime",
-	SoundMarimba: "Marimba",
-	SoundDigital: "Digital",
-	SoundDeep:    "Deep",
+	SoundTitle:      "Sound",
+	SoundOn:         "Sound on",
+	SoundOff:        "Sound off",
+	SoundVolume:     "Volume",
+	SoundPreview:    "preview",
+	SoundMute:       "mute",
+	SoundUnmute:     "unmute",
+	SoundHint:       "[↑↓] sound · [←→] volume",
+	SoundActionHint: "[Space] preview · [m] mute · [Esc] close",
+	SoundChime:      "Chime",
+	SoundMarimba:    "Marimba",
+	SoundDigital:    "Digital",
+	SoundDeep:       "Deep",
 
 	Pause:    "pause",
 	Resume:   "resume",
@@ -226,19 +231,20 @@ var texts = map[Key]string{
 	Back:     "back",
 
 	HelpTitle: "Help",
-	HelpIdle:  "type a duration · enter start · left/right preset",
-	HelpTimer: "space pause/resume · esc cancel · +/- adjust 1 min",
-	HelpModal: "p presets · t theme · v sound · s mute · ? help · q quit",
-	HelpClose: "esc or enter to close",
+	HelpIdle:  "type a duration · [Enter] start · [←→] select preset",
+	HelpTimer: "[Space] pause/resume · [Esc] cancel · [+/-] adjust 1 min",
+	HelpModal: "[p] presets · [t] theme · [v] sound · [?] help · [q] quit",
+	HelpClose: "[Esc] or [Enter] to close",
 
 	PresetsTitle:      "Presets",
-	PresetsEmpty:      "No presets yet. Press a to add one.",
-	PresetsHint:       "↑↓ move · a add · e edit · d delete · r defaults · enter start · esc close",
+	PresetsEmpty:      "No presets yet. Press [a] to add one.",
+	PresetsHint:       "[↑↓] move · [Tab] buttons · [Enter] start · [Esc] close",
+	PresetsActionHint: "[←→] choose · [Enter] run · [Tab] back · [Esc] close",
 	PresetNewTitle:    "New preset",
 	PresetEditTitle:   "Edit preset",
 	PresetName:        "Name",
 	PresetDuration:    "Duration",
-	PresetFormHint:    "Tab field · Enter save · Esc cancel",
+	PresetFormHint:    "[Tab] field · [Enter] save · [Esc] cancel",
 	PresetDeleteTitle: "Delete “%s”?",
 
 	StopTitle: "Stop the countdown?",

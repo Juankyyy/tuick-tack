@@ -12,6 +12,7 @@ import (
 	"tuick-tack/internal/engine"
 	"tuick-tack/internal/protocol"
 	"tuick-tack/internal/tui/canvas"
+	"tuick-tack/internal/tui/copy"
 	"tuick-tack/internal/tui/theme"
 )
 
@@ -67,7 +68,7 @@ func applyRunning(m *Model) {
 func TestViewIdle(t *testing.T) {
 	m, _ := testModel(80, 24)
 	plain := assertFrame(t, m, 80, 24)
-	for _, want := range []string{"tuick·tack", "Ready when you are", "5 min", "12:30", "p presets"} {
+	for _, want := range []string{"tuick·tack", "Ready when you are", "5 min", "12:30", "[p] presets", copy.T(copy.ControlsIdle)} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("idle view missing %q", want)
 		}
@@ -83,7 +84,7 @@ func TestViewRunningPaused(t *testing.T) {
 	m, _ := testModel(80, 24)
 	applyRunning(m)
 	plain := assertFrame(t, m, 80, 24)
-	for _, want := range []string{"running", "5 min", "remaining", "ends at", "pause", "cancel"} {
+	for _, want := range []string{"running", "5 min", "remaining", "ends at", "pause", "cancel", copy.T(copy.ControlsRunning)} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("running view missing %q", want)
 		}
@@ -91,7 +92,7 @@ func TestViewRunningPaused(t *testing.T) {
 	m.state.Status = "paused"
 	m.state.RemainingMS = 120000
 	plain = assertFrame(t, m, 80, 24)
-	for _, want := range []string{"PAUSED", "resume", "space resume"} {
+	for _, want := range []string{"PAUSED", "resume", "[Space] resume", "remaining · [Space] resume", copy.T(copy.ControlsPaused)} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("paused view missing %q", want)
 		}
@@ -112,7 +113,7 @@ func TestViewFinishedAndCelebrationOnce(t *testing.T) {
 		t.Fatalf("confetti count = %d, want 220", m.confetti.Count())
 	}
 	plain := assertFrame(t, m, 80, 24)
-	for _, want := range []string{"time's up!", "5 min completed", "repeat", "close"} {
+	for _, want := range []string{"time's up!", "5 min completed", "repeat", "close", copy.T(copy.ControlsFinished), copy.T(copy.FinishedMeta)} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("finished view missing %q", want)
 		}
@@ -224,10 +225,170 @@ func TestModalsOpenAndClose(t *testing.T) {
 	if m.modal != modalHelp {
 		t.Fatalf("modal = %v, want help", m.modal)
 	}
-	assertFrame(t, m, 80, 24)
+	plain := assertFrame(t, m, 80, 24)
+	for _, want := range []string{
+		copy.T(copy.HelpIdle), copy.T(copy.HelpTimer), copy.T(copy.HelpModal),
+		copy.T(copy.HelpSound), copy.T(copy.HelpPresets),
+		copy.T(copy.HelpFormats), copy.T(copy.HelpFinished),
+	} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("help is missing %q", want)
+		}
+	}
 	press(m, tea.KeyEnter, "")
 	if m.modal != modalNone {
 		t.Fatalf("help did not close")
+	}
+}
+
+func TestPresetKeyboardNavigation(t *testing.T) {
+	m, _ := testModel(80, 24)
+	press(m, 'p', "p")
+	if m.presetFocus != presetFocusList {
+		t.Fatalf("initial preset focus = %d, want list", m.presetFocus)
+	}
+	plain := assertFrame(t, m, 80, 24)
+	if !strings.Contains(plain, copy.T(copy.PresetsHint)) {
+		t.Fatal("presets modal is missing the keyboard hint")
+	}
+
+	press(m, tea.KeyTab, "")
+	if m.presetFocus != 0 {
+		t.Fatalf("tab focus = %d, want add", m.presetFocus)
+	}
+	plain = assertFrame(t, m, 80, 24)
+	if !strings.Contains(plain, copy.T(copy.PresetsActionHint)) {
+		t.Fatalf("action bar hint missing: %q", plain)
+	}
+
+	press(m, tea.KeyEnter, "")
+	if m.modal != modalPresetForm {
+		t.Fatalf("enter on add opened %v, want form", m.modal)
+	}
+	press(m, tea.KeyEscape, "")
+	if m.modal != modalPresets {
+		t.Fatalf("escape from form = %v, want presets", m.modal)
+	}
+
+	press(m, tea.KeyRight, "")
+	press(m, tea.KeyRight, "")
+	if m.presetFocus != 2 {
+		t.Fatalf("right focus = %d, want delete", m.presetFocus)
+	}
+	press(m, tea.KeyEnter, "")
+	if m.modal != modalConfirmDelete {
+		t.Fatalf("enter on delete = %v, want confirmation", m.modal)
+	}
+	press(m, tea.KeyEscape, "")
+	if m.modal != modalPresets || m.presetFocus != 2 {
+		t.Fatalf("cancel should return to delete: modal=%v focus=%d", m.modal, m.presetFocus)
+	}
+
+	press(m, tea.KeyRight, "")
+	if m.presetFocus != 3 {
+		t.Fatalf("focus = %d, want defaults", m.presetFocus)
+	}
+	press(m, tea.KeyEnter, "")
+	if m.modal != modalPresets {
+		t.Fatalf("defaults should keep the modal open, got %v", m.modal)
+	}
+	press(m, tea.KeyRight, "")
+	if m.presetFocus != 4 {
+		t.Fatalf("focus = %d, want start", m.presetFocus)
+	}
+	press(m, tea.KeyEnter, "")
+	if m.modal != modalNone {
+		t.Fatalf("start should close the modal, got %v", m.modal)
+	}
+
+	press(m, 'p', "p")
+	press(m, tea.KeyTab, "")
+	press(m, tea.KeyDown, "")
+	if m.presetFocus != presetFocusList {
+		t.Fatalf("down focus = %d, want list", m.presetFocus)
+	}
+	if m.presetCursor != 1 {
+		t.Fatalf("down cursor = %d, want 1", m.presetCursor)
+	}
+
+	press(m, tea.KeyTab, "")
+	press(m, tea.KeyLeft, "")
+	if m.presetFocus != 5 {
+		t.Fatalf("left focus = %d, want close", m.presetFocus)
+	}
+	press(m, tea.KeyEnter, "")
+	if m.modal != modalNone {
+		t.Fatalf("close action left modal %v open", m.modal)
+	}
+
+	m.width, m.height = 120, 40
+	press(m, 'p', "p")
+	press(m, tea.KeyTab, "")
+	assertFrame(t, m, 120, 40)
+}
+
+func TestPresetLetterShortcuts(t *testing.T) {
+	m, _ := testModel(80, 24)
+	press(m, 'p', "p")
+	press(m, 'e', "e")
+	if m.modal != modalPresetForm {
+		t.Fatalf("e opened %v, want the edit form", m.modal)
+	}
+	press(m, tea.KeyEscape, "")
+	press(m, 'd', "d")
+	if m.modal != modalConfirmDelete {
+		t.Fatalf("d opened %v, want the delete confirmation", m.modal)
+	}
+	press(m, tea.KeyEscape, "")
+	press(m, 'a', "a")
+	if m.modal != modalPresetForm {
+		t.Fatalf("a opened %v, want the add form", m.modal)
+	}
+	press(m, tea.KeyEscape, "")
+	press(m, 'r', "r")
+	if m.modal != modalPresets {
+		t.Fatalf("r left modal %v open", m.modal)
+	}
+	press(m, tea.KeyTab, "")
+	press(m, tea.KeyEscape, "")
+	if m.modal != modalNone {
+		t.Fatalf("escape from the action bar left modal %v open", m.modal)
+	}
+}
+
+func TestPresetKeyboardSkipsDisabledActions(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.cfg.Presets = nil
+	press(m, 'p', "p")
+	press(m, tea.KeyTab, "")
+	if m.presetFocus != 0 {
+		t.Fatalf("tab focus = %d, want add", m.presetFocus)
+	}
+	press(m, tea.KeyRight, "")
+	if m.presetFocus != 3 {
+		t.Fatalf("focus = %d, want defaults (edit/delete skipped)", m.presetFocus)
+	}
+	press(m, tea.KeyRight, "")
+	if m.presetFocus != 5 {
+		t.Fatalf("focus = %d, want close (start skipped)", m.presetFocus)
+	}
+	press(m, tea.KeyRight, "")
+	if m.presetFocus != 0 {
+		t.Fatalf("focus = %d, want add after wrapping", m.presetFocus)
+	}
+	plain := assertFrame(t, m, 80, 24)
+	if !strings.Contains(plain, copy.T(copy.PresetsEmpty)) {
+		t.Fatal("empty state not rendered")
+	}
+}
+
+func TestPresetFocusClampsWhenPresetsDisappear(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.presetFocus = 1 // edit
+	m.cfg.Presets = nil
+	m.clampPresetFocus()
+	if m.presetFocus != 3 {
+		t.Fatalf("focus = %d, want defaults", m.presetFocus)
 	}
 }
 
@@ -296,7 +457,7 @@ func TestSoundModal(t *testing.T) {
 		t.Fatalf("sound cursor = %d, want digital", m.soundCursor)
 	}
 	plain := assertFrame(t, m, 80, 24)
-	for _, want := range []string{"Sound", "Digital", "Volume", "80%", "preview", "mute"} {
+	for _, want := range []string{"Sound", "Digital", "Volume", "80%", "preview", "mute", copy.T(copy.SoundHint), copy.T(copy.SoundActionHint)} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("sound modal missing %q", want)
 		}
@@ -381,7 +542,7 @@ func TestFormAndThemesRender(t *testing.T) {
 		press(m, 'p', "p")
 		press(m, 'a', "a")
 		plain := assertFrame(t, m, 80, 24)
-		for _, want := range []string{"New preset", "Name", "Duration", "save", "cancel"} {
+		for _, want := range []string{"New preset", "Name", "Duration", "save", "cancel", copy.T(copy.PresetFormHint)} {
 			if !strings.Contains(plain, want) {
 				t.Errorf("%s form missing %q", name, want)
 			}

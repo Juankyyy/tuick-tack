@@ -81,6 +81,27 @@ const (
 	hitSoundClose
 )
 
+// presetFocusList means the preset list owns the keyboard focus; any other
+// value is an index into presetActionDefs.
+const presetFocusList = -1
+
+// presetActionDef describes one button in the presets modal. The view and the
+// keyboard handler share the list so both stay in sync.
+type presetActionDef struct {
+	label       copy.Key
+	action      hitAction
+	needsPreset bool
+}
+
+var presetActionDefs = []presetActionDef{
+	{copy.Add, hitPresetAdd, false},
+	{copy.Edit, hitPresetEdit, true},
+	{copy.Delete, hitPresetDelete, true},
+	{copy.Restore, hitPresetRestore, false},
+	{copy.Start, hitPresetStart, true},
+	{copy.Close, hitClose, false},
+}
+
 type hitbox struct {
 	x, y, w, h int
 	action     hitAction
@@ -130,6 +151,7 @@ type Model struct {
 	modal        modalKind
 	presetCursor int
 	presetScroll int
+	presetFocus  int
 	soundCursor  int
 	form         formState
 	deleteTarget config.Preset
@@ -160,16 +182,17 @@ func newModel(pipe string, now func() time.Time, seed int64) *Model {
 	cfg := config.Default()
 	cfg.Theme = "midnight"
 	return &Model{
-		pipe:       pipe,
-		now:        now,
-		seed:       seed,
-		cfg:        cfg,
-		pal:        pal,
-		width:      80,
-		height:     24,
-		connecting: true,
-		dust:       fx.NewDust(seed, 80, 24),
-		lastTick:   now(),
+		pipe:        pipe,
+		now:         now,
+		seed:        seed,
+		cfg:         cfg,
+		pal:         pal,
+		width:       80,
+		height:      24,
+		presetFocus: presetFocusList,
+		connecting:  true,
+		dust:        fx.NewDust(seed, 80, 24),
+		lastTick:    now(),
 	}
 }
 
@@ -350,6 +373,7 @@ func (m *Model) applyConfig(cfg protocol.ConfigMessage) {
 	if m.presetCursor >= len(c.Presets) {
 		m.presetCursor = maxInt(0, len(c.Presets)-1)
 	}
+	m.clampPresetFocus()
 	if m.form.mode == formEdit {
 		found := false
 		for _, p := range c.Presets {
@@ -569,41 +593,116 @@ func (m *Model) handleModalKey(key tea.Key) tea.Cmd {
 func (m *Model) handlePresetListKey(key tea.Key) tea.Cmd {
 	text := key.Text
 	n := len(m.cfg.Presets)
+	m.clampPresetFocus()
 	switch {
 	case key.Code == tea.KeyEscape:
 		m.modal = modalNone
+	case key.Code == tea.KeyTab:
+		// Tab moves between the list and the action bar; the bar is entered
+		// at the first action that is available.
+		if m.presetFocus == presetFocusList {
+			m.presetFocus = m.firstPresetAction()
+		} else {
+			m.presetFocus = presetFocusList
+		}
+	case key.Code == tea.KeyLeft:
+		if m.presetFocus != presetFocusList {
+			m.movePresetFocus(-1)
+		}
+	case key.Code == tea.KeyRight:
+		if m.presetFocus != presetFocusList {
+			m.movePresetFocus(1)
+		}
 	case key.Code == tea.KeyUp:
+		m.presetFocus = presetFocusList
 		if n > 0 {
 			m.presetCursor = (m.presetCursor - 1 + n) % n
 		}
 	case key.Code == tea.KeyDown:
+		m.presetFocus = presetFocusList
 		if n > 0 {
 			m.presetCursor = (m.presetCursor + 1) % n
 		}
 	case key.Code == tea.KeyEnter:
+		if m.presetFocus != presetFocusList {
+			return m.activatePresetAction(m.presetFocus)
+		}
 		if p, ok := m.cursorPreset(); ok {
 			m.selected = m.presetCursor
 			m.modal = modalNone
 			return m.startPreset(p)
 		}
 	case text == "a":
-		m.openForm(formAdd, config.Preset{})
+		return m.activatePresetAction(presetActionIndex(hitPresetAdd))
 	case text == "e":
-		if p, ok := m.cursorPreset(); ok {
-			m.openForm(formEdit, p)
-		}
+		return m.activatePresetAction(presetActionIndex(hitPresetEdit))
 	case text == "d":
-		if p, ok := m.cursorPreset(); ok {
-			m.deleteTarget = p
-			m.modal = modalConfirmDelete
-		}
+		return m.activatePresetAction(presetActionIndex(hitPresetDelete))
 	case text == "r":
-		m.modal = modalPresets
-		m.showToast(copy.T(copy.ToastRestored))
-		return m.send(protocol.ClientMessage{Type: protocol.TypePresetsRestoreDefault})
+		return m.activatePresetAction(presetActionIndex(hitPresetRestore))
 	}
 	m.clampPresetCursor()
 	return nil
+}
+
+func presetActionIndex(action hitAction) int {
+	for i, def := range presetActionDefs {
+		if def.action == action {
+			return i
+		}
+	}
+	return presetFocusList
+}
+
+func (m *Model) presetActionEnabled(i int) bool {
+	if i < 0 || i >= len(presetActionDefs) {
+		return false
+	}
+	return !presetActionDefs[i].needsPreset || len(m.cfg.Presets) > 0
+}
+
+func (m *Model) firstPresetAction() int {
+	for i := 0; i < len(presetActionDefs); i++ {
+		if m.presetActionEnabled(i) {
+			return i
+		}
+	}
+	return presetFocusList
+}
+
+// clampPresetFocus keeps the focus on an available action. When a preset is
+// deleted while edit/delete/start is focused, focus moves to the next action.
+func (m *Model) clampPresetFocus() {
+	if m.presetFocus == presetFocusList || m.presetActionEnabled(m.presetFocus) {
+		return
+	}
+	m.movePresetFocus(1)
+}
+
+func (m *Model) movePresetFocus(delta int) {
+	if m.presetFocus == presetFocusList {
+		m.presetFocus = m.firstPresetAction()
+		return
+	}
+	for step := 1; step <= len(presetActionDefs); step++ {
+		next := (m.presetFocus + delta*step) % len(presetActionDefs)
+		if next < 0 {
+			next += len(presetActionDefs)
+		}
+		if m.presetActionEnabled(next) {
+			m.presetFocus = next
+			return
+		}
+	}
+}
+
+// activatePresetAction routes keyboard activation through the same handler as
+// a mouse click, so both input paths behave identically.
+func (m *Model) activatePresetAction(i int) tea.Cmd {
+	if !m.presetActionEnabled(i) {
+		return nil
+	}
+	return m.performHit(hitbox{action: presetActionDefs[i].action})
 }
 
 func (m *Model) handleFormKey(key tea.Key) tea.Cmd {
@@ -696,6 +795,7 @@ func (m *Model) performHit(hit hitbox) tea.Cmd {
 		m.openForm(formAdd, config.Preset{})
 	case hitPresetRow:
 		m.presetCursor = hit.index
+		m.presetFocus = presetFocusList
 		m.clampPresetCursor()
 	case hitPause:
 		return m.togglePause()
@@ -925,6 +1025,7 @@ func (m *Model) openPresets() {
 	m.modal = modalPresets
 	m.presetCursor = 0
 	m.presetScroll = 0
+	m.presetFocus = presetFocusList
 	if len(m.cfg.Presets) == 0 {
 		m.presetCursor = 0
 	} else if m.selected >= 0 && m.selected < len(m.cfg.Presets) {

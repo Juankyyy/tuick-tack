@@ -196,12 +196,12 @@ Rutas (por usuario, sin admin):
 
 - **Idle:** dígitos fantasma `00:00`, input enfocado, chips de presets, footer de teclas. Mientras escribes una duración válida, los dígitos fantasma la previsualizan.
 - **Running:** header con preset/estado, dígitos grandes, barra, “X remaining”, “ends at HH:MM”, footer de controles. Sin chips (foco).
-- **Paused:** como running en ámbar, pill “PAUSED”, barra atenuada, “space to resume”.
+- **Paused:** como running en ámbar, pill “PAUSED”, barra atenuada, “[Space] resume”.
 - **Finished / celebración:** flash + confeti + “TIME'S UP!”; tras 6 s, pantalla tranquila con resumen y `r` repeat / `Enter` close.
-- **Gestión de presets:** lista, añadir (`a`), editar (`e`), borrar (`d` con confirmación), restore defaults (`r`), start (`Enter`), close (`Esc`).
+- **Gestión de presets:** lista, añadir (`a`), editar (`e`), borrar (`d` con confirmación), restore defaults (`r`), start (`Enter`), close (`Esc`). `Tab` lleva el foco a la barra de acciones; `←/→` eligen acción y `Enter` la ejecuta. Las acciones que necesitan un preset se atenúan y se saltan si la lista está vacía.
 - **Sonido:** modal `v` con on/off, lista Chime/Marimba/Digital/Deep, volumen 0–100 en pasos de 5, preview con `Space` y mute con `m`. Elegir sonido o cambiar volumen previsualiza si el sonido está activo.
 - **Confirmación de cancelar:** overlay “Stop the countdown? Enter yes · Esc no”.
-- **Ayuda:** overlay `?` con título “Help”.
+- **Ayuda:** overlay `?` con título “Help”, atajos globales y los atajos de sonido y presets (`[a] add`, `[e] edit`, `[d] delete`, `[r] defaults`).
 - **Desconectado:** banner “Daemon disconnected — retrying…” y comandos deshabilitados.
 
 ### Layout
@@ -213,6 +213,8 @@ Rutas (por usuario, sin admin):
 
 ### Teclas
 
+Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pause`); los botones conservan sus propios corchetes.
+
 | Contexto | Acción |
 |---|---|
 | Idle | dígitos/`:`/`h`/`m`/`s` escriben; `Backspace` borra; `Enter` inicia; `←/→` seleccionan preset; `p` gestor; `t` tema; `v` sonido; `s` mute; `?` ayuda; `q` salir de la TUI |
@@ -220,7 +222,7 @@ Rutas (por usuario, sin admin):
 | Paused | `Space` reanuda; `Esc` confirma cancelar; `+`/`-` ±1 min; `v` sonido; `q` salir |
 | Finished | `Enter`/`Esc` cierran; `r` repiten; `v` sonido |
 | Sonido | `↑/↓` sonido; `←/→` volumen ±5; `Space` preview; `m` mute; `Esc`/`Enter` cerrar |
-| Gestor | `↑/↓` mover; `a` añadir; `e` editar; `d` borrar; `r` defaults; `Enter` iniciar; `Esc` cerrar; en formulario `Tab` campo, `Enter` guardar, `Esc` cancelar |
+| Gestor | `↑/↓` mover; `Tab` acciones; `←/→` elegir acción; `Enter` iniciar (lista) o ejecutar (acción); `a` añadir; `e` editar; `d` borrar; `r` defaults; `Esc` cerrar; en formulario `Tab` campo, `Enter` guardar, `Esc` cancelar |
 
 ### Parser de duraciones
 

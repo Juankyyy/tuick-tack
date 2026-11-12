@@ -22,6 +22,13 @@ import (
 
 type rect struct{ x, y, w, h int }
 
+// button is one entry in a horizontal button row.
+type button struct {
+	label    string
+	action   hitAction
+	disabled bool
+}
+
 // View renders the whole TUI through the canvas package.
 func (m *Model) View() tea.View {
 	w, h := m.viewSize()
@@ -551,32 +558,23 @@ func (m *Model) drawTimerControls(c *canvas.Canvas, y, x, w int) {
 	if m.status() == engine.Paused {
 		pauseLabel = copy.T(copy.Resume)
 	}
-	items := []struct {
-		label  string
-		action hitAction
-	}{
-		{pauseLabel, hitPause},
-		{copy.T(copy.PlusMin), hitAdjustPlus},
-		{copy.T(copy.MinusMin), hitAdjustMinus},
-		{copy.T(copy.Cancel), hitCancel},
+	items := []button{
+		{pauseLabel, hitPause, false},
+		{copy.T(copy.PlusMin), hitAdjustPlus, false},
+		{copy.T(copy.MinusMin), hitAdjustMinus, false},
+		{copy.T(copy.Cancel), hitCancel, false},
 	}
-	m.drawButtons(c, y, x, w, items)
+	m.drawButtons(c, y, x, w, items, hitNone)
 }
 
 func (m *Model) drawFinishedControls(c *canvas.Canvas, y, x, w int) {
-	m.drawButtons(c, y, x, w, []struct {
-		label  string
-		action hitAction
-	}{
-		{copy.T(copy.RepeatHint), hitRepeat},
-		{copy.T(copy.CloseHint), hitDismiss},
-	})
+	m.drawButtons(c, y, x, w, []button{
+		{copy.T(copy.RepeatHint), hitRepeat, false},
+		{copy.T(copy.CloseHint), hitDismiss, false},
+	}, hitNone)
 }
 
-func (m *Model) drawButtons(c *canvas.Canvas, y, x, w int, items []struct {
-	label  string
-	action hitAction
-}) {
+func (m *Model) drawButtons(c *canvas.Canvas, y, x, w int, items []button, focus hitAction) {
 	widths := make([]int, len(items))
 	total := 0
 	for i, it := range items {
@@ -592,18 +590,28 @@ func (m *Model) drawButtons(c *canvas.Canvas, y, x, w int, items []struct {
 		bw := widths[i]
 		bg := theme.Lerp(m.pal.Panel, m.pal.Text, 0.08)
 		fg := m.pal.Text
-		if it.action == hitCancel {
+		bracket := m.pal.Muted
+		bold := true
+		switch {
+		case it.disabled:
+			bg = theme.Lerp(m.pal.Panel, m.pal.Text, 0.03)
+			fg = theme.Lerp(m.pal.Panel, m.pal.Muted, 0.7)
+			bold = false
+		case focus != hitNone && it.action == focus:
+			bg = m.pal.Accent
+			fg = m.pal.BG
+			bracket = m.pal.BG
+		case it.action == hitCancel:
 			bg = theme.Lerp(m.pal.Panel, m.pal.Danger, 0.16)
 			fg = m.pal.Danger
-		}
-		if it.action == hitPause {
+		case it.action == hitPause:
 			bg = theme.Lerp(m.pal.Panel, m.pal.Accent, 0.18)
 			fg = m.pal.Accent
 		}
 		c.Fill(sx, y, bw, 1, canvas.Full(fg, bg))
-		c.Set(sx, y, '[', canvas.Fg(m.pal.Muted))
-		c.Set(sx+bw-1, y, ']', canvas.Fg(m.pal.Muted))
-		c.Text(sx+2, y, it.label, canvas.Style{FG: fg, HasFG: true, Bold: true})
+		c.Set(sx, y, '[', canvas.Fg(bracket))
+		c.Set(sx+bw-1, y, ']', canvas.Fg(bracket))
+		c.Text(sx+2, y, it.label, canvas.Style{FG: fg, HasFG: true, Bold: bold})
 		m.addHit(sx, y, bw, 1, it.action, 0)
 		sx += bw + 2
 	}
@@ -656,6 +664,7 @@ func (m *Model) drawHelp(c *canvas.Canvas, base rect) {
 		{copy.T(copy.HelpTimer), m.pal.Text},
 		{copy.T(copy.HelpModal), m.pal.Text},
 		{copy.T(copy.HelpSound), m.pal.Muted},
+		{copy.T(copy.HelpPresets), m.pal.Muted},
 		{"", m.pal.Muted},
 		{copy.T(copy.HelpFormats), m.pal.Muted},
 		{copy.T(copy.HelpFinished), m.pal.Muted},
@@ -683,11 +692,11 @@ func (m *Model) drawConfirm(c *canvas.Canvas, base rect, title string, yes hitAc
 	y := r.y + 4
 	yesLabel := "enter " + copy.T(copy.Yes)
 	noLabel := "esc " + copy.T(copy.No)
-	items := []struct {
-		label  string
-		action hitAction
-	}{{yesLabel, yes}, {noLabel, hitConfirmNo}}
-	m.drawButtons(c, y, r.x+2, r.w-4, items)
+	items := []button{
+		{yesLabel, yes, false},
+		{noLabel, hitConfirmNo, false},
+	}
+	m.drawButtons(c, y, r.x+2, r.w-4, items, hitNone)
 }
 
 func (m *Model) drawPresets(c *canvas.Canvas, base rect) {
@@ -708,6 +717,7 @@ func (m *Model) drawPresets(c *canvas.Canvas, base rect) {
 		listH = 1
 	}
 	m.clampPresetCursor()
+	m.clampPresetFocus()
 	if m.presetCursor < m.presetScroll {
 		m.presetScroll = m.presetCursor
 	}
@@ -743,21 +753,29 @@ func (m *Model) drawPresets(c *canvas.Canvas, base rect) {
 	}
 
 	by := r.y + r.h - 3
-	m.drawButtons(c, by, r.x+2, r.w-4, []struct {
-		label  string
-		action hitAction
-	}{
-		{copy.T(copy.Add), hitPresetAdd},
-		{copy.T(copy.Edit), hitPresetEdit},
-		{copy.T(copy.Delete), hitPresetDelete},
-		{copy.T(copy.Restore), hitPresetRestore},
-		{copy.T(copy.Start), hitPresetStart},
-		{copy.T(copy.Close), hitClose},
-	})
+	items := make([]button, 0, len(presetActionDefs))
+	for i, def := range presetActionDefs {
+		items = append(items, button{
+			label:    copy.T(def.label),
+			action:   def.action,
+			disabled: !m.presetActionEnabled(i),
+		})
+	}
+	focus := hitNone
+	if m.presetFocus >= 0 && m.presetFocus < len(presetActionDefs) {
+		focus = presetActionDefs[m.presetFocus].action
+	}
+	m.drawButtons(c, by, r.x+2, r.w-4, items, focus)
+
+	hint := copy.T(copy.PresetsHint)
+	if m.presetFocus != presetFocusList {
+		hint = copy.T(copy.PresetsActionHint)
+	}
+	m.drawCenteredIn(c, r.x+2, r.y+r.h-2, r.w-4, hint, canvas.Fg(m.pal.Muted))
 }
 
 func (m *Model) drawSound(c *canvas.Canvas, base rect) {
-	r := m.modalRect(base, 62, 15)
+	r := m.modalRect(base, 62, 16)
 	m.drawOverlay(c, r, copy.T(copy.SoundTitle))
 	leftX := r.x + 3
 	width := r.w - 6
@@ -825,20 +843,18 @@ func (m *Model) drawSound(c *canvas.Canvas, base rect) {
 	c.Text(plusX+6, y, pct, canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
 
 	m.drawCenteredIn(c, r.x+2, r.y+11, r.w-4, copy.T(copy.SoundHint), canvas.Fg(m.pal.Muted))
+	m.drawCenteredIn(c, r.x+2, r.y+12, r.w-4, copy.T(copy.SoundActionHint), canvas.Fg(m.pal.Muted))
 
 	muteLabel := copy.T(copy.SoundUnmute)
 	if m.cfg.Sound {
 		muteLabel = copy.T(copy.SoundMute)
 	}
 	by := r.y + r.h - 3
-	m.drawButtons(c, by, r.x+2, r.w-4, []struct {
-		label  string
-		action hitAction
-	}{
-		{copy.T(copy.SoundPreview), hitSoundPreview},
-		{muteLabel, hitSoundMute},
-		{copy.T(copy.Close), hitSoundClose},
-	})
+	m.drawButtons(c, by, r.x+2, r.w-4, []button{
+		{copy.T(copy.SoundPreview), hitSoundPreview, false},
+		{muteLabel, hitSoundMute, false},
+		{copy.T(copy.Close), hitSoundClose, false},
+	}, hitNone)
 }
 
 func (m *Model) drawSoundStep(c *canvas.Canvas, x, y int, label string, action hitAction) {
@@ -868,13 +884,10 @@ func (m *Model) drawForm(c *canvas.Canvas, base rect) {
 		m.drawCenteredIn(c, r.x+2, r.y+7, r.w-4, m.form.err, canvas.Fg(m.pal.Danger))
 	}
 	by := r.y + r.h - 3
-	m.drawButtons(c, by, r.x+2, r.w-4, []struct {
-		label  string
-		action hitAction
-	}{
-		{copy.T(copy.Save), hitFormSave},
-		{copy.T(copy.Cancel), hitFormCancel},
-	})
+	m.drawButtons(c, by, r.x+2, r.w-4, []button{
+		{copy.T(copy.Save), hitFormSave, false},
+		{copy.T(copy.Cancel), hitFormCancel, false},
+	}, hitNone)
 }
 
 func (m *Model) drawField(c *canvas.Canvas, labelX, y, fieldX, fieldW int, label, value string, focused bool, action hitAction) {
