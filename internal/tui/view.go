@@ -29,6 +29,15 @@ type button struct {
 	disabled bool
 }
 
+// The styled stage is supported from 48x22. Between 22 and 23 rows it drops
+// the redundant meta line so the timer, the controls and the hints still fit;
+// below the minimum the TUI switches to the plain-text compact view.
+const (
+	minCols   = 48
+	minRows   = 22
+	tightRows = 24
+)
+
 // viewLayout is the open-stage composition: a centred measure, a two-line
 // masthead and the key hints tucked just under the presets/controls row. The
 // whole block is centred, so the spare air falls below the hints instead of
@@ -40,7 +49,7 @@ type viewLayout struct {
 	heroY     int
 	labelY    int
 	barY      int
-	metaY     int
+	metaY     int // -1 in the tight layout: the meta line is dropped
 	controlsY int
 	inputY    int
 	chipsY    int
@@ -59,18 +68,22 @@ func (m *Model) View() tea.View {
 	m.hits = m.hits[:0]
 
 	c := canvas.New(w, h)
-	m.drawBackground(c, w, h)
-	if m.dust != nil {
-		m.dust.Draw(c, theme.Lerp(m.pal.BG, m.pal.Muted, 0.55))
-	}
-	if m.celebrating && m.confetti != nil {
-		m.confetti.Draw(c)
-	}
-	m.drawContent(c, m.layout(w, h))
-	if m.modal != modalNone {
-		m.hits = m.hits[:0]
-		c.Dim(0.70)
-		m.drawModal(c, rect{x: 0, y: 0, w: w, h: h})
+	if m.compact() {
+		m.drawCompact(c, w, h)
+	} else {
+		m.drawBackground(c, w, h)
+		if m.dust != nil {
+			m.dust.Draw(c, theme.Lerp(m.pal.BG, m.pal.Muted, 0.55))
+		}
+		if m.celebrating && m.confetti != nil {
+			m.confetti.Draw(c)
+		}
+		m.drawContent(c, m.layout(w, h))
+		if m.modal != modalNone {
+			m.hits = m.hits[:0]
+			c.Dim(0.70)
+			m.drawModal(c, rect{x: 0, y: 0, w: w, h: h})
+		}
 	}
 
 	v := tea.NewView(c.Render())
@@ -80,6 +93,13 @@ func (m *Model) View() tea.View {
 	v.BackgroundColor = lipgloss.Color(theme.Hex(m.pal.BG))
 	v.ForegroundColor = lipgloss.Color(theme.Hex(m.pal.Text))
 	return v
+}
+
+// compact reports whether the terminal is below the supported minimum and the
+// plain-text fallback must take over.
+func (m *Model) compact() bool {
+	w, h := m.viewSize()
+	return w < minCols || h < minRows
 }
 
 func (m *Model) layout(w, h int) viewLayout {
@@ -100,8 +120,14 @@ func (m *Model) layout(w, h int) viewLayout {
 	// The block now ends with the key hints, one or two rows below the
 	// presets/controls, so it is centred as a whole and the spare rows stay
 	// under the hints rather than between the presets and the bottom edge.
+	// From 22 rows the redundant meta line is dropped to keep that minimum
+	// readable.
+	tight := h < tightRows
 	blockH := bigfont.GlyphH + 3*gap + 3
 	groupH := blockH + 3*gap + 3
+	if tight {
+		groupH -= gap + 1
+	}
 	top := headerY + 3
 	heroY := top
 	if avail := h - top; avail > groupH {
@@ -112,8 +138,14 @@ func (m *Model) layout(w, h int) viewLayout {
 	}
 	labelY := heroY + bigfont.GlyphH + gap
 	barY := labelY + 1 + gap
-	metaY := barY + 1 + gap
-	controlsY := metaY + 2*gap + 1
+	metaY := -1
+	controlsY := 0
+	if tight {
+		controlsY = barY + 2*gap + 1
+	} else {
+		metaY = barY + 1 + gap
+		controlsY = metaY + 2*gap + 1
+	}
 	chipsY := controlsY + 1
 	hintY := chipsY + 1 + gap
 	if hintY > h-1 {
@@ -198,7 +230,9 @@ func (m *Model) drawContent(c *canvas.Canvas, l viewLayout) {
 	m.drawHero(c, l.heroY, l.x, l.w)
 	m.drawLabel(c, l.labelY, l.x, l.w)
 	m.drawProgress(c, l.barY, l.barX, l.barW)
-	m.drawMeta(c, l.metaY, l.x, l.w)
+	if l.metaY >= 0 {
+		m.drawMeta(c, l.metaY, l.x, l.w)
+	}
 
 	hintStyle := canvas.Fg(theme.Lerp(m.pal.BG, m.pal.Muted, 0.8))
 	switch m.status() {
@@ -238,6 +272,125 @@ func (m *Model) drawContent(c *canvas.Canvas, l viewLayout) {
 	} else if m.toastActive() {
 		m.drawCentered(c, l.statusY, m.toast, canvas.Fg(m.pal.Warn), l.x, l.w)
 	}
+}
+
+// drawCompact is the plain-text fallback used below the supported minimum: a
+// flat background and a few lines, most useful first, so the clock and the
+// goal stay visible even in a tiny pane. It never draws hits or modals.
+func (m *Model) drawCompact(c *canvas.Canvas, w, h int) {
+	c.Fill(0, 0, w, h, canvas.Bg(m.pal.BG))
+	lines := m.compactLines(w)
+	if len(lines) > h {
+		lines = lines[:h]
+	}
+	y := (h - len(lines)) / 2
+	if y < 0 {
+		y = 0
+	}
+	for _, line := range lines {
+		m.drawCenteredIn(c, 0, y, w, line, canvas.Fg(m.pal.Text))
+		y++
+	}
+}
+
+// compactLines orders the information by importance: the clock first, then
+// the goal, the state and the essential keys. A short terminal keeps a prefix
+// of this list, so a one-row pane still shows the countdown.
+func (m *Model) compactLines(w int) []string {
+	var lines []string
+	switch m.status() {
+	case engine.Running, engine.Paused:
+		lines = append(lines, duration.Format(m.remaining()))
+		lines = append(lines, m.currentLabel())
+		lines = append(lines, m.compactStatus())
+		hint := copy.T(copy.CompactRunning)
+		if m.status() == engine.Paused {
+			hint = copy.T(copy.CompactPaused)
+		}
+		lines = append(lines, hint)
+	case engine.Finished:
+		lines = append(lines, copy.T(copy.HeroFinished))
+		lines = append(lines, copy.T(copy.FinishedTitle, m.finishLabel()))
+		at := m.finishedAt
+		if at.IsZero() {
+			at = m.now()
+		}
+		lines = append(lines, copy.T(copy.TimeAt, at.Format("15:04")))
+		lines = append(lines, copy.T(copy.CompactFinished))
+	default:
+		lines = append(lines, m.compactInput())
+		if m.inputErr != "" {
+			lines = append(lines, m.inputErr)
+		}
+		if presets := m.compactPresets(w); presets != "" {
+			lines = append(lines, presets)
+		}
+		lines = append(lines, m.compactStatus())
+		lines = append(lines, copy.T(copy.CompactIdle))
+	}
+
+	if m.modal == modalConfirmStop {
+		// The confirmation hides the lower-priority lines but keeps the clock
+		// on top whenever there is room for it.
+		if len(lines) > 1 {
+			lines = lines[:1]
+		}
+		lines = append(lines, copy.T(copy.StopTitle), copy.T(copy.CompactStopHint))
+	}
+
+	if !m.connected {
+		msg := copy.T(copy.Connecting)
+		if !m.connecting {
+			msg = copy.T(copy.Disconnected)
+		}
+		lines = append(lines, msg)
+	} else if m.toastActive() {
+		lines = append(lines, m.toast)
+	}
+	return lines
+}
+
+func (m *Model) compactStatus() string {
+	label, _ := m.statusInfo()
+	label = strings.ToUpper(label)
+	if sub := m.headerSubline(); sub != "" {
+		return label + " · " + sub
+	}
+	return label
+}
+
+func (m *Model) compactInput() string {
+	text := m.input
+	cursor := "_"
+	if text == "" {
+		text = copy.T(copy.InputPlaceholder)
+		cursor = " _"
+	}
+	return "› " + text + cursor
+}
+
+func (m *Model) compactPresets(w int) string {
+	items := m.chips()
+	if len(items) == 0 {
+		return ""
+	}
+	selected := m.selected
+	if selected < 0 || selected >= len(m.cfg.Presets) {
+		selected = 0
+	}
+	start, end := windowFor(items, selected, w, 3)
+	if start >= end {
+		return ""
+	}
+	parts := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		label := items[i].label
+		if items[i].index == selected {
+			label = "[" + label + "]"
+		}
+		parts = append(parts, label)
+	}
+	return strings.Join(parts, " · ")
 }
 
 // drawHeader paints the two-line masthead: the wordmark on the left and the
@@ -400,16 +553,22 @@ func (m *Model) drawLabel(c *canvas.Canvas, y, x, w int) {
 	col := m.pal.Muted
 	switch m.status() {
 	case engine.Running, engine.Paused:
-		text = strings.TrimSpace(m.state.Label)
-		if text == "" {
-			text = copy.T(copy.LabelFocus)
-		}
+		text = m.currentLabel()
 		col = m.pal.Text
 	case engine.Finished:
 		text = copy.T(copy.FinishedTitle, m.finishLabel())
 		col = m.pal.Text
 	}
 	m.drawCentered(c, y, text, canvas.Style{FG: col, HasFG: true, Bold: true}, x, w)
+}
+
+// currentLabel is the goal shown under the countdown, with a neutral fallback
+// for ad-hoc timers without a preset name.
+func (m *Model) currentLabel() string {
+	if label := strings.TrimSpace(m.state.Label); label != "" {
+		return label
+	}
+	return copy.T(copy.LabelFocus)
 }
 
 func (m *Model) drawProgress(c *canvas.Canvas, y, x, w int) {

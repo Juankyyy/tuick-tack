@@ -208,10 +208,12 @@ Rutas (por usuario, sin admin):
 ### Layout
 
 - Alt screen, cursor oculto, mouse habilitado para chips/botones.
-- Mínimo 80×24. El reloj usa escala 1 en compacto y 2 desde 100×30. La separación entre piezas es de una fila por debajo de 30 de alto y de dos filas desde 30.
+- Mínimo con estilos 48×22. El reloj usa escala 1 y pasa a escala 2 desde 100×30. La separación entre piezas es de una fila por debajo de 30 de alto y de dos filas desde 30.
+- Entre 22 y 23 filas se usa el modo *tight*: se omite la línea meta (`remaining` / `Type a duration or pick a preset`) y su hueco para que el bloque quepa sin solapes. Desde 24 filas vuelve la meta.
 - Sin panel ni marco: la aurora ocupa toda la pantalla y el contenido vive en una columna centrada de máximo 100 celdas. En 80×24 quedan 4 celdas de margen a cada lado.
 - Estructura vertical: cabecera de dos alturas (marca arriba; estado + sub-línea `ends at` / `on hold` / `at` / `no countdown` a la derecha) · aire · hero dígitos (7) · aire · etiqueta · aire · barra · aire · meta · aire · [input + chips | botones] · aire · atajos de teclas.
-- La cabecera se alinea a la medida y el bloque completo (dígitos → atajos) se centra verticalmente: los atajos quedan bajo los presets/botones, separados por el mismo aire (una fila por debajo de 30 de alto, dos desde 30), y el espacio sobrante queda bajo ellos. En 80×24 el bloque llena justo el alto disponible. La línea de estado (desconectado / aviso) se dibuja en la fila inmediatamente superior a los atajos.
+- La cabecera se alinea a la medida y el bloque completo (dígitos → atajos) se centra verticalmente: los atajos quedan bajo los presets/botones, separados por el mismo aire (una fila por debajo de 30 de alto, dos desde 30), y el espacio sobrante queda bajo ellos. En 48×22 y 80×24 el bloque llena justo el alto disponible. La línea de estado (desconectado / aviso) se dibuja en la fila inmediatamente superior a los atajos.
+- Por debajo de 48×22 (anchura < 48 o altura < 22) la TUI pasa a modo texto compacto: fondo plano, sin aurora, polvo, confeti, bigfont, chips ni botones. Muestra por prioridad el reloj, la etiqueta, el estado y los atajos esenciales, y recorta las líneas de menor prioridad hasta dejar solo el reloj en una fila. Los modales de gestión no se dibujan y sus teclas se ignoran; la confirmación de parada se muestra como texto. Al recuperar el mínimo se restaura la vista anterior.
 - Los modales se dibujan sobre un scrim que atenúa el escenario y una hoja plana sin marco, con el mismo contenido y botones.
 
 ### Teclas
@@ -454,7 +456,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - `canvas`/`bigfont`: dimensiones, clipping, ancho de runas, gradiente.
 - `fx`: RNG con semilla, física, caducidad, sin NaN, límites.
 - `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único; parseo y migración del valor de autostart; catálogo de sonidos, escalado PCM y caché.
-- `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; modal de sonido; 80×24 y 120×40; celebración una vez por `finish_seq`.
+- `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; modal de sonido; 48×22, 80×24 y 120×40 (incluido el modo compacto); celebración una vez por `finish_seq`.
 - Comandos: `go test ./...`, `go vet ./...`, `gofmt -l .`.
 
 ### Manual
@@ -468,7 +470,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 7. Entradas `25`, `12:30`, `90s`, `1h30m`, inválida.
 8. Temas; abrir `v`, recorrer los cuatro sonidos y probar 0/5/50/80/100 %; preview con `Space`; mute; “Start with Windows” on/off; “Quit”.
 9. Migrar un config v1 → aparece v2 con digital/80 y conserva presets, tema y mute.
-10. 80×24 y 120×40; resize durante el confeti; con una TUI abierta, el clic en la bandeja la enfoca sin abrir otra; lanzar `tuick-tack.exe` a mano también la enfoca y sale.
+10. 48×22, 80×24 y 120×40; resize durante el confeti; con una TUI abierta, el clic en la bandeja la enfoca sin abrir otra; lanzar `tuick-tack.exe` a mano también la enfoca y sale.
 11. El daemon (`--daemon --hidden`) no muestra consola; la TUI sí.
 12. `dist/` contiene un solo `tuick-tack.exe`; `go test`, build y ejecución desde `dist/`.
 
@@ -482,7 +484,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - [ ] Sonido de fin de 1–5 s elegible entre cuatro, con volumen 0–100 y silencio; preview desde TUI y bandeja.
 - [ ] La config v1 migra a v2 (digital/80) sin perder presets, tema ni mute.
 - [ ] Confeti a 0 en la TUI, una vez por final, ~6 s, sin artefactos al redimensionar.
-- [ ] La UI es usable a 80×24 y se ve bien a 120×40.
+- [ ] La UI es usable a 48×22 (modo tight), a 80×24, y se ve bien a 120×40.
 - [ ] Un solo `.exe`; el daemon no abre consola con `--hidden`; autostart opcional funciona.
 - [ ] Tests, vet y gofmt limpios.
 

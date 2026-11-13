@@ -112,6 +112,116 @@ func TestKeyHintsSitBelowPresets(t *testing.T) {
 	}
 }
 
+func TestMinimumStageFitsAndDropsMeta(t *testing.T) {
+	m, _ := testModel(48, 22)
+	l := m.layout(48, 22)
+	if l.metaY != -1 {
+		t.Fatalf("metaY = %d, want -1 in the tight layout", l.metaY)
+	}
+	if l.chipsY != 19 || l.statusY != 20 || l.hintY != 21 {
+		t.Fatalf("tight rows: chips=%d status=%d hint=%d, want 19/20/21",
+			l.chipsY, l.statusY, l.hintY)
+	}
+	lines := render(m)
+	assertFrame(t, m, 48, 22)
+	if !strings.Contains(lines[l.chipsY], "5 min") {
+		t.Fatalf("preset chips missing at row %d: %q", l.chipsY, lines[l.chipsY])
+	}
+	if !strings.Contains(lines[l.hintY], "[p] presets") {
+		t.Fatalf("hints missing at row %d: %q", l.hintY, lines[l.hintY])
+	}
+	if strings.Contains(strings.Join(lines, "\n"), copy.T(copy.ReadyMeta)) {
+		t.Fatal("the tight layout should drop the meta line")
+	}
+
+	m.width, m.height = 48, 24
+	if l := m.layout(48, 24); l.metaY < 0 {
+		t.Fatal("the normal layout should restore the meta line from 24 rows")
+	}
+	if !strings.Contains(strings.Join(render(m), "\n"), copy.T(copy.ReadyMeta)) {
+		t.Fatal("24 rows should render the meta line")
+	}
+}
+
+func TestCompactBelowMinimum(t *testing.T) {
+	for _, tc := range []struct{ w, h int }{
+		{48, 21}, {47, 22}, {40, 12}, {20, 5}, {10, 2}, {1, 1},
+	} {
+		m, _ := testModel(tc.w, tc.h)
+		applyRunning(m)
+		plain := assertFrame(t, m, tc.w, tc.h)
+		if tc.w >= 5 && !strings.Contains(plain, "04:32") {
+			t.Fatalf("%dx%d compact view missing the clock:\n%s", tc.w, tc.h, plain)
+		}
+		if tc.w >= 5 && tc.h >= 2 && !strings.Contains(plain, "5 min") {
+			t.Fatalf("%dx%d compact view missing the goal:\n%s", tc.w, tc.h, plain)
+		}
+		if len(m.hits) != 0 {
+			t.Fatalf("%dx%d compact view registered %d mouse hits", tc.w, tc.h, len(m.hits))
+		}
+	}
+}
+
+func TestCompactKeepsTypingAndBlocksOverlays(t *testing.T) {
+	m, _ := testModel(40, 12)
+	press(m, '2', "2")
+	press(m, '5', "5")
+	plain := assertFrame(t, m, 40, 12)
+	if !strings.Contains(plain, "› 25_") {
+		t.Fatalf("compact view missing the typed input:\n%s", plain)
+	}
+	for _, key := range []struct {
+		code rune
+		text string
+	}{{'p', "p"}, {'v', "v"}, {'?', "?"}} {
+		press(m, key.code, key.text)
+		if m.modal != modalNone {
+			t.Fatalf("compact mode opened modal %v with %q", m.modal, key.text)
+		}
+	}
+}
+
+func TestCompactStopConfirmation(t *testing.T) {
+	m, _ := testModel(40, 12)
+	applyRunning(m)
+	press(m, tea.KeyEscape, "")
+	if m.modal != modalConfirmStop {
+		t.Fatalf("modal = %v, want the stop confirmation", m.modal)
+	}
+	plain := assertFrame(t, m, 40, 12)
+	for _, want := range []string{"04:32", copy.T(copy.StopTitle), copy.T(copy.CompactStopHint)} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("compact confirmation missing %q:\n%s", want, plain)
+		}
+	}
+	press(m, tea.KeyEscape, "")
+	if m.modal != modalNone {
+		t.Fatal("escape should dismiss the compact confirmation")
+	}
+}
+
+func TestCompactHidesAndRestoresModal(t *testing.T) {
+	m, _ := testModel(80, 24)
+	press(m, '?', "?")
+	if m.modal != modalHelp {
+		t.Fatalf("modal = %v, want help", m.modal)
+	}
+	m.width, m.height = 40, 12
+	plain := assertFrame(t, m, 40, 12)
+	if strings.Contains(plain, copy.T(copy.HelpTitle)) {
+		t.Fatal("the help overlay should be hidden in compact mode")
+	}
+	press(m, 'p', "p")
+	if m.modal != modalHelp {
+		t.Fatalf("compact keys changed the hidden modal to %v", m.modal)
+	}
+	m.width, m.height = 80, 24
+	plain = assertFrame(t, m, 80, 24)
+	if !strings.Contains(plain, copy.T(copy.HelpTitle)) {
+		t.Fatal("the help overlay should return when the terminal grows")
+	}
+}
+
 func TestViewHasNoWindowFrame(t *testing.T) {
 	for _, size := range [][2]int{{80, 24}, {120, 40}} {
 		m, _ := testModel(size[0], size[1])

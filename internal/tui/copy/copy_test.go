@@ -68,6 +68,7 @@ func TestHeaderCopyExists(t *testing.T) {
 func TestKeyHintsUseBracketFormat(t *testing.T) {
 	keys := []Key{
 		ControlsIdle, ControlsRunning, ControlsPaused, ControlsFinished,
+		CompactIdle, CompactRunning, CompactPaused, CompactFinished, CompactStopHint,
 		FinishedMeta, PausedMeta,
 		HelpIdle, HelpTimer, HelpModal, HelpSound, HelpFinished, HelpClose, HelpPresets,
 		SoundHint, SoundActionHint,

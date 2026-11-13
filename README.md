@@ -227,6 +227,7 @@ scripts/build.ps1     portable release build
 | TUI cannot connect | The TUI starts the daemon itself; check `%LOCALAPPDATA%\tuick-tack\logs\tuick-tack.log`. |
 | No sound | Check the Windows volume/sound device, that Sound is checked in the tray, and that the selected sound is not at 0%. The countdown still finishes visually. |
 | Tray icon missing | Windows hides new tray icons; open the overflow chevron. |
+| Very small window | Below 48×22 the TUI switches to a plain-text compact view (clock, label, state and essential keys); the styled layout returns above that size. |
 | Presets disappeared | A corrupt config is backed up and defaults are restored. Look for `config.bad-*.json` in `%APPDATA%\tuick-tack`. |
 | SmartScreen warning | Expected for an unsigned executable. |
 | Timer lost after a crash | The timer is in memory; restart the daemon and start again. Persistence is out of scope for this release. |

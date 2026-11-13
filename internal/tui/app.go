@@ -443,17 +443,36 @@ func (m *Model) showToast(s string) {
 
 func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	key := msg.Key()
-	if m.modal != modalNone {
-		return m.handleModalKey(key)
-	}
 	text := key.Text
-	status := m.status()
 
-	if text == "q" {
-		m.Close()
-		return tea.Quit
+	if m.compact() {
+		if text == "q" {
+			m.Close()
+			return tea.Quit
+		}
+		if m.modal == modalConfirmStop {
+			return m.handleModalKey(key)
+		}
+		if m.modal != modalNone {
+			// The overlay cannot be drawn here; keep its state untouched for
+			// when the terminal grows back.
+			return nil
+		}
+		switch text {
+		case "p", "v", "?":
+			return nil
+		}
+	} else {
+		if m.modal != modalNone {
+			return m.handleModalKey(key)
+		}
+		if text == "q" {
+			m.Close()
+			return tea.Quit
+		}
 	}
-	switch status {
+
+	switch m.status() {
 	case engine.Running, engine.Paused:
 		return m.handleTimerKey(key)
 	case engine.Finished:

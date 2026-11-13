@@ -39,6 +39,11 @@ const (
 	ControlsRunning  = Key("controls.running")
 	ControlsPaused   = Key("controls.paused")
 	ControlsFinished = Key("controls.finished")
+	CompactIdle      = Key("compact.idle")
+	CompactRunning   = Key("compact.running")
+	CompactPaused    = Key("compact.paused")
+	CompactFinished  = Key("compact.finished")
+	CompactStopHint  = Key("compact.stop.hint")
 	HeroFinished     = Key("hero.finished")
 	LabelFocus       = Key("label.focus")
 	RepeatHint       = Key("hint.repeat")
@@ -193,6 +198,11 @@ var texts = map[Key]string{
 	ControlsRunning:  "[Space] pause · [Esc] cancel · [+/-] 1 min · [v] sound · [q] quit",
 	ControlsPaused:   "[Space] resume · [Esc] cancel · [+/-] 1 min · [v] sound · [q] quit",
 	ControlsFinished: "[v] sound · [?] help · [q] quit",
+	CompactIdle:      "[Enter] start · [←→] preset · [q] quit",
+	CompactRunning:   "[Space] pause · [Esc] cancel · [q] quit",
+	CompactPaused:    "[Space] resume · [Esc] cancel · [q] quit",
+	CompactFinished:  "[r] repeat · [Enter] close · [q] quit",
+	CompactStopHint:  "[Enter] yes · [Esc] no",
 	HeroFinished:     "TIME'S UP!",
 	LabelFocus:       "Focus",
 	RepeatHint:       "r repeat",
