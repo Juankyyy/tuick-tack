@@ -26,6 +26,10 @@ type Actions interface {
 	Config() config.Config
 	SoundEnabled() bool
 	AutostartEnabled() bool
+	UpdateAvailable() (latest, url string, ok bool)
+	// UpdateCheck returns idle, checking, up_to_date or failed plus the current
+	// version for the menu label.
+	UpdateCheck() (state, current string)
 	OpenTUI()
 	StartPreset(config.Preset)
 	StartCustom()
@@ -36,6 +40,8 @@ type Actions interface {
 	SetVolume(int)
 	PreviewSound()
 	ToggleAutostart()
+	OpenUpdate()
+	CheckUpdates()
 	Quit()
 }
 
@@ -48,6 +54,8 @@ type Tray struct {
 	mu            sync.Mutex
 	ready         bool
 	status        *systray.MenuItem
+	update        *systray.MenuItem
+	checkUpdates  *systray.MenuItem
 	start         *systray.MenuItem
 	pause         *systray.MenuItem
 	stop          *systray.MenuItem
@@ -72,6 +80,13 @@ type Tray struct {
 	soundNameOn     string
 	volumeOn        int
 	haveSoundChecks bool
+
+	updateShown bool
+	updateVer   string
+
+	checkState   string
+	checkCurrent string
+	haveCheck    bool
 }
 
 // New returns a tray bound to actions.
@@ -100,6 +115,9 @@ func (t *Tray) onReady() {
 
 	t.status = systray.AddMenuItem(copy.T(copy.TrayReady), copy.T(copy.TrayCurrentTooltip))
 	t.status.Disable()
+	t.update = systray.AddMenuItem(copy.T(copy.UpdateAvailable), copy.T(copy.TrayUpdateTooltip))
+	t.update.Hide()
+	t.checkUpdates = systray.AddMenuItem(copy.T(copy.TrayUpdateCheck), copy.T(copy.TrayUpdateCheckTooltip))
 	systray.AddSeparator()
 	open := systray.AddMenuItem(copy.T(copy.TrayOpen), copy.T(copy.TrayOpenTooltip))
 	t.start = systray.AddMenuItem(copy.T(copy.TrayStart), copy.T(copy.TrayStartTooltip))
@@ -141,6 +159,8 @@ func (t *Tray) onReady() {
 	t.mu.Unlock()
 
 	go clicks(open, t.actions.OpenTUI)
+	go clicks(t.update, t.actions.OpenUpdate)
+	go clicks(t.checkUpdates, t.actions.CheckUpdates)
 	go clicks(t.pause, t.actions.TogglePause)
 	go clicks(t.stop, t.actions.Stop)
 	go clicks(t.sound, t.actions.ToggleSound)
@@ -181,6 +201,8 @@ func (t *Tray) Refresh() {
 	cfg := t.actions.Config()
 	sound := t.actions.SoundEnabled()
 	startup := t.actions.AutostartEnabled()
+	latest, _, hasUpdate := t.actions.UpdateAvailable()
+	checkState, checkCurrent := t.actions.UpdateCheck()
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -188,6 +210,8 @@ func (t *Tray) Refresh() {
 		return
 	}
 	t.updateLocked(st, cfg)
+	t.updateReleaseLocked(latest, hasUpdate)
+	t.updateCheckLocked(checkState, checkCurrent)
 	t.updateChecksLocked(sound, startup, cfg.SoundName, cfg.Volume)
 }
 
@@ -222,6 +246,46 @@ func (t *Tray) updateLocked(st engine.State, cfg config.Config) {
 		t.rebuildStartLocked(cfg.Presets)
 		t.lastPresets = append([]config.Preset(nil), cfg.Presets...)
 	}
+}
+
+// updateReleaseLocked adds or removes the update item. The item is created
+// right after the status and hidden until a release is available; systray
+// orders visible items by creation id, so showing it later keeps it in place.
+func (t *Tray) updateReleaseLocked(latest string, hasUpdate bool) {
+	if hasUpdate {
+		if t.updateShown && t.updateVer == latest {
+			return
+		}
+		t.update.SetTitle(updateMenuLabel(latest))
+		t.update.SetTooltip(copy.T(copy.TrayUpdateTooltip))
+		t.update.Show()
+		t.updateShown = true
+		t.updateVer = latest
+		return
+	}
+	if t.updateShown {
+		t.update.Hide()
+		t.updateShown = false
+		t.updateVer = ""
+	}
+}
+
+// updateCheckLocked repaints the manual check entry with the daemon's last
+// result. It stays visible so the user can retry at any time.
+func (t *Tray) updateCheckLocked(state, current string) {
+	if t.haveCheck && t.checkState == state && t.checkCurrent == current {
+		return
+	}
+	label, enabled := updateCheckMenu(state, current)
+	t.checkUpdates.SetTitle(label)
+	if enabled {
+		t.checkUpdates.Enable()
+	} else {
+		t.checkUpdates.Disable()
+	}
+	t.checkState = state
+	t.checkCurrent = current
+	t.haveCheck = true
 }
 
 func (t *Tray) updateChecksLocked(sound, startup bool, soundName string, volume int) {
@@ -312,6 +376,25 @@ func presetMenuLabel(p config.Preset) string {
 		return short
 	}
 	return label + " · " + short
+}
+
+// updateMenuLabel is the tray entry for a newer release.
+func updateMenuLabel(latest string) string {
+	return copy.T(copy.TrayUpdateAvailable, latest)
+}
+
+// updateCheckMenu renders the manual check entry for the daemon state.
+func updateCheckMenu(state, current string) (label string, enabled bool) {
+	switch state {
+	case "checking":
+		return copy.T(copy.TrayUpdateChecking), false
+	case "up_to_date":
+		return copy.T(copy.TrayUpdateUpToDate, current), true
+	case "failed":
+		return copy.T(copy.TrayUpdateFailed), true
+	default:
+		return copy.T(copy.TrayUpdateCheck), true
+	}
 }
 
 func statusText(st engine.State) (menu, tooltip string) {

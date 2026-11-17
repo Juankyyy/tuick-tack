@@ -62,6 +62,34 @@ func TestStatusText(t *testing.T) {
 	}
 }
 
+func TestUpdateMenuLabel(t *testing.T) {
+	if got, want := updateMenuLabel("v0.2.0"), "Update available: v0.2.0"; got != want {
+		t.Fatalf("updateMenuLabel = %q, want %q", got, want)
+	}
+}
+
+func TestUpdateCheckMenu(t *testing.T) {
+	tests := []struct {
+		state   string
+		current string
+		label   string
+		enabled bool
+	}{
+		{"idle", "v0.1.2", "Check for updates", true},
+		{"", "v0.1.2", "Check for updates", true},
+		{"checking", "v0.1.2", "Checking for updates…", false},
+		{"up_to_date", "v0.1.2", "Up to date (v0.1.2)", true},
+		{"failed", "v0.1.2", "Update check failed", true},
+	}
+	for _, tt := range tests {
+		label, enabled := updateCheckMenu(tt.state, tt.current)
+		if label != tt.label || enabled != tt.enabled {
+			t.Errorf("updateCheckMenu(%q, %q) = %q, %v; want %q, %v",
+				tt.state, tt.current, label, enabled, tt.label, tt.enabled)
+		}
+	}
+}
+
 func TestVolumeLevels(t *testing.T) {
 	if len(volumeLevels) == 0 || volumeLevels[0] != config.MinVolume ||
 		volumeLevels[len(volumeLevels)-1] != config.MaxVolume {

@@ -5,9 +5,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -16,10 +18,12 @@ import (
 	"tuick-tack/internal/ipc"
 	"tuick-tack/internal/tui"
 	"tuick-tack/internal/tui/copy"
+	"tuick-tack/internal/update"
 )
 
 func main() {
 	version := flag.Bool("version", false, "print the version and exit")
+	checkUpdates := flag.Bool("check-updates", false, "check GitHub for a newer release and exit")
 	daemonMode := flag.Bool("daemon", false, "run the background daemon in this process")
 	hidden := flag.Bool("hidden", false, "hide the console when running the daemon (used by autostart)")
 	installStartup := flag.Bool("install-startup", false, "start the tray daemon at sign-in")
@@ -28,6 +32,13 @@ func main() {
 
 	if *version {
 		fmt.Printf("%s %s\n", buildinfo.Name, buildinfo.Version)
+		return
+	}
+	if *checkUpdates {
+		if err := checkForUpdates(); err != nil {
+			fmt.Fprintln(os.Stderr, "check updates:", err)
+			os.Exit(1)
+		}
 		return
 	}
 	if *daemonMode {
@@ -83,4 +94,22 @@ func main() {
 	if fm, ok := final.(*tui.Model); ok && fm.HasActiveTimer() {
 		fmt.Println(copy.T(copy.ExitActive))
 	}
+}
+
+// checkForUpdates runs one release check for QA and scripts. It deliberately
+// bypasses the daemon's dev-build guard.
+func checkForUpdates() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	info, err := update.NewChecker(buildinfo.Version).Latest(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s %s\n", buildinfo.Name, buildinfo.Version)
+	if update.IsNewer(buildinfo.Version, info.Version) {
+		fmt.Printf("update available: %s\n%s\n", info.Version, info.URL)
+	} else {
+		fmt.Printf("up to date (latest %s)\n", info.Version)
+	}
+	return nil
 }

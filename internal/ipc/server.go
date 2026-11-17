@@ -25,6 +25,8 @@ type Backend interface {
 	Config() config.Config
 	// Snapshot returns the current countdown.
 	Snapshot() engine.State
+	// Update returns the latest release the daemon knows about, or nil.
+	Update() *protocol.UpdatePayload
 	// Command handles a validated client command. The client is provided for
 	// replies such as get_state.
 	Command(*Session, protocol.ClientMessage)
@@ -167,7 +169,8 @@ func (s *Server) handleConn(conn net.Conn) {
 
 	// Queue the handshake and the first snapshot before the writer starts, so
 	// they are the first two messages the client sees.
-	c.enqueue(protocol.NewHello(s.version, s.backend.Config()))
+	helloReply := protocol.NewHello(s.version, s.backend.Config(), s.backend.Update())
+	c.enqueue(helloReply)
 	c.enqueue(protocol.NewState(s.backend.Snapshot()))
 
 	s.mu.Lock()
@@ -179,6 +182,15 @@ func (s *Server) handleConn(conn net.Conn) {
 	s.wg.Add(2)
 	s.clients[c] = struct{}{}
 	s.mu.Unlock()
+
+	// The release check can finish between building the handshake and adding the
+	// client to the broadcast set. Re-read it so that window cannot hide the
+	// notice until the next check.
+	if helloReply.Update == nil {
+		if upd := s.backend.Update(); upd != nil {
+			c.enqueue(protocol.NewUpdate(*upd))
+		}
+	}
 
 	go func() {
 		defer s.wg.Done()

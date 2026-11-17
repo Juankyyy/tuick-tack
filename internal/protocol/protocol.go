@@ -45,6 +45,14 @@ const (
 	TypeSetVolume    = "set_volume"
 	TypePreviewSound = "preview_sound"
 	TypeStopSound    = "stop_sound"
+	TypeCheckUpdate  = "check_update"
+
+	// TypeUpdate is an additive server message: clients that do not know it
+	// ignore it (see DecodeServer), so it does not require a protocol bump.
+	TypeUpdate = "update"
+	// TypeUpdateResult is the reply to check_update and is only sent to the
+	// client that asked.
+	TypeUpdateResult = "update_result"
 )
 
 // Error codes.
@@ -95,13 +103,48 @@ type ServerMessage interface {
 
 // HelloMessage is the server's handshake reply.
 type HelloMessage struct {
-	Type       string        `json:"type"`
-	Protocol   int           `json:"protocol"`
-	AppVersion string        `json:"app_version"`
-	Config     ConfigPayload `json:"config"`
+	Type       string         `json:"type"`
+	Protocol   int            `json:"protocol"`
+	AppVersion string         `json:"app_version"`
+	Config     ConfigPayload  `json:"config"`
+	Update     *UpdatePayload `json:"update,omitempty"`
 }
 
 func (HelloMessage) isServerMessage() {}
+
+// UpdatePayload is the latest release the daemon knows about. It is carried by
+// the handshake and by the update broadcast.
+type UpdatePayload struct {
+	Latest string `json:"latest"`
+	URL    string `json:"url"`
+}
+
+// UpdateMessage announces a newer release. The TUI and the tray turn it into a
+// link; nothing is downloaded.
+type UpdateMessage struct {
+	Type string `json:"type"`
+	UpdatePayload
+}
+
+func (UpdateMessage) isServerMessage() {}
+
+// UpdateResultMessage answers a manual check. Error is non-empty when GitHub
+// could not be reached; the TUI then keeps the previous notice untouched.
+type UpdateResultMessage struct {
+	Type    string `json:"type"`
+	Current string `json:"current"`
+	Latest  string `json:"latest,omitempty"`
+	URL     string `json:"url,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+func (UpdateResultMessage) isServerMessage() {}
+
+// IgnoredMessage is returned by DecodeServer for a message type this build does
+// not know. Additive server messages must not break older clients.
+type IgnoredMessage struct{}
+
+func (IgnoredMessage) isServerMessage() {}
 
 // StateMessage is the flattened countdown snapshot.
 type StateMessage struct {
@@ -135,13 +178,29 @@ type ErrorMessage struct {
 func (ErrorMessage) isServerMessage() {}
 
 // NewHello builds the handshake reply.
-func NewHello(appVersion string, c config.Config) HelloMessage {
-	return HelloMessage{
+func NewHello(appVersion string, c config.Config, upd *UpdatePayload) HelloMessage {
+	m := HelloMessage{
 		Type:       TypeHello,
 		Protocol:   Version,
 		AppVersion: appVersion,
 		Config:     NewConfigPayload(c),
 	}
+	if upd != nil {
+		payload := *upd
+		m.Update = &payload
+	}
+	return m
+}
+
+// NewUpdate builds the update broadcast.
+func NewUpdate(upd UpdatePayload) UpdateMessage {
+	return UpdateMessage{Type: TypeUpdate, UpdatePayload: upd}
+}
+
+// NewUpdateResult builds the reply to a manual check.
+func NewUpdateResult(res UpdateResultMessage) UpdateResultMessage {
+	res.Type = TypeUpdateResult
+	return res
 }
 
 // NewState converts an engine snapshot to the wire shape.
@@ -191,7 +250,9 @@ func DecodeClient(data []byte) (ClientMessage, error) {
 	return m, nil
 }
 
-// DecodeServer parses one server message based on its "type" field.
+// DecodeServer parses one server message based on its "type" field. Unknown
+// types decode to IgnoredMessage instead of failing, so an additive message
+// does not disconnect an older client. Malformed JSON is still an error.
 func DecodeServer(data []byte) (ServerMessage, error) {
 	var env struct {
 		Type string `json:"type"`
@@ -224,8 +285,20 @@ func DecodeServer(data []byte) (ServerMessage, error) {
 			return nil, err
 		}
 		return m, nil
+	case TypeUpdate:
+		var m UpdateMessage
+		if err := json.Unmarshal(data, &m); err != nil {
+			return nil, err
+		}
+		return m, nil
+	case TypeUpdateResult:
+		var m UpdateResultMessage
+		if err := json.Unmarshal(data, &m); err != nil {
+			return nil, err
+		}
+		return m, nil
 	default:
-		return nil, fmt.Errorf("unknown server message type %q", env.Type)
+		return IgnoredMessage{}, nil
 	}
 }
 
@@ -255,7 +328,7 @@ func (m ClientMessage) Validate() *ErrorMessage {
 		return nil
 	case TypePause, TypeResume, TypeStop, TypeDismiss, TypeRestart,
 		TypePresetsRestoreDefault, TypeGetState, TypeQuitDaemon,
-		TypePreviewSound, TypeStopSound:
+		TypePreviewSound, TypeStopSound, TypeCheckUpdate:
 		return nil
 	case TypeAdjust:
 		if m.DeltaSeconds == 0 || math.Abs(float64(m.DeltaSeconds)) > config.MaxSeconds {

@@ -54,6 +54,7 @@ type viewLayout struct {
 	inputY    int
 	chipsY    int
 	hintY     int
+	subHintY  int
 	statusY   int
 	barX      int
 	barW      int
@@ -66,6 +67,9 @@ func (m *Model) View() tea.View {
 		m.dust.Resize(w, h)
 	}
 	m.hits = m.hits[:0]
+	if m.modal != modalNone || m.compact() {
+		m.hoverUpdate = false
+	}
 
 	c := canvas.New(w, h)
 	if m.compact() {
@@ -88,7 +92,7 @@ func (m *Model) View() tea.View {
 
 	v := tea.NewView(c.Render())
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	v.MouseMode = tea.MouseModeAllMotion
 	v.WindowTitle = buildinfo.Name
 	v.BackgroundColor = lipgloss.Color(theme.Hex(m.pal.BG))
 	v.ForegroundColor = lipgloss.Color(theme.Hex(m.pal.Text))
@@ -114,7 +118,9 @@ func (m *Model) layout(w, h int) viewLayout {
 
 	headerY := 2
 	gap := 1
-	if h >= 30 {
+	// The update hint and its blank row need a little more height before the
+	// roomier spacing fits.
+	if h >= 32 {
 		gap = 2
 	}
 	// The block now ends with the key hints, one or two rows below the
@@ -123,10 +129,16 @@ func (m *Model) layout(w, h int) viewLayout {
 	// From 22 rows the redundant meta line is dropped to keep that minimum
 	// readable.
 	tight := h < tightRows
+	// From 24 rows there is room for a last, quieter hint under the main key
+	// hints. The tight layout (22-23 rows) keeps only the essentials.
+	subHint := !tight
 	blockH := bigfont.GlyphH + 3*gap + 3
 	groupH := blockH + 3*gap + 3
 	if tight {
 		groupH -= gap + 1
+	} else if subHint {
+		// The update hint has a blank row above it.
+		groupH += 2
 	}
 	top := headerY + 3
 	heroY := top
@@ -137,23 +149,43 @@ func (m *Model) layout(w, h int) viewLayout {
 		heroY = top
 	}
 	labelY := heroY + bigfont.GlyphH + gap
-	barY := labelY + 1 + gap
+	barGap := gap
+	if subHint && h < 25 {
+		// At the 24-row stage the space for the hint's blank row comes from
+		// between the label and the progress bar.
+		barGap = 0
+	}
+	barY := labelY + 1 + barGap
 	metaY := -1
 	controlsY := 0
 	if tight {
 		controlsY = barY + 2*gap + 1
 	} else {
 		metaY = barY + 1 + gap
-		controlsY = metaY + 2*gap + 1
+		gapBeforeControls := 2*gap + 1
+		if h < 26 {
+			// Keep the meta but tighten the gap before the input at 24-25 rows,
+			// where the update hint and its blank row need the space.
+			gapBeforeControls = gap + 1
+		}
+		controlsY = metaY + gapBeforeControls
 	}
 	chipsY := controlsY + 1
 	hintY := chipsY + 1 + gap
-	if hintY > h-1 {
+	if subHint {
+		if hintY > h-3 {
+			hintY = h - 3
+		}
+	} else if hintY > h-1 {
 		hintY = h - 1
 	}
 	statusY := hintY - 1
 	if statusY < 0 {
 		statusY = 0
+	}
+	subHintY := -1
+	if subHint {
+		subHintY = hintY + 2
 	}
 
 	barX := sx + 4
@@ -173,6 +205,7 @@ func (m *Model) layout(w, h int) viewLayout {
 		inputY:    controlsY - 1,
 		chipsY:    chipsY,
 		hintY:     hintY,
+		subHintY:  subHintY,
 		statusY:   statusY,
 		barX:      barX,
 		barW:      barW,
@@ -261,6 +294,12 @@ func (m *Model) drawContent(c *canvas.Canvas, l viewLayout) {
 		m.drawCentered(c, l.hintY, copy.T(copy.ControlsIdle), hintStyle, l.x, l.w)
 	}
 
+	// Secondary hint, quieter than the key line above it and below it on screen.
+	if l.subHintY >= 0 {
+		dim := theme.Lerp(m.pal.BG, m.pal.Muted, 0.5)
+		m.drawCentered(c, l.subHintY, copy.T(copy.UpdateHint), canvas.Fg(dim), l.x, l.w)
+	}
+
 	if !m.connected {
 		msg := copy.T(copy.Connecting)
 		col := m.pal.Muted
@@ -269,6 +308,8 @@ func (m *Model) drawContent(c *canvas.Canvas, l viewLayout) {
 			col = m.pal.Danger
 		}
 		m.drawCentered(c, l.statusY, msg, canvas.Fg(col), l.x, l.w)
+	} else if m.checkingUpdate {
+		m.drawCentered(c, l.statusY, copy.T(copy.UpdateChecking), canvas.Fg(m.pal.Muted), l.x, l.w)
 	} else if m.toastActive() {
 		m.drawCentered(c, l.statusY, m.toast, canvas.Fg(m.pal.Warn), l.x, l.w)
 	}
@@ -336,6 +377,13 @@ func (m *Model) compactLines(w int) []string {
 			lines = lines[:1]
 		}
 		lines = append(lines, copy.T(copy.StopTitle), copy.T(copy.CompactStopHint))
+	}
+
+	if m.update != nil {
+		lines = append(lines, copy.T(copy.UpdateAvailable))
+	}
+	if m.checkingUpdate {
+		lines = append(lines, copy.T(copy.UpdateChecking))
 	}
 
 	if !m.connected {
@@ -409,13 +457,71 @@ func (m *Model) drawHeader(c *canvas.Canvas, x, y, w int) {
 		dotX = x + 2
 	}
 
+	brand := copy.T(copy.Brand)
 	c.Set(x, y, '●', canvas.Fg(dot))
-	c.Text(x+2, y, copy.T(copy.Brand), canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
+	c.Text(x+2, y, brand, canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
+	if m.update != nil {
+		m.drawUpdateLink(c, x+2+canvas.Width(brand)+2, y, dotX)
+	}
 	c.Set(dotX, y, '●', canvas.Fg(dot))
 	c.Text(lx, y, label, canvas.Style{FG: col, HasFG: true, Bold: true})
 	if sub := m.headerSubline(); sub != "" {
 		c.Text(right-canvas.Width(sub)+1, y+1, sub, canvas.Fg(m.pal.Muted))
 	}
+}
+
+// Update notice colors: a wide hue sweep at low saturation so the link reads as
+// a rainbow without competing with the countdown. Mono keeps the palette's own
+// grays.
+const (
+	updateHueSpan  = 0.8
+	updateHueSpeed = 0.1
+	updateSat      = 0.52
+	updateLight    = 0.68
+)
+
+// drawUpdateLink paints the clickable notice after the wordmark. It falls back
+// to a shorter label, and then to nothing, when the status would collide.
+func (m *Model) drawUpdateLink(c *canvas.Canvas, x, y, limit int) {
+	text := "[" + copy.T(copy.UpdateAvailable) + " " + copy.T(copy.UpdateArrow) + "]"
+	if x+canvas.Width(text) >= limit {
+		text = "[" + copy.T(copy.UpdateShort) + " " + copy.T(copy.UpdateArrow) + "]"
+	}
+	if x+canvas.Width(text) >= limit {
+		return
+	}
+	colors := m.updateColors(len([]rune(text)))
+	hoverBG := theme.Lerp(m.pal.BG, m.pal.Text, 0.12)
+	cx := x
+	for i, r := range []rune(text) {
+		st := canvas.Style{FG: colors[i], HasFG: true, Bold: true}
+		if m.hoverUpdate {
+			st.BG = hoverBG
+			st.HasBG = true
+		}
+		c.Set(cx, y, r, st)
+		cx += canvas.Width(string(r))
+	}
+	m.addHit(x, y, canvas.Width(text), 1, hitUpdate, 0)
+}
+
+func (m *Model) updateColors(n int) []color.RGBA {
+	if n <= 0 {
+		return nil
+	}
+	colors := make([]color.RGBA, n)
+	for i := range colors {
+		t := 0.0
+		if n > 1 {
+			t = float64(i) / float64(n-1)
+		}
+		if m.pal.Name == "mono" {
+			colors[i] = theme.Lerp(m.pal.Muted, m.pal.Text, t)
+			continue
+		}
+		colors[i] = theme.HSL(updateHueSpan*t+m.animTime*updateHueSpeed, updateSat, updateLight)
+	}
+	return colors
 }
 
 func (m *Model) headerDot(col color.RGBA) color.RGBA {
@@ -911,6 +1017,7 @@ func (m *Model) drawHelp(c *canvas.Canvas, base rect) {
 		{"", m.pal.Muted},
 		{copy.T(copy.HelpFormats), m.pal.Muted},
 		{copy.T(copy.HelpFinished), m.pal.Muted},
+		{copy.T(copy.HelpUpdate), m.pal.Muted},
 	}
 	y := r.y + 3
 	for _, line := range lines {

@@ -8,6 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"tuick-tack/internal/browser"
+	"tuick-tack/internal/buildinfo"
 	"tuick-tack/internal/config"
 	"tuick-tack/internal/daemon"
 	"tuick-tack/internal/duration"
@@ -17,6 +19,7 @@ import (
 	"tuick-tack/internal/tui/copy"
 	"tuick-tack/internal/tui/fx"
 	"tuick-tack/internal/tui/theme"
+	release "tuick-tack/internal/update"
 )
 
 type modalKind int
@@ -79,6 +82,7 @@ const (
 	hitSoundPreview
 	hitSoundMute
 	hitSoundClose
+	hitUpdate
 )
 
 // presetFocusList means the preset list owns the keyboard focus; any other
@@ -167,6 +171,12 @@ type Model struct {
 
 	toast      string
 	toastUntil time.Time
+
+	update  *protocol.UpdatePayload
+	openURL func(string) error
+
+	checkingUpdate bool
+	hoverUpdate    bool
 }
 
 // New creates the TUI model.
@@ -193,6 +203,7 @@ func newModel(pipe string, now func() time.Time, seed int64) *Model {
 		connecting:  true,
 		dust:        fx.NewDust(seed, 80, 24),
 		lastTick:    now(),
+		openURL:     browser.Open,
 	}
 }
 
@@ -221,6 +232,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleServerEvent(msg)
 	case sentMsg:
 		if msg.err != nil {
+			m.checkingUpdate = false
 			m.showToast(copy.T(copy.DaemonLost))
 		}
 		return m, nil
@@ -228,6 +240,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleKey(msg)
 	case tea.MouseClickMsg:
 		return m, m.handleMouse(msg)
+	case tea.MouseMotionMsg:
+		m.handleMouseMotion(msg)
+		return m, nil
 	}
 	return m, nil
 }
@@ -266,6 +281,7 @@ func (m *Model) handleConnected(msg connectedMsg) tea.Cmd {
 	if msg.err != nil {
 		m.connected = false
 		m.connecting = false
+		m.checkingUpdate = false
 		if m.client != nil {
 			_ = m.client.Close()
 			m.client = nil
@@ -281,7 +297,9 @@ func (m *Model) handleConnected(msg connectedMsg) tea.Cmd {
 	m.connected = true
 	m.connecting = false
 	m.reconnecting = false
+	m.checkingUpdate = false
 	m.applyConfig(protocol.ConfigMessage{ConfigPayload: msg.hello.Config})
+	m.setUpdate(msg.hello.Update)
 	return readCmd(m.client)
 }
 
@@ -293,6 +311,7 @@ func (m *Model) handleServerEvent(msg serverEventMsg) tea.Cmd {
 		}
 		m.connected = false
 		m.connecting = false
+		m.checkingUpdate = false
 		m.showToast(copy.T(copy.DaemonLost))
 		if m.reconnecting {
 			return nil
@@ -306,7 +325,16 @@ func (m *Model) handleServerEvent(msg serverEventMsg) tea.Cmd {
 	case protocol.ConfigMessage:
 		m.applyConfig(ev)
 	case protocol.ErrorMessage:
-		m.showToast(ev.Message)
+		if m.checkingUpdate && ev.Code == protocol.CodeInvalidCommand {
+			m.checkingUpdate = false
+			m.showToast(copy.T(copy.ErrorUpdate))
+		} else {
+			m.showToast(ev.Message)
+		}
+	case protocol.UpdateMessage:
+		m.setUpdate(&ev.UpdatePayload)
+	case protocol.UpdateResultMessage:
+		m.handleUpdateResult(ev)
 	}
 	if m.client != nil {
 		return readCmd(m.client)
@@ -422,6 +450,49 @@ func (m *Model) applyState(st protocol.StateMessage) {
 	}
 }
 
+// setUpdate stores the release the daemon announced. The TUI compares it with
+// its own build so a daemon from a different version cannot advertise a release
+// this binary already is.
+func (m *Model) setUpdate(p *protocol.UpdatePayload) {
+	if p == nil || p.URL == "" || !release.IsNewer(buildinfo.Version, p.Latest) {
+		m.update = nil
+		m.hoverUpdate = false
+		return
+	}
+	m.update = &protocol.UpdatePayload{Latest: p.Latest, URL: p.URL}
+}
+
+// handleUpdateResult finishes a manual check: it updates the notice and gives
+// the user a short confirmation in the status line.
+func (m *Model) handleUpdateResult(msg protocol.UpdateResultMessage) {
+	m.checkingUpdate = false
+	if msg.Error != "" || msg.Latest == "" {
+		m.showToast(copy.T(copy.ErrorUpdate))
+		return
+	}
+	if release.IsNewer(buildinfo.Version, msg.Latest) && msg.URL != "" {
+		m.setUpdate(&protocol.UpdatePayload{Latest: msg.Latest, URL: msg.URL})
+		m.showToast(copy.T(copy.ToastUpdateFound, msg.Latest))
+		return
+	}
+	m.update = nil
+	m.showToast(copy.T(copy.ToastUpToDate, msg.Latest))
+}
+
+// checkUpdates asks the daemon for a fresh release check. The daemon owns the
+// request so the tray and every TUI share one result.
+func (m *Model) checkUpdates() tea.Cmd {
+	if m.checkingUpdate {
+		return nil
+	}
+	if !m.connected || m.client == nil {
+		m.showToast(copy.T(copy.ErrorOffline))
+		return nil
+	}
+	m.checkingUpdate = true
+	return m.send(protocol.ClientMessage{Type: protocol.TypeCheckUpdate})
+}
+
 func (m *Model) startCelebration(short bool) {
 	m.celebrating = true
 	m.celebrationStart = m.now()
@@ -518,6 +589,8 @@ func (m *Model) handleIdleKey(key tea.Key) tea.Cmd {
 		return m.cycleTheme()
 	case text == "S":
 		return m.toggleSound()
+	case text == "u":
+		return m.checkUpdates()
 	case text == "s":
 		if m.acceptsUnit() {
 			m.appendInput("s")
@@ -549,6 +622,8 @@ func (m *Model) handleTimerKey(key tea.Key) tea.Cmd {
 	case text == "v":
 		m.openSound()
 		return nil
+	case text == "u":
+		return m.checkUpdates()
 	}
 	return nil
 }
@@ -570,6 +645,8 @@ func (m *Model) handleFinishedKey(key tea.Key) tea.Cmd {
 	case text == "v":
 		m.openSound()
 		return nil
+	case text == "u":
+		return m.checkUpdates()
 	}
 	return nil
 }
@@ -803,6 +880,23 @@ func (m *Model) handleMouse(msg tea.MouseClickMsg) tea.Cmd {
 	return nil
 }
 
+// handleMouseMotion tracks whether the pointer is over the update notice, so
+// it can show the hover background. All-motion mode is enabled in View.
+func (m *Model) handleMouseMotion(msg tea.MouseMotionMsg) {
+	hover := false
+	for i := len(m.hits) - 1; i >= 0; i-- {
+		hit := m.hits[i]
+		if hit.action != hitUpdate {
+			continue
+		}
+		if msg.X >= hit.x && msg.X < hit.x+hit.w && msg.Y >= hit.y && msg.Y < hit.y+hit.h {
+			hover = true
+		}
+		break
+	}
+	m.hoverUpdate = hover
+}
+
 func (m *Model) performHit(hit hitbox) tea.Cmd {
 	switch hit.action {
 	case hitChip:
@@ -891,6 +985,12 @@ func (m *Model) performHit(hit hitbox) tea.Cmd {
 		return m.toggleSound()
 	case hitSoundClose:
 		return m.closeSound()
+	case hitUpdate:
+		if m.update != nil {
+			if err := m.openURL(m.update.URL); err != nil {
+				m.showToast(copy.T(copy.ErrorOpenURL))
+			}
+		}
 	}
 	return nil
 }

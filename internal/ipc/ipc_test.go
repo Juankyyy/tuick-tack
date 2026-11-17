@@ -21,6 +21,7 @@ type fakeBackend struct {
 	mu   sync.Mutex
 	cfg  config.Config
 	st   engine.State
+	upd  *protocol.UpdatePayload
 	srv  *ipc.Server
 	cmds chan protocol.ClientMessage
 }
@@ -43,6 +44,16 @@ func (b *fakeBackend) Snapshot() engine.State {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.st
+}
+
+func (b *fakeBackend) Update() *protocol.UpdatePayload {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.upd == nil {
+		return nil
+	}
+	copy := *b.upd
+	return &copy
 }
 
 func (b *fakeBackend) Command(c *ipc.Session, msg protocol.ClientMessage) {
@@ -121,7 +132,13 @@ func readUntil(t *testing.T, c *ipc.Client, want string, pred func(protocol.Serv
 
 func TestHandshakeAndBroadcast(t *testing.T) {
 	path := testPipePath(t)
-	_, _ = startServer(t, path)
+	_, b := startServer(t, path)
+	b.mu.Lock()
+	b.upd = &protocol.UpdatePayload{
+		Latest: "v0.2.0",
+		URL:    "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0",
+	}
+	b.mu.Unlock()
 
 	c1, hello1 := dial(t, path)
 	c2, hello2 := dial(t, path)
@@ -129,6 +146,9 @@ func TestHandshakeAndBroadcast(t *testing.T) {
 		if h.Type != protocol.TypeHello || h.Protocol != protocol.Version ||
 			h.AppVersion != "dev" || len(h.Config.Presets) != 3 {
 			t.Fatalf("unexpected hello: %+v", h)
+		}
+		if h.Update == nil || h.Update.Latest != "v0.2.0" || h.Update.URL != b.upd.URL {
+			t.Fatalf("hello does not carry the update: %+v", h)
 		}
 	}
 	for _, c := range []*ipc.Client{c1, c2} {
@@ -166,6 +186,17 @@ func TestHandshakeAndBroadcast(t *testing.T) {
 		cm := msg.(protocol.ConfigMessage)
 		if len(cm.Presets) != 4 || cm.Presets[3].Label != "Focus" {
 			t.Fatalf("config = %+v", cm)
+		}
+	}
+
+	b.srv.Broadcast(protocol.NewUpdate(protocol.UpdatePayload{Latest: "v0.2.0", URL: b.upd.URL}))
+	for _, c := range []*ipc.Client{c1, c2} {
+		msg := readUntil(t, c, "update broadcast", func(m protocol.ServerMessage) bool {
+			_, ok := m.(protocol.UpdateMessage)
+			return ok
+		})
+		if um := msg.(protocol.UpdateMessage); um.Latest != "v0.2.0" || um.URL != b.upd.URL {
+			t.Fatalf("update = %+v", um)
 		}
 	}
 }

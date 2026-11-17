@@ -8,6 +8,8 @@ require (
 	fyne.io/systray v1.12.2
 	github.com/Microsoft/go-winio v0.6.4
 	github.com/mattn/go-runewidth v0.0.30
+	// Pure-Go WinRT toasts for the update check (no PowerShell, no cgo).
+	github.com/mtunjic/winrt-toast v1.2.0
 	golang.org/x/sys v0.50.0
 )
 

@@ -30,7 +30,7 @@ El countdown, el sonido y el icono siguen funcionando aunque se cierre la TUI. A
 | Idioma | UI en inglés; código, comentarios y commits en inglés; documentación en español |
 | Temas | `midnight` (por defecto), `ember`, `mono` |
 | Aviso al terminar | Sonido elegible (1–5 s) con volumen 0–100 + icono de bandeja en alerta + confeti en la TUI |
-| Toast nativo | Fuera de alcance v1 (ver §16) |
+| Toast nativo | Solo para el resultado de una comprobación manual de actualizaciones (`github.com/mtunjic/winrt-toast` v1.2.0); el aviso de fin sigue siendo sonido + TUI |
 
 **Por qué un ejecutable y dos procesos:** un solo archivo evita que el usuario tenga que emparejar dos binarios. Por debajo siguen siendo dos procesos porque la TUI vive en una terminal: si fuese un solo proceso, cerrar la terminal mataría el icono, el countdown y el sonido. El daemon posee el estado; la TUI es una vista/controlador que se puede abrir y cerrar. Ambos modos viven en `tuick-tack.exe`: sin argumentos arranca la TUI y con `--daemon` el daemon.
 
@@ -55,8 +55,8 @@ El countdown, el sonido y el icono siguen funcionando aunque se cierre la TUI. A
 - Varios timers simultáneos o cola de timers.
 - Persistencia del timer en curso tras reiniciar el daemon.
 - macOS/Linux (la app es Windows-only).
-- Toast nativo de Windows obligatorio.
-- Instalador/MSIX, auto-update, firma de código.
+- Toast nativo de Windows para el fin del countdown (las comprobaciones de actualizaciones sí usan uno, ver §12).
+- Instalador/MSIX, descarga e instalación automática de binarios (solo se avisa de una release nueva), firma de código.
 - Hotkeys globales, integración con calendario, sync en la nube.
 - UI mouse-first (el ratón funciona para chips/botones, pero el teclado manda).
 
@@ -125,10 +125,11 @@ Campos de estado:
 ## 7. Protocolo IPC
 
 - Transporte: named pipe de go-winio; mensajes JSON consecutivos con `json.Encoder`/`json.Decoder` sobre `net.Conn`.
-- Handshake: cliente `hello {protocol: 1}` ↔ servidor `hello {protocol: 1, app_version, config}`.
+- Handshake: cliente `hello {protocol: 1}` ↔ servidor `hello {protocol: 1, app_version, config, update?}`.
 - El servidor acepta N clientes; broadcast de estado a 10 Hz mientras corre (y en cada cambio), y config solo al cambiar.
 - Errores: `{ "type": "error", "code": "...", "message": "..." }`.
 - La TUI reintenta la conexión cada 1 s si se cae; muestra banner de desconexión y deshabilita comandos.
+- Los mensajes de servidor desconocidos se decodifican como `IgnoredMessage` y se ignoran, para que un mensaje aditivo no rompa un cliente viejo. Por eso `update` no sube `Protocol`.
 
 Cliente → daemon:
 
@@ -147,6 +148,7 @@ Cliente → daemon:
 | `set_volume` | `volume` |
 | `preview_sound` | — |
 | `stop_sound` | — |
+| `check_update` | — |
 | `get_state` | — |
 | `quit_daemon` | — |
 
@@ -154,9 +156,11 @@ Daemon → cliente:
 
 | Mensaje | Contenido |
 |---|---|
-| `hello` | `protocol`, `app_version`, `config` |
+| `hello` | `protocol`, `app_version`, `config`, `update?` |
 | `state` | snapshot del §6 |
 | `config` | `presets`, `theme`, `sound`, `sound_name`, `volume` |
+| `update` | `latest`, `url` |
+| `update_result` | `current`, `latest?`, `url?`, `error?` |
 | `error` | `code`, `message` |
 
 Validación: duración 1..86400 s; etiqueta 1..32 caracteres; máximo 16 presets; tema válido; sonido válido (`chime`, `marimba`, `digital`, `deep`); volumen 0..100. Comando inválido → error, sin cambiar estado.
@@ -188,6 +192,7 @@ Rutas (por usuario, sin admin):
 - Migración v1 → v2 al cargar: conserva theme, sound y presets; fija `sound_name=digital` y `volume=80`. El daemon guarda la config migrada al arrancar.
 - Escritura atómica (temporal en el mismo directorio + rename). Config corrupta: backup `config.bad-<timestamp>.json` y defaults.
 - El daemon es el único escritor. La TUI manda comandos; el daemon guarda, actualiza el menú y hace broadcast.
+- El registro se usa solo para autostart (`HKCU\...\Run`) y para el AUMID de las notificaciones (`HKCU\Software\Classes\AppUserModelId\Juankyyy.TuickTack`, valor `DisplayName`); nunca para estado de la app.
 - Etiqueta y duración visibles en el menú; el orden es el almacenado (defaults primero; los nuevos al final).
 - Duraciones: parser en §9. Límite 1 s..24 h.
 
@@ -204,14 +209,18 @@ Rutas (por usuario, sin admin):
 - **Confirmación de cancelar:** overlay “Stop the countdown? Enter yes · Esc no”.
 - **Ayuda:** overlay `?` con título “Help”, atajos globales y los atajos de sonido y presets (`[a] add`, `[e] edit`, `[d] delete`, `[r] defaults`).
 - **Desconectado:** banner “Daemon disconnected — retrying…” y comandos deshabilitados.
+- **Actualización disponible:** a la derecha de la marca, en la fila de la cabecera, `[Update available →]` en degradado pastel animado (arcoíris de 0,8 de vuelta a S 0,52 / L 0,68, negrita; la fase avanza ~0,1 vuelta/s con el tick de 10 Hz). Es clicable y abre la página de la release; al pasar el ratón por encima se pinta un fondo suave en toda la etiqueta. La flecha `→` es la pista estática de que abre algo. Si el estado no deja sitio, cae a `[Update →]`; si tampoco entra, no se dibuja. En `mono` usa un degradado de grises sin animación. El modo compacto añade una línea de texto sin click.
+- **Buscar actualizaciones:** `u` en la pantalla principal pide una comprobación manual al daemon. Mientras corre, la línea de estado dice `Checking for updates…`; al terminar muestra un toast interno: `vX available`, `Up to date (latest vX)` o `Update check failed`. El aviso rainbow y el ítem de la bandeja abren la release. `u` funciona también en el modo compacto, aunque allí no se dibuje el aviso ni se pueda abrir la ayuda. La comprobación iniciada desde la bandeja, en cambio, muestra un toast nativo de Windows (ver §12).
 
 ### Layout
 
-- Alt screen, cursor oculto, mouse habilitado para chips/botones.
-- Mínimo con estilos 48×22. El reloj usa escala 1 y pasa a escala 2 desde 100×30. La separación entre piezas es de una fila por debajo de 30 de alto y de dos filas desde 30.
+- Alt screen, cursor oculto, mouse en modo all-motion para chips/botones y el hover del aviso de actualización.
+- Mínimo con estilos 48×22. El reloj usa escala 1 y pasa a escala 2 desde 100×30. La separación entre piezas es de una fila por debajo de 32 de alto y de dos filas desde 32 (la fila extra del aviso de actualización retrasa el cambio).
 - Entre 22 y 23 filas se usa el modo *tight*: se omite la línea meta (`remaining` / `Type a duration or pick a preset`) y su hueco para que el bloque quepa sin solapes. Desde 24 filas vuelve la meta.
 - Sin panel ni marco: la aurora ocupa toda la pantalla y el contenido vive en una columna centrada de máximo 100 celdas. En 80×24 quedan 4 celdas de margen a cada lado.
 - Estructura vertical: cabecera de dos alturas (marca arriba; estado + sub-línea `ends at` / `on hold` / `at` / `no countdown` a la derecha) · aire · hero dígitos (7) · aire · etiqueta · aire · barra · aire · meta · aire · [input + chips | botones] · aire · atajos de teclas.
+- El aviso de actualización vive en la fila de la marca, no añade filas: `● tuick·tack  [Update available]` con el estado a la derecha. Se calcula su hueco contra el punto de estado y nunca lo pisa.
+- Debajo de los atajos principales hay una fila en blanco y una segunda línea, más atenuada, con `[u] check for updates`. En 80×24 la fila extra sale de juntar la etiqueta y la barra de progreso y de reducir el hueco entre la meta y los controles; desde 26 filas se mantiene el aire normal. En el modo tight (22–23 filas) y en compacto se omite para no quitar la línea de estado. La fila de estado sigue encima de los atajos.
 - La cabecera se alinea a la medida y el bloque completo (dígitos → atajos) se centra verticalmente: los atajos quedan bajo los presets/botones, separados por el mismo aire (una fila por debajo de 30 de alto, dos desde 30), y el espacio sobrante queda bajo ellos. En 48×22 y 80×24 el bloque llena justo el alto disponible. La línea de estado (desconectado / aviso) se dibuja en la fila inmediatamente superior a los atajos.
 - Por debajo de 48×22 (anchura < 48 o altura < 22) la TUI pasa a modo texto compacto: fondo plano, sin aurora, polvo, confeti, bigfont, chips ni botones. Muestra por prioridad el reloj, la etiqueta, el estado y los atajos esenciales, y recorta las líneas de menor prioridad hasta dejar solo el reloj en una fila. Los modales de gestión no se dibujan y sus teclas se ignoran; la confirmación de parada se muestra como texto. Al recuperar el mínimo se restaura la vista anterior.
 - Los modales se dibujan sobre un scrim que atenúa el escenario y una hoja plana sin marco, con el mismo contenido y botones.
@@ -222,10 +231,10 @@ Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pa
 
 | Contexto | Acción |
 |---|---|
-| Idle | dígitos/`:`/`h`/`m`/`s` escriben; `Backspace` borra; `Enter` inicia; `←/→` seleccionan preset; `p` gestor; `t` tema; `v` sonido; `s` mute; `?` ayuda; `q` salir de la TUI |
-| Running | `Space` pausa; `Esc` confirma cancelar; `+`/`-` ±1 min; `v` sonido; `?` ayuda; `q` salir |
-| Paused | `Space` reanuda; `Esc` confirma cancelar; `+`/`-` ±1 min; `v` sonido; `q` salir |
-| Finished | `Enter`/`Esc` cierran; `r` repiten; `v` sonido |
+| Idle | dígitos/`:`/`h`/`m`/`s` escriben; `Backspace` borra; `Enter` inicia; `←/→` seleccionan preset; `p` gestor; `t` tema; `v` sonido; `s` mute; `u` busca actualizaciones; `?` ayuda; `q` salir de la TUI |
+| Running | `Space` pausa; `Esc` confirma cancelar; `+`/`-` ±1 min; `v` sonido; `u` busca actualizaciones; `?` ayuda; `q` salir |
+| Paused | `Space` reanuda; `Esc` confirma cancelar; `+`/`-` ±1 min; `v` sonido; `u` busca actualizaciones; `q` salir |
+| Finished | `Enter`/`Esc` cierran; `r` repiten; `v` sonido; `u` busca actualizaciones |
 | Sonido | `↑/↓` sonido; `←/→` volumen ±5; `Space` preview; `m` mute; `Esc`/`Enter` cerrar |
 | Gestor | `↑/↓` mover; `Tab` acciones; `←/→` elegir acción; `Enter` iniciar (lista) o ejecutar (acción); `a` añadir; `e` editar; `d` borrar; `r` defaults; `Esc` cerrar; en formulario `Tab` campo, `Enter` guardar, `Esc` cancelar |
 
@@ -319,6 +328,8 @@ Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pa
 
 ```
 Tuick-Tack · 04:32 remaining
+Update available: v0.2.0
+Check for updates
 ──────────────────────────
 Open Tuick-Tack
 Start              ▸ 5 min · 10 min · 15 min · Custom…
@@ -335,6 +346,8 @@ Quit
 - **Clic izquierdo:** abre la TUI (`SetOnTapped`).
 - **Clic derecho:** menú. No se define `SetOnSecondaryTapped` para que systray muestre el menú.
 - **Status:** ítem deshabilitado con el tiempo restante; se actualiza a 1 Hz mientras corre.
+- **Update available:** aparece solo cuando el daemon conoce una release más nueva; `Update available: vX.Y.Z`, habilitado y abre la release en el navegador. Se crea oculto justo después del status, así que al mostrarse conserva esa posición. No admite color: es un menú nativo.
+- **Check for updates:** siempre visible. Pide una comprobación manual al daemon, muestra `Checking for updates…` y se deshabilita mientras corre, y luego queda como `Up to date (vX)` o `Update check failed` (se puede volver a pulsar). Cada comprobación desde aquí lanza además un toast nativo de Windows con el resultado; el de una release nueva abre la página al pulsar el cuerpo.
 - **Start:** submenú reconstruido cuando cambian los presets; “Custom…” abre la TUI con el input enfocado.
 - **Pause / Resume:** un solo ítem con título dinámico; habilitado según estado.
 - **Stop:** habilitado en running/paused/finished; en finished actúa como dismiss.
@@ -343,6 +356,18 @@ Quit
 - **Volume:** submenú con título dinámico; -5%/+5% y atajos 0/25/50/75/100. Cada cambio previsualiza si Sound está activo.
 - **Start with Windows:** check; lee/escribe `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, valor `TuickTack` apuntando a `"tuick-tack.exe" --daemon --hidden`. Sin admin. Al arrancar, el daemon migra un valor antiguo de `tuick-tack-tray.exe` para conservar el ajuste. En builds de `go run` el autostart queda deshabilitado: la ruta del ejecutable es temporal.
 - **Quit:** para sonido, cierra pipe y `systray.Quit()`.
+
+### Actualizaciones
+
+- El daemon comprueba `https://api.github.com/repos/Juankyyy/tuick-tack/releases/latest` al arrancar (en segundo plano, sin bloquear tray/IPC) y después cada 24 h. Si falla (offline, proxy, 403 por rate limit), reintenta a las 6 h; solo queda en el log, sin toast.
+- La comprobación manual se pide desde la bandeja (**Check for updates**) o desde la TUI con `u`. El daemon la ejecuta en una goroutine (las comprobaciones manuales y automáticas se serializan), actualiza la caché y responde `update_result` al cliente que la pidió; el estado de la bandeja pasa a `Checking…`, `Up to date (vX)` o `Update check failed`.
+- La comprobación iniciada desde la bandeja muestra un toast nativo de Windows con el resultado: `Update available` (con la versión y la release como destino al pulsar), `You're up to date` (con la versión actual) o `Update check failed`. Se usa `Windows.UI.Notifications` vía `github.com/mtunjic/winrt-toast` v1.2.0 (COM puro, sin cgo ni PowerShell). Las comprobaciones automáticas y las iniciadas desde la TUI no muestran toast del sistema; la TUI ya tiene su propio aviso.
+- El toast usa el AUMID `Juankyyy.TuickTack`, registrado una vez en `HKCU\Software\Classes\AppUserModelId` con `DisplayName=Tuick-Tack`. No requiere admin ni acceso directo en el menú Inicio para mostrarse; el `CustomActivator` solo haría falta para recibir callbacks, que no se usan (los toasts con release usan activación por protocolo). Focus Assist o las notificaciones desactivadas para la app pueden ocultarlo; el estado de la bandeja sigue siendo la fuente de verdad.
+- Solo builds de release: `buildinfo.Version == "dev"` no comprueba automáticamente; la comprobación manual sí funciona en `dev` porque es una acción explícita. `tuick-tack --check-updates` hace una pasada y la imprime.
+- Comparación semver propia (`internal/update`): acepta `v`, ignora metadata de build, pre-release antes que release; `dev` ordena antes que cualquier versión.
+- El resultado se cachea en memoria, viaja en el `hello` y se emite como `update` cuando aparece. La TUI lo revalida contra su propia versión.
+- Privacidad: una petición HTTPS anónima por comprobación, `User-Agent: tuick-tack/<versión>`, sin telemetría propia. La app no descarga ni ejecuta nada.
+- Para reemplazar el `.exe` a mano hay que salir del daemon desde la bandeja: Windows bloquea un ejecutable en uso.
 
 ### Iconos
 
@@ -404,6 +429,9 @@ internal/
   protocol/                   # mensajes serde
   ipc/                        # server/client named pipe
   daemon/                     # wiring, sound, autostart, logging
+  update/                     # GitHub release check (semver, sin descarga)
+  browser/                    # ShellExecuteW para abrir la release
+  notify/                     # toasts WinRT: AUMID, resultado de la comprobación
   tray/                       # systray menu, icons, tooltip
   tui/
     app.go                    # Bubble Tea model/update
@@ -448,7 +476,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - `tools/gen-banner` genera `assets/banner.txt` (2x, 118 columnas), `assets/banner-compact.txt` (1x, 59) y `assets/banner.png` (celdas cuadradas) desde el mismo 5×7 de `bigfont` que el countdown. El PNG es transparente y el banner no se embebe en el ejecutable.
 - `CGO_ENABLED=0`; no se necesita compilador C.
 - Entrega: carpeta `dist/` con `tuick-tack.exe` y `SHA256SUMS.txt`. Sin instalador. Firma de código fuera de alcance (SmartScreen puede avisar).
-- `tuick-tack --version`; `tuick-tack --install-startup` / `--uninstall-startup` escriben el comando de autostart del propio ejecutable.
+- `tuick-tack --version`; `tuick-tack --check-updates` (una comprobación de release y sale); `tuick-tack --install-startup` / `--uninstall-startup` escriben el comando de autostart del propio ejecutable.
 - README: requisitos, build, uso, teclas, presets, autostart, arquitectura, troubleshooting y licencia.
 
 ## 17. Tests y QA
@@ -458,12 +486,15 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - `duration`: tabla de formatos válidos/inválidos, clamps.
 - `config`: defaults, carga/guardado, corrupto → backup, migración v1→v2, validación de presets/sonido/volumen.
 - `engine`: reloj falso; start/pause/resume/adjust/finish una vez/replace/restart; `finish_seq`.
-- `protocol`: round-trip JSON, versión, errores, comandos de sonido y volumen.
-- `ipc`: pipe de test con nombre único, handshake, start/pause/stop, broadcast, múltiples clientes, reconexión.
+- `protocol`: round-trip JSON, versión, errores, comandos de sonido y volumen, `update`, `check_update`/`update_result` y tolerancia a tipos desconocidos.
+- `ipc`: pipe de test con nombre único, handshake con `update`, start/pause/stop, broadcast, múltiples clientes, reconexión.
+- `update`: comparación semver y pre-releases, GET contra `httptest` (200/404/403/JSON roto/timeout), `User-Agent`.
+- `notify`: construcción del `Notification` (AUMID, título, cuerpo, URL de activación, duración) y validación; el COM real se prueba a mano.
+- `browser`: solo `https`, rechazo de `http`, `file` y `javascript`.
 - `canvas`/`bigfont`: dimensiones, clipping, ancho de runas, gradiente.
 - `fx`: RNG con semilla, física, caducidad, sin NaN, límites.
-- `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único; parseo y migración del valor de autostart; catálogo de sonidos, escalado PCM y caché.
-- `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; modal de sonido; 48×22, 80×24 y 120×40 (incluido el modo compacto); celebración una vez por `finish_seq`.
+- `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único; parseo y migración del valor de autostart; catálogo de sonidos, escalado PCM y caché; caché de la release y comprobación manual (up to date / available / failed) contra `httptest`; notificación inyectada solo para la bandeja.
+- `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; modal de sonido; aviso de actualización (degradado animado con `animTime`, flecha, fallback corto, hover, click y modo compacto); `u` y resultado manual (available / up to date / failed); aviso secundario debajo de los atajos con una fila en blanco a 80×24/120×40 y ausente en 48×22; 48×22, 80×24 y 120×40 (incluido el modo compacto); celebración una vez por `finish_seq`.
 - Comandos: `go test ./...`, `go vet ./...`, `gofmt -l .`.
 
 ### Manual
@@ -480,6 +511,9 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 10. 48×22, 80×24 y 120×40; resize durante el confeti; con una TUI abierta, el clic en la bandeja la enfoca sin abrir otra; lanzar `tuick-tack.exe` a mano también la enfoca y sale.
 11. El daemon (`--daemon --hidden`) no muestra consola; la TUI sí.
 12. `dist/` contiene un solo `tuick-tack.exe`; `go test`, build y ejecución desde `dist/`.
+13. Compilar con `-Version v0.1.0`, salir antes del daemon de la bandeja y abrir: aparece `[Update available]` junto a la marca, el ítem en la bandeja y el click abre la página de la última release. `--check-updates` imprime el resultado. Sin red, arranca normal y no avisa de errores.
+14. Con el daemon y la TUI abiertos, pulsar `u`: la línea de estado muestra `Checking for updates…`, luego un toast interno (`vX available`, `Up to date…` o `Update check failed`) y el ítem de la bandeja refleja el mismo resultado. Repetirlo desde **Check for updates** de la bandeja: además debe salir un toast nativo de Windows; el de una release nueva abre la página al pulsar el cuerpo. La `u` debe verse atenuada debajo de los atajos, con una fila en blanco en medio, a 80×24.
+15. Desactivar las notificaciones de Tuick-Tack o activar Focus Assist: la comprobación sigue y el estado de la bandeja cambia, aunque el toast no se vea.
 
 ### Criterios de aceptación (v1)
 
@@ -493,6 +527,8 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - [ ] Confeti a 0 en la TUI, una vez por final, ~6 s, sin artefactos al redimensionar.
 - [ ] La UI es usable a 48×22 (modo tight), a 80×24, y se ve bien a 120×40.
 - [ ] Un solo `.exe`; el daemon no abre consola con `--hidden`; autostart opcional funciona.
+- [ ] El aviso de release aparece en TUI y bandeja y abre la página; no descarga nada; la comprobación manual funciona desde la bandeja y con `u`.
+- [ ] La comprobación desde la bandeja muestra un toast nativo con el resultado; el de una release nueva abre la página al pulsar.
 - [ ] Tests, vet y gofmt limpios.
 
 ## 18. Hitos
@@ -515,19 +551,22 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 | Fuente/or glyphs no disponibles | Windows Terminal + glifos box-drawing; fallback `* + •`; tests de ancho |
 | Sin dispositivo de audio | Log y continuar; alerta visual/tooltip |
 | .exe sin firmar / SmartScreen | Build local; firma fuera de alcance |
-| Toast nativo poco fiable | No es requisito; sonido + icono + TUI |
+| Toast nativo poco fiable | Solo se usa para el resultado de la comprobación; el fin sigue con sonido + icono + TUI |
 | Pérdida del timer al reiniciar el daemon | Documentado; futura persistencia |
 | Pipe/instancia duplicada | Mutex + `first pipe instance`; test |
 | `go-winres` falla | Build sin icono de .exe; icono de bandeja sigue |
+| GitHub no responde, proxy o rate limit | Silencio; reintento a las 6 h; la app sigue normal |
+| Notificaciones de Windows desactivadas o Focus Assist | El toast no se ve; el estado de la bandeja sigue mostrando el resultado |
+| AUMID sin acceso directo | Verificado en Windows 10/11; si Windows lo rechazara, el estado de la bandeja sigue y el error queda en el log |
 | Muchas animaciones consumen CPU | 10 Hz normal, 30 fps solo celebración; presupuesto < 8 ms/frame |
 
 ## 20. Fuera de alcance / futuro
 
 - Varios timers y cola.
 - Persistencia/restauración del timer tras reinicio o crash.
-- Toast nativo de Windows con AUMID registrado.
+- Toast nativo de Windows con AUMID para el fin del countdown (el aviso de actualizaciones ya usa uno).
 - Hotkeys globales.
-- Instalador, auto-update, firma.
+- Instalador, descarga/instalación automática, firma.
 - macOS/Linux.
 - Sonidos personalizados por el usuario.
 - Sincronización de presets entre máquinas.
@@ -560,9 +599,15 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 {"type":"preset_add","label":"Focus","seconds":1500}
 {"type":"set_sound_name","sound_name":"marimba"}
 {"type":"set_volume","volume":75}
+{"type":"check_update"}
 
 // daemon → cliente
-{"type":"hello","protocol":1,"app_version":"0.1.1","config":{...}}
+{"type":"hello","protocol":1,"app_version":"v0.1.2","config":{...},
+ "update":{"latest":"v0.2.0","url":"https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0"}}
+{"type":"update","latest":"v0.2.0",
+ "url":"https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0"}
+{"type":"update_result","current":"v0.1.2","latest":"v0.2.0",
+ "url":"https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0"}
 {"type":"state","status":"running","duration_ms":300000,"remaining_ms":271500,
  "label":"5 min","preset_id":"p5","finish_seq":3,"end_at_unix_ms":1762839120000}
 ```

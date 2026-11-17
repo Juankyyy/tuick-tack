@@ -145,3 +145,53 @@ func Pulse(a, b color.RGBA, phase float64) color.RGBA {
 	t := (math.Sin(phase) + 1) / 2
 	return Lerp(a, b, t)
 }
+
+// HSL converts a hue (0..1), saturation (0..1) and lightness (0..1) to an
+// opaque color. Hue wraps around; saturation and lightness are clamped.
+func HSL(h, s, l float64) color.RGBA {
+	h = math.Mod(h, 1)
+	if h < 0 {
+		h++
+	}
+	s = clamp01(s)
+	l = clamp01(l)
+	c := (1 - math.Abs(2*l-1)) * s
+	hp := h * 6
+	x := c * (1 - math.Abs(math.Mod(hp, 2)-1))
+	var r, g, b float64
+	switch {
+	case hp < 1:
+		r, g, b = c, x, 0
+	case hp < 2:
+		r, g, b = x, c, 0
+	case hp < 3:
+		r, g, b = 0, c, x
+	case hp < 4:
+		r, g, b = 0, x, c
+	case hp < 5:
+		r, g, b = x, 0, c
+	default:
+		r, g, b = c, 0, x
+	}
+	m := l - c/2
+	return color.RGBA{
+		R: channel(r + m),
+		G: channel(g + m),
+		B: channel(b + m),
+		A: 0xFF,
+	}
+}
+
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
+func channel(v float64) uint8 {
+	return uint8(math.Round(clamp01(v) * 255))
+}

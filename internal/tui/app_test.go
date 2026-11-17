@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 	"testing"
@@ -8,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"tuick-tack/internal/buildinfo"
 	"tuick-tack/internal/config"
 	"tuick-tack/internal/engine"
 	"tuick-tack/internal/protocol"
@@ -68,7 +70,7 @@ func applyRunning(m *Model) {
 func TestViewIdle(t *testing.T) {
 	m, _ := testModel(80, 24)
 	plain := assertFrame(t, m, 80, 24)
-	for _, want := range []string{"tuick·tack", "Ready when you are", "5 min", "12:30", "[p] presets", copy.T(copy.ControlsIdle)} {
+	for _, want := range []string{"tuick·tack", "Ready when you are", "5 min", "12:30", "[p] presets", copy.T(copy.ControlsIdle), copy.T(copy.UpdateHint)} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("idle view missing %q", want)
 		}
@@ -80,12 +82,252 @@ func TestViewIdle(t *testing.T) {
 	}
 }
 
+func TestUpdateHintAndClick(t *testing.T) {
+	m, _ := testModel(80, 24)
+	url := "https://github.com/Juankyyy/tuick-tack/releases/tag/v9.9.9"
+	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: url})
+	opened := ""
+	m.openURL = func(u string) error {
+		opened = u
+		return nil
+	}
+
+	label := "[" + copy.T(copy.UpdateAvailable) + " " + copy.T(copy.UpdateArrow) + "]"
+	plain := assertFrame(t, m, 80, 24)
+	if !strings.Contains(plain, label) {
+		t.Fatalf("update notice missing:\n%s", plain)
+	}
+	header := strings.Split(plain, "\n")[m.layout(80, 24).headerY]
+	if !strings.Contains(header, copy.T(copy.Brand)) ||
+		!strings.Contains(header, label) ||
+		!strings.Contains(header, "READY") {
+		t.Fatalf("header = %q", header)
+	}
+	if strings.Index(header, copy.T(copy.Brand)) > strings.Index(header, label) {
+		t.Fatalf("the notice should follow the wordmark: %q", header)
+	}
+
+	var hit *hitbox
+	for i := range m.hits {
+		if m.hits[i].action == hitUpdate {
+			hit = &m.hits[i]
+		}
+	}
+	if hit == nil {
+		t.Fatal("the update notice has no click target")
+	}
+	_, _ = m.Update(tea.MouseMotionMsg{X: hit.x, Y: hit.y})
+	if !m.hoverUpdate {
+		t.Fatal("motion over the notice did not set the hover state")
+	}
+	_, _ = m.Update(tea.MouseMotionMsg{X: 0, Y: 0})
+	if m.hoverUpdate {
+		t.Fatal("motion away from the notice did not clear the hover state")
+	}
+	_, _ = m.Update(tea.MouseClickMsg{X: hit.x, Y: hit.y, Button: tea.MouseLeft})
+	if opened != url {
+		t.Fatalf("opened %q, want %q", opened, url)
+	}
+
+	m.openURL = func(string) error { return errors.New("no browser") }
+	m.Update(tea.MouseClickMsg{X: hit.x, Y: hit.y, Button: tea.MouseLeft})
+	if m.toast != copy.T(copy.ErrorOpenURL) {
+		t.Fatalf("toast = %q, want %q", m.toast, copy.T(copy.ErrorOpenURL))
+	}
+
+	// A build that is already current shows nothing.
+	m.setUpdate(&protocol.UpdatePayload{Latest: buildinfo.Version, URL: url})
+	if m.update != nil {
+		t.Fatalf("same version should clear the notice: %+v", m.update)
+	}
+}
+
+func TestUpdateNoticeShortensAtMinimum(t *testing.T) {
+	m, _ := testModel(48, 24)
+	m.setUpdate(&protocol.UpdatePayload{
+		Latest: "v9.9.9",
+		URL:    "https://github.com/Juankyyy/tuick-tack/releases/tag/v9.9.9",
+	})
+	m.state = protocol.StateMessage{Type: protocol.TypeState, Status: string(engine.Finished)}
+	m.hasState = true
+
+	plain := assertFrame(t, m, 48, 24)
+	header := strings.Split(plain, "\n")[m.layout(48, 24).headerY]
+	short := "[" + copy.T(copy.UpdateShort) + " " + copy.T(copy.UpdateArrow) + "]"
+	long := "[" + copy.T(copy.UpdateAvailable) + " " + copy.T(copy.UpdateArrow) + "]"
+	if !strings.Contains(header, short) {
+		t.Fatalf("narrow header is missing the short notice: %q", header)
+	}
+	if strings.Contains(header, long) {
+		t.Fatalf("narrow header should not use the long notice: %q", header)
+	}
+}
+
+func TestUpdateColors(t *testing.T) {
+	m, _ := testModel(80, 24)
+	colors := m.updateColors(18)
+	if len(colors) != 18 {
+		t.Fatalf("colors = %d, want 18", len(colors))
+	}
+	for _, c := range colors {
+		if c.A != 0xFF {
+			t.Fatalf("alpha = %d", c.A)
+		}
+		spread := int(maxUint8(c.R, c.G, c.B)) - int(minUint8(c.R, c.G, c.B))
+		if spread > 140 {
+			t.Fatalf("color %+v is too saturated (spread %d)", c, spread)
+		}
+	}
+	if colors[0] == colors[len(colors)-1] {
+		t.Fatal("the gradient should change across the label")
+	}
+
+	m.pal = theme.Get("mono")
+	for _, c := range m.updateColors(18) {
+		if absInt(int(c.R)-int(c.G)) > 12 || absInt(int(c.G)-int(c.B)) > 12 {
+			t.Fatalf("mono notice is not gray enough: %+v", c)
+		}
+	}
+
+	m.pal = theme.Get("midnight")
+	m.animTime = 0
+	first := m.updateColors(18)
+	m.animTime = 1
+	moved := m.updateColors(18)
+	if first[0] == moved[0] {
+		t.Fatal("the rainbow should move with animTime")
+	}
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
+}
+
+func TestUpdateNoticeInCompact(t *testing.T) {
+	m, _ := testModel(40, 12)
+	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: "https://example.test/release"})
+	plain := assertFrame(t, m, 40, 12)
+	if !strings.Contains(plain, copy.T(copy.UpdateAvailable)) {
+		t.Fatalf("compact view is missing the notice:\n%s", plain)
+	}
+	if len(m.hits) != 0 {
+		t.Fatalf("compact view registered %d mouse hits", len(m.hits))
+	}
+}
+
+func maxUint8(v ...uint8) uint8 {
+	m := v[0]
+	for _, x := range v[1:] {
+		if x > m {
+			m = x
+		}
+	}
+	return m
+}
+
+func minUint8(v ...uint8) uint8 {
+	m := v[0]
+	for _, x := range v[1:] {
+		if x < m {
+			m = x
+		}
+	}
+	return m
+}
+
+func TestManualUpdateCheck(t *testing.T) {
+	m, _ := testModel(80, 24)
+
+	// Without a daemon the key reports the offline state instead of leaving a
+	// spinner behind.
+	press(m, 'u', "u")
+	if m.checkingUpdate {
+		t.Fatal("offline check should not start")
+	}
+	if m.toast != copy.T(copy.ErrorOffline) {
+		t.Fatalf("toast = %q, want offline", m.toast)
+	}
+
+	m.connected = true
+	m.checkingUpdate = true
+	m.toast = ""
+	plain := assertFrame(t, m, 80, 24)
+	l := m.layout(80, 24)
+	if line := strings.Split(plain, "\n")[l.statusY]; !strings.Contains(line, copy.T(copy.UpdateChecking)) {
+		t.Fatalf("checking line = %q", line)
+	}
+
+	url := "https://github.com/Juankyyy/tuick-tack/releases/tag/v9.9.9"
+	_, cmd := m.Update(serverEventMsg{msg: protocol.NewUpdateResult(protocol.UpdateResultMessage{
+		Current: buildinfo.Version,
+		Latest:  "v9.9.9",
+		URL:     url,
+	})})
+	if cmd != nil {
+		t.Fatalf("unexpected command after result: %v", cmd)
+	}
+	if m.checkingUpdate {
+		t.Fatal("result did not clear the checking state")
+	}
+	if m.update == nil || m.update.URL != url || m.update.Latest != "v9.9.9" {
+		t.Fatalf("update = %+v", m.update)
+	}
+	if m.toast != copy.T(copy.ToastUpdateFound, "v9.9.9") {
+		t.Fatalf("toast = %q", m.toast)
+	}
+}
+
+func TestManualUpdateResultUpToDate(t *testing.T) {
+	old := buildinfo.Version
+	buildinfo.Version = "v2.0.0"
+	defer func() { buildinfo.Version = old }()
+
+	m, _ := testModel(80, 24)
+	m.checkingUpdate = true
+	m.update = &protocol.UpdatePayload{Latest: "v1.9.0", URL: "https://example.test/old"}
+	_, _ = m.Update(serverEventMsg{msg: protocol.NewUpdateResult(protocol.UpdateResultMessage{
+		Current: "v2.0.0",
+		Latest:  "v1.9.0",
+		URL:     "https://example.test/v1.9.0",
+	})})
+	if m.checkingUpdate {
+		t.Fatal("result did not clear the checking state")
+	}
+	if m.update != nil {
+		t.Fatalf("up-to-date result left a notice: %+v", m.update)
+	}
+	if m.toast != copy.T(copy.ToastUpToDate, "v1.9.0") {
+		t.Fatalf("toast = %q", m.toast)
+	}
+
+	m.checkingUpdate = true
+	_, _ = m.Update(serverEventMsg{msg: protocol.NewUpdateResult(protocol.UpdateResultMessage{Error: "failed"})})
+	if m.checkingUpdate || m.toast != copy.T(copy.ErrorUpdate) {
+		t.Fatalf("failed result: checking=%v toast=%q", m.checkingUpdate, m.toast)
+	}
+}
+
+func TestManualUpdateCheckInCompact(t *testing.T) {
+	m, _ := testModel(40, 12)
+	m.connected = true
+	m.checkingUpdate = true
+	plain := assertFrame(t, m, 40, 12)
+	if !strings.Contains(plain, copy.T(copy.UpdateChecking)) {
+		t.Fatalf("compact view is missing the checking line:\n%s", plain)
+	}
+}
+
 func TestKeyHintsSitBelowPresets(t *testing.T) {
 	for _, tc := range []struct {
 		w, h int
 		gap  int
 	}{
 		{80, 24, 1},
+		{80, 30, 1},
+		{80, 32, 2},
 		{120, 40, 2},
 	} {
 		m, _ := testModel(tc.w, tc.h)
@@ -95,6 +337,12 @@ func TestKeyHintsSitBelowPresets(t *testing.T) {
 		}
 		if l.statusY != l.hintY-1 {
 			t.Fatalf("%dx%d status row = %d, want %d", tc.w, tc.h, l.statusY, l.hintY-1)
+		}
+		if l.subHintY != l.hintY+2 {
+			t.Fatalf("%dx%d sub-hint row = %d, want %d", tc.w, tc.h, l.subHintY, l.hintY+2)
+		}
+		if l.subHintY >= tc.h {
+			t.Fatalf("%dx%d sub-hint row = %d, outside the frame", tc.w, tc.h, l.subHintY)
 		}
 		if l.hintY >= tc.h {
 			t.Fatalf("%dx%d hint row = %d, outside the frame", tc.w, tc.h, l.hintY)
@@ -109,6 +357,15 @@ func TestKeyHintsSitBelowPresets(t *testing.T) {
 		if hintLine != l.hintY {
 			t.Fatalf("%dx%d hints render at row %d, want %d", tc.w, tc.h, hintLine, l.hintY)
 		}
+		if strings.Contains(lines[l.hintY+1], copy.T(copy.UpdateHint)) {
+			t.Fatalf("%dx%d update hint should have a blank row above it", tc.w, tc.h)
+		}
+		if !strings.Contains(lines[l.subHintY], copy.T(copy.UpdateHint)) {
+			t.Fatalf("%dx%d sub-hint missing at row %d: %q", tc.w, tc.h, l.subHintY, lines[l.subHintY])
+		}
+		if strings.Index(lines[l.hintY], copy.T(copy.UpdateHint)) >= 0 {
+			t.Fatalf("%dx%d update hint should be below the key line", tc.w, tc.h)
+		}
 	}
 }
 
@@ -117,6 +374,9 @@ func TestMinimumStageFitsAndDropsMeta(t *testing.T) {
 	l := m.layout(48, 22)
 	if l.metaY != -1 {
 		t.Fatalf("metaY = %d, want -1 in the tight layout", l.metaY)
+	}
+	if l.subHintY != -1 {
+		t.Fatalf("subHintY = %d, want -1 in the tight layout", l.subHintY)
 	}
 	if l.chipsY != 19 || l.statusY != 20 || l.hintY != 21 {
 		t.Fatalf("tight rows: chips=%d status=%d hint=%d, want 19/20/21",
@@ -130,6 +390,9 @@ func TestMinimumStageFitsAndDropsMeta(t *testing.T) {
 	if !strings.Contains(lines[l.hintY], "[p] presets") {
 		t.Fatalf("hints missing at row %d: %q", l.hintY, lines[l.hintY])
 	}
+	if strings.Contains(strings.Join(lines, "\n"), copy.T(copy.UpdateHint)) {
+		t.Fatal("the tight layout should omit the secondary update hint")
+	}
 	if strings.Contains(strings.Join(lines, "\n"), copy.T(copy.ReadyMeta)) {
 		t.Fatal("the tight layout should drop the meta line")
 	}
@@ -138,8 +401,14 @@ func TestMinimumStageFitsAndDropsMeta(t *testing.T) {
 	if l := m.layout(48, 24); l.metaY < 0 {
 		t.Fatal("the normal layout should restore the meta line from 24 rows")
 	}
+	if l := m.layout(48, 24); l.subHintY != l.hintY+2 {
+		t.Fatalf("48x24 sub-hint row = %d, hint = %d", l.subHintY, l.hintY)
+	}
 	if !strings.Contains(strings.Join(render(m), "\n"), copy.T(copy.ReadyMeta)) {
 		t.Fatal("24 rows should render the meta line")
+	}
+	if !strings.Contains(strings.Join(render(m), "\n"), copy.T(copy.UpdateHint)) {
+		t.Fatal("24 rows should render the secondary update hint")
 	}
 }
 
@@ -404,7 +673,7 @@ func TestModalsOpenAndClose(t *testing.T) {
 	for _, want := range []string{
 		copy.T(copy.HelpIdle), copy.T(copy.HelpTimer), copy.T(copy.HelpModal),
 		copy.T(copy.HelpSound), copy.T(copy.HelpPresets),
-		copy.T(copy.HelpFormats), copy.T(copy.HelpFinished),
+		copy.T(copy.HelpFormats), copy.T(copy.HelpFinished), copy.T(copy.HelpUpdate),
 	} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("help is missing %q", want)

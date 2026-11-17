@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ func TestClientRoundTrip(t *testing.T) {
 		{Type: TypeSetVolume, Volume: &volume},
 		{Type: TypePreviewSound},
 		{Type: TypeStopSound},
+		{Type: TypeCheckUpdate},
 		{Type: TypePause},
 	}
 	for _, want := range msgs {
@@ -88,7 +90,8 @@ func TestStateWithoutDeadline(t *testing.T) {
 func TestHelloAndConfigRoundTrip(t *testing.T) {
 	c := config.Default()
 	c.Theme = config.ThemeMono
-	hello := NewHello("dev", c)
+	upd := &UpdatePayload{Latest: "v0.2.0", URL: "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0"}
+	hello := NewHello("dev", c, upd)
 	data, _ := json.Marshal(hello)
 	back, err := DecodeServer(data)
 	if err != nil {
@@ -97,7 +100,8 @@ func TestHelloAndConfigRoundTrip(t *testing.T) {
 	h, ok := back.(HelloMessage)
 	if !ok || h.Protocol != Version || h.Config.Theme != config.ThemeMono ||
 		len(h.Config.Presets) != 3 || h.Config.SoundName != c.SoundName ||
-		h.Config.Volume != c.Volume {
+		h.Config.Volume != c.Volume || h.Update == nil || h.Update.Latest != "v0.2.0" ||
+		h.Update.URL != upd.URL {
 		t.Fatalf("unexpected hello: %#v", back)
 	}
 
@@ -111,6 +115,57 @@ func TestHelloAndConfigRoundTrip(t *testing.T) {
 	if !ok || cm.Sound != c.Sound || len(cm.Presets) != 3 ||
 		cm.SoundName != c.SoundName || cm.Volume != c.Volume {
 		t.Fatalf("unexpected config: %#v", back)
+	}
+}
+
+func TestUpdateRoundTrip(t *testing.T) {
+	upd := UpdatePayload{Latest: "v0.2.0", URL: "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0"}
+	data, _ := json.Marshal(NewUpdate(upd))
+	back, err := DecodeServer(data)
+	if err != nil {
+		t.Fatalf("DecodeServer: %v", err)
+	}
+	um, ok := back.(UpdateMessage)
+	if !ok || um.Type != TypeUpdate || um.Latest != upd.Latest || um.URL != upd.URL {
+		t.Fatalf("unexpected update: %#v", back)
+	}
+
+	// The handshake may omit the update entirely.
+	hello := NewHello("dev", config.Default(), nil)
+	if hello.Update != nil {
+		t.Fatalf("nil update should stay nil: %+v", hello.Update)
+	}
+	if data, _ := json.Marshal(hello); strings.Contains(string(data), `"update"`) {
+		t.Fatalf("nil update should be omitted: %s", data)
+	}
+}
+
+func TestUpdateResultRoundTrip(t *testing.T) {
+	res := NewUpdateResult(UpdateResultMessage{
+		Current: "v0.1.2",
+		Latest:  "v0.2.0",
+		URL:     "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0",
+	})
+	data, _ := json.Marshal(res)
+	back, err := DecodeServer(data)
+	if err != nil {
+		t.Fatalf("DecodeServer: %v", err)
+	}
+	rm, ok := back.(UpdateResultMessage)
+	if !ok || rm.Type != TypeUpdateResult || rm.Current != res.Current ||
+		rm.Latest != res.Latest || rm.URL != res.URL || rm.Error != "" {
+		t.Fatalf("unexpected result: %#v", back)
+	}
+
+	failed := NewUpdateResult(UpdateResultMessage{Current: "v0.1.2", Error: "failed"})
+	data, _ = json.Marshal(failed)
+	back, err = DecodeServer(data)
+	if err != nil {
+		t.Fatalf("DecodeServer failure: %v", err)
+	}
+	rm, ok = back.(UpdateResultMessage)
+	if !ok || rm.Error != "failed" || rm.Latest != "" {
+		t.Fatalf("unexpected failure result: %#v", back)
 	}
 }
 
@@ -128,8 +183,12 @@ func TestErrorRoundTrip(t *testing.T) {
 }
 
 func TestDecodeServerUnknown(t *testing.T) {
-	if _, err := DecodeServer([]byte(`{"type":"nope"}`)); err == nil {
-		t.Fatal("expected an error for an unknown message type")
+	msg, err := DecodeServer([]byte(`{"type":"nope"}`))
+	if err != nil {
+		t.Fatalf("unknown types must decode to IgnoredMessage: %v", err)
+	}
+	if _, ok := msg.(IgnoredMessage); !ok {
+		t.Fatalf("unknown type decoded to %#v", msg)
 	}
 	if _, err := DecodeServer([]byte(`{`)); err == nil {
 		t.Fatal("expected an error for malformed JSON")
@@ -179,6 +238,7 @@ func TestValidate(t *testing.T) {
 		{"volume missing", ClientMessage{Type: TypeSetVolume}, CodeInvalidCommand},
 		{"preview sound", ClientMessage{Type: TypePreviewSound}, ""},
 		{"stop sound", ClientMessage{Type: TypeStopSound}, ""},
+		{"check update", ClientMessage{Type: TypeCheckUpdate}, ""},
 		{"get state", ClientMessage{Type: TypeGetState}, ""},
 		{"quit", ClientMessage{Type: TypeQuitDaemon}, ""},
 		{"empty", ClientMessage{}, CodeInvalidMessage},

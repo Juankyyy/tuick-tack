@@ -75,6 +75,7 @@ Left click opens the TUI, or brings the open one to the front. Right click opens
 
 ```text
 Tuick-Tack · 04:32 remaining
+Check for updates
 ─────────────────────────────
 Open Tuick-Tack
 Start            ▸ 5 min · 10 min · 15 min · Custom…
@@ -98,6 +99,9 @@ future work.
 - **Logs and sound cache:** `%LOCALAPPDATA%\tuick-tack\` (`sounds\`)
 - **Autostart:** only if you enable it — `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`,
   value `TuickTack`, pointing to `tuick-tack.exe --daemon --hidden`. No admin rights.
+- **Notification identity:** `HKCU\Software\Classes\AppUserModelId\Juankyyy.TuickTack`
+  (`DisplayName=Tuick-Tack`), registered the first time a Windows toast is shown. It is not app
+  state; no admin rights.
 
 ```json
 {
@@ -122,11 +126,34 @@ version 2 on first load with Digital at 80%.
 
 ```text
 tuick-tack --version
+tuick-tack --check-updates
 tuick-tack --install-startup
 tuick-tack --uninstall-startup
 tuick-tack --daemon            # background daemon with a console (development)
 tuick-tack --daemon --hidden   # daemon without a console (used by autostart)
 ```
+
+## Updates
+
+The daemon checks the latest GitHub release once at startup and then every 24 hours. When a
+newer version exists, the TUI shows a moving pastel-rainbow `[Update available →]` after the
+wordmark; hovering it highlights the click target and clicking opens the release page. The tray
+menu gets `Update available: vX.Y.Z`, which also opens the release. The app never downloads or
+installs anything.
+
+- Check on demand with `u` in the TUI or **Check for updates** in the tray. The tray entry
+  shows `Checking for updates…`, `Up to date (vX)` or `Update check failed`; the TUI shows the
+  same progress in its status line and a short toast with the result. A check started from the
+  tray also raises a native Windows notification (update available, up to date, or failed);
+  clicking the update notification opens the release page. Checks started with `u` keep their
+  feedback inside the TUI.
+- One anonymous HTTPS request per check to `api.github.com`, with
+  `User-Agent: tuick-tack/<version>` and no other identifiers. A failed check (offline, proxy,
+  rate limit) is silent and retried after six hours.
+- The automatic check runs in release builds only (`dev` builds skip it); the manual check
+  works in any build. `tuick-tack --check-updates` runs one check and prints the result.
+- To update by hand, quit the daemon from the tray first (Windows keeps a running `.exe`
+  locked), replace `tuick-tack.exe`, and start it again. No config or preset is lost.
 
 ## Architecture
 
@@ -145,6 +172,8 @@ tuick-tack --daemon --hidden   # daemon without a console (used by autostart)
 - One named pipe per user and session; one daemon per session (named mutex).
 - The pipe protocol is versioned. The TUI reconnects every second and disables commands
   while offline.
+- The daemon also checks the latest GitHub release once a day and broadcasts it to the TUI
+  and the tray; nothing is downloaded or installed.
 - On finish the daemon increments `finish_seq` once, plays the selected sound at the
   configured volume and updates the tray; the TUI celebrates when it sees the new sequence.
 
@@ -200,6 +229,8 @@ itself with `--daemon` and connects. One file; there is no installer.
 | Tray icon missing | Windows hides new tray icons; open the overflow chevron. |
 | Very small window | Below 48×22 the TUI switches to a plain-text compact view (clock, label, state and essential keys); the styled layout returns above that size. |
 | Presets disappeared | A corrupt config is backed up and defaults are restored. Look for `config.bad-*.json` in `%APPDATA%\tuick-tack`. |
+| No update notice | Release builds check once at startup and every 24 h; `dev` builds do not. Run `tuick-tack --check-updates` and check the daemon log. |
+| No Windows notification | Check **Settings > System > Notifications** for Tuick-Tack and turn off Focus Assist. The tray entry still shows the result. |
 | SmartScreen warning | Expected for an unsigned executable. |
 | Timer lost after a crash | The timer lives in memory; restart the daemon and start again. Persistence is out of scope for this release. |
 

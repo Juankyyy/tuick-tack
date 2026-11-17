@@ -34,6 +34,18 @@ const (
 	HeaderOnHold     = Key("header.onhold")
 	HeaderNoTimer    = Key("header.notimer")
 	Completed        = Key("completed")
+	UpdateAvailable  = Key("update.available")
+	UpdateShort      = Key("update.short")
+	UpdateArrow      = Key("update.arrow")
+	UpdateChecking   = Key("update.checking")
+	UpdateHint       = Key("hint.update")
+
+	NotifyFoundTitle    = Key("notify.found.title")
+	NotifyFoundBody     = Key("notify.found.body")
+	NotifyUpToDateTitle = Key("notify.uptodate.title")
+	NotifyUpToDateBody  = Key("notify.uptodate.body")
+	NotifyFailedTitle   = Key("notify.failed.title")
+	NotifyFailedBody    = Key("notify.failed.body")
 
 	ControlsIdle     = Key("controls.idle")
 	ControlsRunning  = Key("controls.running")
@@ -85,11 +97,12 @@ const (
 	Save     = Key("action.save")
 	Back     = Key("action.back")
 
-	HelpTitle = Key("help.title")
-	HelpIdle  = Key("help.idle")
-	HelpTimer = Key("help.timer")
-	HelpModal = Key("help.modal")
-	HelpClose = Key("help.close")
+	HelpTitle  = Key("help.title")
+	HelpIdle   = Key("help.idle")
+	HelpTimer  = Key("help.timer")
+	HelpModal  = Key("help.modal")
+	HelpClose  = Key("help.close")
+	HelpUpdate = Key("help.update")
 
 	PresetsTitle      = Key("presets.title")
 	PresetsEmpty      = Key("presets.empty")
@@ -114,15 +127,19 @@ const (
 	ErrorPresets  = Key("error.presets")
 	ErrorNoPreset = Key("error.nopreset")
 	ErrorOffline  = Key("error.offline")
+	ErrorOpenURL  = Key("error.openurl")
+	ErrorUpdate   = Key("error.update.check")
 
-	ToastAdded    = Key("toast.added")
-	ToastUpdated  = Key("toast.updated")
-	ToastDeleted  = Key("toast.deleted")
-	ToastRestored = Key("toast.restored")
-	ToastTheme    = Key("toast.theme")
-	ToastSoundOn  = Key("toast.sound.on")
-	ToastSoundOff = Key("toast.sound.off")
-	ToastReplaced = Key("toast.replaced")
+	ToastAdded       = Key("toast.added")
+	ToastUpdated     = Key("toast.updated")
+	ToastDeleted     = Key("toast.deleted")
+	ToastRestored    = Key("toast.restored")
+	ToastTheme       = Key("toast.theme")
+	ToastSoundOn     = Key("toast.sound.on")
+	ToastSoundOff    = Key("toast.sound.off")
+	ToastReplaced    = Key("toast.replaced")
+	ToastUpdateFound = Key("toast.update.found")
+	ToastUpToDate    = Key("toast.update.uptodate")
 
 	Minutes = Key("unit.minutes")
 
@@ -166,6 +183,13 @@ const (
 	TrayVolumeUpTooltip      = Key("tray.volume.up.tooltip")
 	TrayStartup              = Key("tray.startup")
 	TrayStartupTooltip       = Key("tray.startup.tooltip")
+	TrayUpdateAvailable      = Key("tray.update.available")
+	TrayUpdateTooltip        = Key("tray.update.tooltip")
+	TrayUpdateCheck          = Key("tray.update.check")
+	TrayUpdateCheckTooltip   = Key("tray.update.check.tooltip")
+	TrayUpdateChecking       = Key("tray.update.checking")
+	TrayUpdateUpToDate       = Key("tray.update.uptodate")
+	TrayUpdateFailed         = Key("tray.update.failed")
 	TrayQuit                 = Key("tray.quit")
 	TrayQuitTooltip          = Key("tray.quit.tooltip")
 	TrayCurrentTooltip       = Key("tray.current.tooltip")
@@ -181,18 +205,29 @@ var texts = map[Key]string{
 	StatusOffline:    "offline",
 	StatusConnecting: "connecting",
 
-	ReadyTitle:       "Ready when you are",
-	ReadyMeta:        "Type a duration or pick a preset",
-	InputPlaceholder: "25 · 12:30 · 90s · 1h30m",
-	PausedMeta:       "%s remaining · [Space] resume",
-	RunningMeta:      "%s remaining",
-	FinishedTitle:    "%s completed",
-	FinishedMeta:     "[r] repeat · [Enter] close",
-	EndsAt:           "ends at %s",
-	TimeAt:           "at %s",
-	HeaderOnHold:     "on hold",
-	HeaderNoTimer:    "no countdown",
-	Completed:        "%s completed",
+	ReadyTitle:          "Ready when you are",
+	ReadyMeta:           "Type a duration or pick a preset",
+	InputPlaceholder:    "25 · 12:30 · 90s · 1h30m",
+	PausedMeta:          "%s remaining · [Space] resume",
+	RunningMeta:         "%s remaining",
+	FinishedTitle:       "%s completed",
+	FinishedMeta:        "[r] repeat · [Enter] close",
+	EndsAt:              "ends at %s",
+	TimeAt:              "at %s",
+	HeaderOnHold:        "on hold",
+	HeaderNoTimer:       "no countdown",
+	Completed:           "%s completed",
+	UpdateAvailable:     "Update available",
+	UpdateShort:         "Update",
+	UpdateArrow:         "→",
+	UpdateChecking:      "Checking for updates…",
+	UpdateHint:          "[u] check for updates",
+	NotifyFoundTitle:    "Update available",
+	NotifyFoundBody:     "Version %s is available. Click to open the release page.",
+	NotifyUpToDateTitle: "You're up to date",
+	NotifyUpToDateBody:  "You have the latest version (%s).",
+	NotifyFailedTitle:   "Update check failed",
+	NotifyFailedBody:    "Could not reach GitHub. Try again later.",
 
 	ControlsIdle:     "[p] presets · [t] theme · [v] sound · [s] mute · [?] help · [q] quit",
 	ControlsRunning:  "[Space] pause · [Esc] cancel · [+/-] 1 min · [v] sound · [q] quit",
@@ -244,11 +279,12 @@ var texts = map[Key]string{
 	Save:     "save",
 	Back:     "back",
 
-	HelpTitle: "Help",
-	HelpIdle:  "type a duration · [Enter] start · [←→] select preset",
-	HelpTimer: "[Space] pause/resume · [Esc] cancel · [+/-] adjust 1 min",
-	HelpModal: "[p] presets · [t] theme · [v] sound · [?] help · [q] quit",
-	HelpClose: "[Esc] or [Enter] to close",
+	HelpTitle:  "Help",
+	HelpIdle:   "type a duration · [Enter] start · [←→] select preset",
+	HelpTimer:  "[Space] pause/resume · [Esc] cancel · [+/-] adjust 1 min",
+	HelpModal:  "[p] presets · [t] theme · [v] sound · [?] help · [q] quit",
+	HelpClose:  "[Esc] or [Enter] to close",
+	HelpUpdate: "updates: [u] check for a new release",
 
 	PresetsTitle:      "Presets",
 	PresetsEmpty:      "No presets yet. Press [a] to add one.",
@@ -273,15 +309,19 @@ var texts = map[Key]string{
 	ErrorPresets:  "You can keep up to 16 presets",
 	ErrorNoPreset: "No preset selected",
 	ErrorOffline:  "The daemon is offline",
+	ErrorOpenURL:  "Could not open the release page",
+	ErrorUpdate:   "Update check failed",
 
-	ToastAdded:    "“%s” added",
-	ToastUpdated:  "“%s” updated",
-	ToastDeleted:  "Preset deleted",
-	ToastRestored: "Default presets restored",
-	ToastTheme:    "%s theme",
-	ToastSoundOn:  "Sound on",
-	ToastSoundOff: "Sound off",
-	ToastReplaced: "Countdown replaced",
+	ToastAdded:       "“%s” added",
+	ToastUpdated:     "“%s” updated",
+	ToastDeleted:     "Preset deleted",
+	ToastRestored:    "Default presets restored",
+	ToastTheme:       "%s theme",
+	ToastSoundOn:     "Sound on",
+	ToastSoundOff:    "Sound off",
+	ToastReplaced:    "Countdown replaced",
+	ToastUpdateFound: "%s available",
+	ToastUpToDate:    "Up to date (latest %s)",
 
 	Minutes: "min",
 
@@ -327,6 +367,13 @@ var texts = map[Key]string{
 	TrayVolumeUpTooltip:      "Raise the volume by 5%",
 	TrayStartup:              "Start with Windows",
 	TrayStartupTooltip:       "Launch the daemon at sign-in",
+	TrayUpdateAvailable:      "Update available: %s",
+	TrayUpdateTooltip:        "Open the release page",
+	TrayUpdateCheck:          "Check for updates",
+	TrayUpdateCheckTooltip:   "Contact GitHub for the latest release",
+	TrayUpdateChecking:       "Checking for updates…",
+	TrayUpdateUpToDate:       "Up to date (%s)",
+	TrayUpdateFailed:         "Update check failed",
 	TrayQuit:                 "Quit",
 	TrayQuitTooltip:          "Quit Tuick-Tack",
 	TrayCurrentTooltip:       "Current countdown",

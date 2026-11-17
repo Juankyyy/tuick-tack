@@ -4,10 +4,10 @@
 
 **Tuick-Tack** is a Windows countdown app for personal focus sessions: a modern terminal UI (TUI) plus a background tray daemon that owns the timer, presets, sound and system-tray menu.
 
-- Stack: Go 1.26+ (pinned Bubble Tea v2/go-winio require it), Bubble Tea v2.1.1, Lipgloss v2.1.0, `fyne.io/systray` v1.12.2, `github.com/Microsoft/go-winio` v0.6.4, `golang.org/x/sys/windows`; `CGO_ENABLED=0`.
-- App code lives in `cmd/` and `internal/`. Windows-specific code lives in `internal/tray/`, `internal/ipc/` and the `*_windows.go` files under `internal/daemon/`.
-- Platform features that cannot live in the shared layer stay in the native layer behind small, documented bridges: systray/menu (`internal/tray`), `PlaySoundW` (`internal/daemon/sound_windows.go`), registry/autostart (`internal/daemon/autostart_windows.go`) and named pipes (`internal/ipc`).
-- Current state: v1 implemented in `dev` (M0–M5 complete) plus the selectable sound pack and volume; `SPEC.md` is the functional source. Next work is polish/QA; releases are published on GitHub when the user asks for one.
+- Stack: Go 1.26+ (pinned Bubble Tea v2/go-winio require it), Bubble Tea v2.1.1, Lipgloss v2.1.0, `fyne.io/systray` v1.12.2, `github.com/Microsoft/go-winio` v0.6.4, `github.com/mtunjic/winrt-toast` v1.2.0 (pure-Go WinRT toasts), `golang.org/x/sys/windows`; `CGO_ENABLED=0`.
+- App code lives in `cmd/` and `internal/`. Windows-specific code lives in `internal/tray/`, `internal/browser/`, `internal/notify/`, `internal/ipc/` and the `*_windows.go` files under `internal/daemon/`.
+- Platform features that cannot live in the shared layer stay in the native layer behind small, documented bridges: systray/menu (`internal/tray`), `PlaySoundW` (`internal/daemon/sound_windows.go`), registry/autostart (`internal/daemon/autostart_windows.go`), named pipes (`internal/ipc`), the default browser (`internal/browser`, `ShellExecuteW`) and native toasts (`internal/notify`, WinRT COM).
+- Current state: v1 implemented in `dev` (M0–M5 complete) plus the selectable sound pack and volume, the release update notice and its Windows toast; `SPEC.md` is the functional source. Next work is polish/QA; releases are published on GitHub when the user asks for one.
 - Generated assets (`assets/sounds/*.wav`, `assets/icon.ico`, `assets/icon.png`, `assets/icons/*.ico`, `assets/banner.txt`, `assets/banner-compact.txt`, `assets/banner.png`, the `.syso` file under `cmd/`) are committed; do not hand-edit them. Regenerate with `go generate ./...` / `scripts/build.ps1`. The branding banner comes from the same 5×7 bigfont grid as the countdown and is not embedded in the executable: `banner.txt` is the 2x ASCII (118 columns) and `banner-compact.txt` the 1x version (59 columns).
 - The tray states are a 7×7 pixel grid and the executable icon a 16×16 grid, drawn without antialiasing by `tools/gen-icons`; keep the ICO sizes and the 2× HICON caveat from `SPEC.md` §12.
 
@@ -22,6 +22,7 @@ go build ./...                 # compile / typecheck
 go test ./...                  # tests
 go run ./cmd/tuick-tack          # TUI (console; starts the hidden daemon)
 go run ./cmd/tuick-tack --daemon # daemon (console in dev; --hidden at sign-in)
+go run ./cmd/tuick-tack --check-updates # one GitHub release check and exit
 go fmt ./...                     # format
 go generate ./...                # regenerate sounds/icons and .syso resources
 .\scripts\build.ps1              # vet + test + build the single exe into dist/
@@ -44,6 +45,9 @@ internal/
   protocol/             IPC message types
   ipc/                  named-pipe server/client
   daemon/               wiring, sound, autostart, logging
+  update/               GitHub release check (semver, no download)
+  browser/              ShellExecuteW for https links
+  notify/               native Windows toasts (WinRT, AUMID)
   tray/                 systray menu, icons, tooltip
   tui/                  Bubble Tea model/view, canvas, bigfont, theme, fx
 assets/                 sounds/*.wav, icon.ico, icons/, banner.txt, banner-compact.txt, banner.png, screenshot.png
@@ -53,7 +57,7 @@ winres/                 go-winres metadata
 ```
 
 - State management: the **daemon is the single source of truth** (timer, presets, theme, sound selection, volume, tray). The TUI is a client; it renders snapshots and interpolates locally for smoothness. `finish_seq` dedupes celebrations. No client-side timer truth, no external state library.
-- Local persistence: JSON config at `%APPDATA%\tuick-tack\config.json`; the daemon is the only writer; atomic writes; no DB. The Windows registry is used **only** for autostart (`HKCU\...\Run`), never for app state. Do not add SQLite or a second config store.
+- Local persistence: JSON config at `%APPDATA%\tuick-tack\config.json`; the daemon is the only writer; atomic writes; no DB. The Windows registry is used **only** for autostart (`HKCU\...\Run`) and the per-user AUMID registration (`HKCU\Software\Classes\AppUserModelId\Juankyyy.TuickTack`, `DisplayName`), never for app state. Do not add SQLite or a second config store.
 - Localization: all user-facing copy lives in `internal/tui/copy`; UI code reads it via `copy.T(...)`. Do not hardcode labels, tooltips, dialogs or toasts in widgets. The v1 UI is English; if Spanish is added later, its messages live in the same package.
 - Dependencies pinned for a reason keep a comment next to them; do not bump until the packages are compatible. Bubble Tea/Lipgloss v2 use the `charm.land/...` module paths and the v2 API; `systray` v1.12.2 is the Fyne fork with left/right-click callbacks and package-level menu state.
 - Keep time-dependent logic testable by injecting a clock; never call `time.Now()` in domain logic that has tests. `time.Now()` belongs in `main`/wiring; tests use a fake clock. The engine relies on the monotonic reading inside `time.Time`.
@@ -65,6 +69,7 @@ winres/                 go-winres metadata
 - The daemon must remain fully usable with the TUI closed (tray, timer, selected sound at the configured volume).
 - The IPC protocol is versioned. Bump the protocol version for incompatible message changes; do not silently break the TUI/daemon pair.
 - `PlaySoundW` uses a WAV file path with `SND_ASYNC`; do not use `SND_MEMORY` (it does not combine with async). Volume is applied by scaling the PCM samples into a cached WAV; never change the system or wave-out device volume.
+- Updates are notification-only: `internal/update` checks the GitHub release once at startup and every 24 h, the TUI and the tray link to it, and nothing downloads or replaces the executable. The tray's **Check for updates** and the TUI `u` key trigger the same manual check; only the tray path raises a native Windows toast (`internal/notify`).
 - Truecolor is assumed; Windows Terminal is the reference terminal. `conhost` is a fallback, not a design target.
 
 ## Convenciones

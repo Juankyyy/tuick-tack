@@ -65,12 +65,41 @@ func TestHeaderCopyExists(t *testing.T) {
 	}
 }
 
+func TestUpdateCopyExists(t *testing.T) {
+	for _, key := range []Key{
+		UpdateAvailable, UpdateShort, UpdateArrow, UpdateChecking, UpdateHint, ErrorOpenURL, ErrorUpdate,
+		ToastUpdateFound, ToastUpToDate,
+		NotifyFoundTitle, NotifyFoundBody, NotifyUpToDateTitle, NotifyUpToDateBody,
+		NotifyFailedTitle, NotifyFailedBody,
+		TrayUpdateAvailable, TrayUpdateTooltip,
+		TrayUpdateCheck, TrayUpdateCheckTooltip, TrayUpdateChecking,
+		TrayUpdateUpToDate, TrayUpdateFailed,
+	} {
+		if T(key) == "" || T(key) == string(key) {
+			t.Errorf("update copy key %q has no text", key)
+		}
+	}
+	if got, want := T(TrayUpdateAvailable, "v0.2.0"), "Update available: v0.2.0"; got != want {
+		t.Errorf("TrayUpdateAvailable = %q, want %q", got, want)
+	}
+	if got, want := T(NotifyFoundBody, "v0.2.0"),
+		"Version v0.2.0 is available. Click to open the release page."; got != want {
+		t.Errorf("NotifyFoundBody = %q, want %q", got, want)
+	}
+	for _, r := range T(UpdateAvailable) + T(UpdateShort) + T(UpdateHint) {
+		if r > 0x7f {
+			t.Errorf("update copy contains a non-ASCII rune %q", r)
+		}
+	}
+}
+
 func TestKeyHintsUseBracketFormat(t *testing.T) {
 	keys := []Key{
 		ControlsIdle, ControlsRunning, ControlsPaused, ControlsFinished,
 		CompactIdle, CompactRunning, CompactPaused, CompactFinished, CompactStopHint,
 		FinishedMeta, PausedMeta,
 		HelpIdle, HelpTimer, HelpModal, HelpSound, HelpFinished, HelpClose, HelpPresets,
+		HelpUpdate, UpdateHint,
 		SoundHint, SoundActionHint,
 		PresetFormHint, PresetsEmpty, PresetsHint, PresetsActionHint,
 	}

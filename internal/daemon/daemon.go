@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"context"
 	"log"
 	"strings"
 	"sync"
@@ -10,12 +11,16 @@ import (
 
 	"golang.org/x/sys/windows"
 
+	"tuick-tack/internal/browser"
 	"tuick-tack/internal/buildinfo"
 	"tuick-tack/internal/config"
 	"tuick-tack/internal/engine"
 	"tuick-tack/internal/ipc"
+	"tuick-tack/internal/notify"
 	"tuick-tack/internal/protocol"
 	"tuick-tack/internal/tray"
+	"tuick-tack/internal/tui/copy"
+	"tuick-tack/internal/update"
 )
 
 // Daemon owns the runtime state. Actions is implemented by this type.
@@ -32,10 +37,33 @@ type Daemon struct {
 	cfg       config.Config
 	autostart bool
 
+	checker *update.Checker
+	checkMu sync.Mutex
+
+	// notifier is the native Windows toast used for manual checks started from
+	// the tray. Tests inject a recorder; nil disables it.
+	notifier func(title, message, launch string) error
+
+	updateMu    sync.RWMutex
+	updateInfo  update.Info
+	updateOK    bool
+	updateState updateCheckState
+
 	quitCh   chan struct{}
 	quitOnce sync.Once
 	loopDone chan struct{}
 }
+
+// updateCheckState is the outcome of the last release check, shown by the tray
+// and answered to a TUI that asked manually.
+type updateCheckState string
+
+const (
+	updateCheckIdle     updateCheckState = "idle"
+	updateCheckChecking updateCheckState = "checking"
+	updateCheckUpToDate updateCheckState = "up_to_date"
+	updateCheckFailed   updateCheckState = "failed"
+)
 
 // Run starts the daemon and blocks on the systray loop. It returns the process
 // exit code: 0 when another instance already owns the mutex.
@@ -103,6 +131,8 @@ func Run() int {
 		engine:   engine.New(engine.SystemClock()),
 		sound:    player,
 		exePath:  exePath,
+		checker:  update.NewChecker(buildinfo.Version),
+		notifier: notify.Show,
 		cfg:      cfg,
 		quitCh:   make(chan struct{}),
 		loopDone: make(chan struct{}),
@@ -118,6 +148,12 @@ func Run() int {
 	if err := server.Start(); err != nil {
 		logger.Printf("ipc server: %v", err)
 		return 1
+	}
+
+	// Development builds never check on their own; the tray and the TUI can
+	// still ask for a manual check.
+	if buildinfo.Version != "dev" {
+		go d.updateLoop()
 	}
 
 	go d.loop()
@@ -181,6 +217,210 @@ func (d *Daemon) AutostartEnabled() bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.autostart
+}
+
+// UpdateAvailable implements tray.Actions.
+func (d *Daemon) UpdateAvailable() (latest, url string, ok bool) {
+	d.updateMu.RLock()
+	defer d.updateMu.RUnlock()
+	if !d.updateOK {
+		return "", "", false
+	}
+	return d.updateInfo.Version, d.updateInfo.URL, true
+}
+
+// UpdateCheck implements tray.Actions. It reports the last check as idle,
+// checking, up_to_date or failed.
+func (d *Daemon) UpdateCheck() (state, current string) {
+	d.updateMu.RLock()
+	s := d.updateState
+	d.updateMu.RUnlock()
+	if s == "" {
+		s = updateCheckIdle
+	}
+	return string(s), buildinfo.Version
+}
+
+// Update implements ipc.Backend. The handshake carries the cached release so a
+// TUI that connects after the check still sees the notice.
+func (d *Daemon) Update() *protocol.UpdatePayload {
+	latest, url, ok := d.UpdateAvailable()
+	if !ok {
+		return nil
+	}
+	return &protocol.UpdatePayload{Latest: latest, URL: url}
+}
+
+// OpenUpdate implements tray.Actions.
+func (d *Daemon) OpenUpdate() {
+	_, url, ok := d.UpdateAvailable()
+	if !ok {
+		return
+	}
+	if err := browser.Open(url); err != nil {
+		d.logger.Printf("open release: %v", err)
+	}
+}
+
+// CheckUpdates implements tray.Actions. The request runs in the background so
+// the tray stays responsive, and it raises a native Windows notification with
+// the result.
+func (d *Daemon) CheckUpdates() {
+	go d.checkUpdates(nil, true)
+}
+
+// checkUpdates performs a manual check and replies to the session that asked.
+// It also refreshes the cached release and the tray, so the TUI and the tray
+// share one result. notifyUser is true only for checks started from the tray.
+func (d *Daemon) checkUpdates(c *ipc.Session, notifyUser bool) {
+	d.setUpdateCheckState(updateCheckChecking)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	info, err := d.fetchLatest(ctx)
+	cancel()
+	if err != nil {
+		d.logger.Printf("update check: %v", err)
+		d.setUpdateCheckState(updateCheckFailed)
+		if c != nil {
+			c.Send(protocol.NewUpdateResult(protocol.UpdateResultMessage{
+				Current: buildinfo.Version,
+				Error:   "failed",
+			}))
+		}
+		if notifyUser {
+			d.notifyUpdate(update.Info{}, err)
+		}
+		return
+	}
+
+	if update.IsNewer(buildinfo.Version, info.Version) {
+		d.setUpdate(info)
+		d.setUpdateCheckState(updateCheckIdle)
+	} else {
+		d.clearUpdate()
+		d.setUpdateCheckState(updateCheckUpToDate)
+	}
+	if c != nil {
+		c.Send(protocol.NewUpdateResult(protocol.UpdateResultMessage{
+			Current: buildinfo.Version,
+			Latest:  info.Version,
+			URL:     info.URL,
+		}))
+	}
+	if notifyUser {
+		d.notifyUpdate(info, nil)
+	}
+}
+
+// notifyUpdate sends the result of a tray-initiated check as a Windows toast.
+// The notification is best effort: a failure is logged and the tray label still
+// carries the result.
+func (d *Daemon) notifyUpdate(info update.Info, checkErr error) {
+	if d.notifier == nil {
+		return
+	}
+	var title, message, launch string
+	switch {
+	case checkErr != nil:
+		title = copy.T(copy.NotifyFailedTitle)
+		message = copy.T(copy.NotifyFailedBody)
+	case update.IsNewer(buildinfo.Version, info.Version):
+		title = copy.T(copy.NotifyFoundTitle)
+		message = copy.T(copy.NotifyFoundBody, info.Version)
+		launch = info.URL
+	default:
+		title = copy.T(copy.NotifyUpToDateTitle)
+		message = copy.T(copy.NotifyUpToDateBody, buildinfo.Version)
+	}
+	if err := d.notifier(title, message, launch); err != nil {
+		d.logger.Printf("windows notification: %v", err)
+	}
+}
+
+// fetchLatest serializes manual and automatic checks so the app never talks to
+// GitHub twice at once.
+func (d *Daemon) fetchLatest(ctx context.Context) (update.Info, error) {
+	d.checkMu.Lock()
+	defer d.checkMu.Unlock()
+	if d.checker == nil {
+		d.checker = update.NewChecker(buildinfo.Version)
+	}
+	return d.checker.Latest(ctx)
+}
+
+// updateLoop checks GitHub once at startup and then every CheckInterval. It is
+// only started by release builds; failures are silent and retried later.
+func (d *Daemon) updateLoop() {
+	delay := time.Duration(0)
+	for {
+		timer := time.NewTimer(delay)
+		select {
+		case <-d.quitCh:
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		d.setUpdateCheckState(updateCheckChecking)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		info, err := d.fetchLatest(ctx)
+		cancel()
+		if err != nil {
+			d.logger.Printf("update check: %v", err)
+			d.setUpdateCheckState(updateCheckFailed)
+			delay = update.Delay(true)
+			continue
+		}
+		if update.IsNewer(buildinfo.Version, info.Version) {
+			d.setUpdate(info)
+			d.setUpdateCheckState(updateCheckIdle)
+		} else {
+			d.clearUpdate()
+			d.setUpdateCheckState(updateCheckUpToDate)
+		}
+		delay = update.Delay(false)
+	}
+}
+
+// setUpdate caches a newer release and tells the TUI and the tray once.
+func (d *Daemon) setUpdate(info update.Info) {
+	d.updateMu.Lock()
+	changed := !d.updateOK || d.updateInfo != info
+	d.updateInfo = info
+	d.updateOK = true
+	d.updateMu.Unlock()
+	if !changed {
+		return
+	}
+	d.logger.Printf("update available: %s (current %s) %s",
+		info.Version, buildinfo.Version, info.URL)
+	if d.server != nil {
+		d.server.Broadcast(protocol.NewUpdate(protocol.UpdatePayload{
+			Latest: info.Version,
+			URL:    info.URL,
+		}))
+	}
+	d.tray.Refresh()
+}
+
+// clearUpdate drops a stale notice after a check that found no newer release.
+func (d *Daemon) clearUpdate() {
+	d.updateMu.Lock()
+	changed := d.updateOK
+	d.updateInfo = update.Info{}
+	d.updateOK = false
+	d.updateMu.Unlock()
+	if changed {
+		d.tray.Refresh()
+	}
+}
+
+func (d *Daemon) setUpdateCheckState(state updateCheckState) {
+	d.updateMu.Lock()
+	changed := d.updateState != state
+	d.updateState = state
+	d.updateMu.Unlock()
+	if changed {
+		d.tray.Refresh()
+	}
 }
 
 // Command implements ipc.Backend. Messages arrive validated by the protocol
@@ -251,6 +491,8 @@ func (d *Daemon) Command(c *ipc.Session, msg protocol.ClientMessage) {
 		d.sound.Stop()
 	case protocol.TypeGetState:
 		c.Send(protocol.NewState(d.Snapshot()))
+	case protocol.TypeCheckUpdate:
+		go d.checkUpdates(c, false)
 	case protocol.TypeQuitDaemon:
 		go d.Quit()
 	default:

@@ -65,3 +65,57 @@ func TestPulseStaysInRange(t *testing.T) {
 		}
 	}
 }
+
+func TestHSL(t *testing.T) {
+	tests := []struct {
+		h, s, l float64
+		want    color.RGBA
+	}{
+		{0, 1, 0.5, color.RGBA{R: 0xFF, G: 0, B: 0, A: 0xFF}},
+		{1.0 / 3, 1, 0.5, color.RGBA{R: 0, G: 0xFF, B: 0, A: 0xFF}},
+		{2.0 / 3, 1, 0.5, color.RGBA{R: 0, G: 0, B: 0xFF, A: 0xFF}},
+		{-0.5, 1, 0.5, color.RGBA{R: 0, G: 0xFF, B: 0xFF, A: 0xFF}},
+		{0.5, 0, 0.5, color.RGBA{R: 0x80, G: 0x80, B: 0x80, A: 0xFF}},
+		{0.5, 1, 0, color.RGBA{A: 0xFF}},
+	}
+	for _, tt := range tests {
+		if got := HSL(tt.h, tt.s, tt.l); got != tt.want {
+			t.Errorf("HSL(%v, %v, %v) = %+v, want %+v", tt.h, tt.s, tt.l, got, tt.want)
+		}
+	}
+}
+
+func TestHSLPastelStaysMuted(t *testing.T) {
+	for i := 0.0; i < 1; i += 0.05 {
+		c := HSL(0.8*i, 0.52, 0.68)
+		spread := maxChannel(c) - minChannel(c)
+		if spread > 140 {
+			t.Fatalf("hue %v is too saturated: %+v (spread %d)", i, c, spread)
+		}
+		if c.A != 0xFF {
+			t.Fatalf("alpha = %d", c.A)
+		}
+	}
+}
+
+func maxChannel(c color.RGBA) int {
+	return int(maxInt(int(c.R), maxInt(int(c.G), int(c.B))))
+}
+
+func minChannel(c color.RGBA) int {
+	return int(minInt(int(c.R), minInt(int(c.G), int(c.B))))
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
