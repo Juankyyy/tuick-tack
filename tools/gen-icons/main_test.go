@@ -88,7 +88,7 @@ func TestTrayGlyphs(t *testing.T) {
 		t.Errorf("idle ring left = %v, want %v", got, idleColor)
 	}
 	if got := idle.NRGBAAt(8, 8); got.A != 255 {
-		t.Errorf("idle center alpha = %d, want the T stem", got.A)
+		t.Errorf("idle center alpha = %d, want the wide play", got.A)
 	}
 
 	// Finished is a zero: the center of the glyph is empty, the ring is not.
@@ -100,7 +100,7 @@ func TestTrayGlyphs(t *testing.T) {
 		t.Errorf("finished ring left = %v, want %v", got, finishedColor)
 	}
 
-	// Running has a filled center: the play triangle covers it.
+	// Running has a filled center: the clock hands meet there.
 	running := solidSprite(runningRows, runningColor).render(size)
 	if got := running.NRGBAAt(8, 8); got.A != 255 {
 		t.Errorf("running center alpha = %d, want 255", got.A)

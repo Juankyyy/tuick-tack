@@ -346,7 +346,7 @@ Quit
 
 ### Iconos
 
-- Iconos de bandeja de píxeles duros, rejilla 7×7 con una celda de margen y sin antialiasing; estados T, play, pausa y 0 en el color del estado.
+- Iconos de bandeja de píxeles duros, rejilla 7×7 con una celda de margen y sin antialiasing; estados play, agujas, pausa y 0 en el color del estado.
 - 4 ICO embebidos (`idle`, `running`, `paused`, `finished`) con 16/20/24/32/40/48/56/64 px. `systray` carga el HICON de 2× (32/40/48/56/64) y el shell lo reduce a 16/20/24/28/32; la rejilla y el margen están pensados para esa reducción.
 - El `.ico` del ejecutable (`assets/icon.ico`) es una loseta navy de 16×16 celdas con anillo mint y agujas blancas, con 16/24/32/40/48/64/96/128/256 px. `winres` lo embebe completo en el `.syso`; `assets/icon.png` es el máster de 256 px para previews.
 - No se regenera el icono cada segundo: systray escribe cada icono nuevo en un archivo temporal. El tiempo va en el tooltip.

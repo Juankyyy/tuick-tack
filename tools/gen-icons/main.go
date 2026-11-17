@@ -80,24 +80,24 @@ func (s sprite) render(size int) *image.NRGBA {
 
 // Tray states. The ring is shared; the state glyph lives in the 5x5 interior.
 var (
-	// Idle: a T for Tuick-Tack inside the ready ring.
+	// Idle: a wide play with a two-cell base and a one-cell gap around it.
 	idleRows = []string{
 		"..###..",
 		".#...#.",
+		"#.##..#",
 		"#.###.#",
-		"#..#..#",
-		"#..#..#",
+		"#.##..#",
 		".#...#.",
 		"..###..",
 	}
-	// Running: a play triangle. Hands at 12:15 were tried first, but at 16 px
-	// they merged with the ring and read as a spiral; play pairs with pause.
+	// Running: clock hands at 12:15. The tips meet the ring; that is the
+	// version chosen over the play stopgap.
 	runningRows = []string{
 		"..###..",
-		".#...#.",
-		"#.#...#",
-		"#.###.#",
-		"#.#...#",
+		".#.#.#.",
+		"#..#..#",
+		"#..####",
+		"#.....#",
 		".#...#.",
 		"..###..",
 	}
