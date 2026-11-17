@@ -90,8 +90,8 @@ Quit
 ```
 
 The tray owns the timer. Closing the TUI leaves the countdown and the selected sound alive,
-and **Quit** stops everything. A daemon restart loses the active countdown; persistence is
-future work.
+and **Quit** stops everything and closes any open TUI. A daemon restart loses the active
+countdown; persistence is future work.
 
 ## Configuration
 

@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sys/windows"
@@ -52,6 +53,10 @@ type Daemon struct {
 	quitCh   chan struct{}
 	quitOnce sync.Once
 	loopDone chan struct{}
+
+	// userQuit is set when Quit was requested from the tray or a client, so the
+	// shutdown closes connected TUIs instead of letting them reconnect.
+	userQuit atomic.Bool
 }
 
 // updateCheckState is the outcome of the last release check, shown by the tray
@@ -162,8 +167,16 @@ func Run() int {
 	// The systray loop can exit without going through Quit (session logoff).
 	d.stopLoop()
 	<-d.loopDone
-	if err := server.Close(); err != nil {
-		logger.Printf("close ipc server: %v", err)
+	var closeErr error
+	if d.userQuit.Load() {
+		// Tell connected TUIs to exit before the pipe goes away. Otherwise they
+		// see a lost connection, reconnect and launch a new daemon.
+		closeErr = server.CloseWithNotice(protocol.NewDaemonClosing())
+	} else {
+		closeErr = server.Close()
+	}
+	if closeErr != nil {
+		logger.Printf("close ipc server: %v", closeErr)
 	}
 	d.sound.Stop()
 	logger.Printf("stopped")
@@ -764,9 +777,12 @@ func (d *Daemon) ToggleAutostart() {
 	d.tray.Refresh()
 }
 
-// Quit stops the loop and the systray. It is safe to call more than once.
+// Quit stops the loop and the systray. It is safe to call more than once. The
+// shutdown then notifies connected TUIs so they close instead of relaunching
+// the daemon.
 func (d *Daemon) Quit() {
 	d.quitOnce.Do(func() {
+		d.userQuit.Store(true)
 		close(d.quitCh)
 		if d.tray != nil {
 			d.tray.Quit()

@@ -92,6 +92,17 @@ type Server struct {
 	acceptDone chan struct{}
 }
 
+// flushTimeout bounds how long a shutdown waits for one client write.
+const flushTimeout = 250 * time.Millisecond
+
+// outbound is one message queued for a session writer. ack, when non-nil, is
+// closed after the write so a shutdown can wait for the notice to leave the
+// server before closing the pipe.
+type outbound struct {
+	data []byte
+	ack  chan struct{}
+}
+
 // NewServer creates a server for path. Start must be called before Dial.
 func NewServer(path, appVersion string, backend Backend) *Server {
 	return &Server{
@@ -109,7 +120,14 @@ func (s *Server) Start() error {
 	if err != nil {
 		return fmt.Errorf("pipe security: %w", err)
 	}
-	ln, err := winio.ListenPipe(s.path, &winio.PipeConfig{SecurityDescriptor: sd})
+	// Explicit buffers: with the default zero sizes a write can block until the
+	// client posts a read, which can stall a broadcast or the shutdown notice.
+	// 64 KiB holds the 10 Hz snapshots while the TUI is busy rendering.
+	ln, err := winio.ListenPipe(s.path, &winio.PipeConfig{
+		SecurityDescriptor: sd,
+		InputBufferSize:    64 * 1024,
+		OutputBufferSize:   64 * 1024,
+	})
 	if err != nil {
 		return fmt.Errorf("listen pipe: %w", err)
 	}
@@ -163,7 +181,7 @@ func (s *Server) handleConn(conn net.Conn) {
 		server: s,
 		conn:   conn,
 		dec:    dec,
-		send:   make(chan []byte, 256),
+		send:   make(chan outbound, 256),
 		done:   make(chan struct{}),
 	}
 
@@ -247,7 +265,20 @@ func (s *Server) BroadcastConfig(c config.Config) {
 }
 
 // Close stops accepting, disconnects clients and waits for their goroutines.
-func (s *Server) Close() error {
+func (s *Server) Close() error { return s.closeWith(nil) }
+
+// CloseWithNotice writes a final message to every connected client and waits
+// briefly for the write before closing the pipe. A client can act on the
+// notice; Close alone is indistinguishable from a lost connection.
+func (s *Server) CloseWithNotice(msg protocol.ServerMessage) error {
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return s.Close()
+	}
+	return s.closeWith(append(data, '\n'))
+}
+
+func (s *Server) closeWith(notice []byte) error {
 	s.mu.Lock()
 	if s.closed {
 		s.mu.Unlock()
@@ -265,6 +296,11 @@ func (s *Server) Close() error {
 		err = s.ln.Close()
 	}
 	<-s.acceptDone
+	if len(notice) > 0 {
+		for _, c := range clients {
+			c.sendSync(notice, flushTimeout)
+		}
+	}
 	for _, c := range clients {
 		c.close()
 	}
@@ -278,7 +314,7 @@ type Session struct {
 	server *Server
 	conn   net.Conn
 	dec    *json.Decoder
-	send   chan []byte
+	send   chan outbound
 	done   chan struct{}
 	once   sync.Once
 }
@@ -308,8 +344,12 @@ func (c *Session) writeLoop() {
 		select {
 		case <-c.done:
 			return
-		case data := <-c.send:
-			if _, err := c.conn.Write(data); err != nil {
+		case out := <-c.send:
+			_, err := c.conn.Write(out.data)
+			if out.ack != nil {
+				close(out.ack)
+			}
+			if err != nil {
 				c.close()
 				return
 			}
@@ -327,16 +367,42 @@ func (c *Session) enqueue(msg protocol.ServerMessage) {
 }
 
 func (c *Session) enqueueBytes(data []byte) {
+	c.queue(outbound{data: data})
+}
+
+func (c *Session) queue(out outbound) {
 	select {
 	case <-c.done:
 		return
 	default:
 	}
 	select {
-	case c.send <- data:
+	case c.send <- out:
 	default:
 		// A client that cannot keep up reconnects and resynchronizes.
 		go c.close()
+	}
+}
+
+// sendSync queues data and waits until the writer has written it. It reports
+// false when the session is closing or the timeout expires; a shutdown uses it
+// to deliver its final notice before closing the pipe.
+func (c *Session) sendSync(data []byte, timeout time.Duration) bool {
+	ack := make(chan struct{})
+	select {
+	case c.send <- outbound{data: data, ack: ack}:
+	case <-c.done:
+		return false
+	case <-time.After(timeout):
+		return false
+	}
+	select {
+	case <-ack:
+		return true
+	case <-c.done:
+		return false
+	case <-time.After(timeout):
+		return false
 	}
 }
 

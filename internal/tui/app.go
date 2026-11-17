@@ -177,6 +177,7 @@ type Model struct {
 
 	checkingUpdate bool
 	hoverUpdate    bool
+	daemonClosing  bool
 }
 
 // New creates the TUI model.
@@ -335,6 +336,15 @@ func (m *Model) handleServerEvent(msg serverEventMsg) tea.Cmd {
 		m.setUpdate(&ev.UpdatePayload)
 	case protocol.UpdateResultMessage:
 		m.handleUpdateResult(ev)
+	case protocol.DaemonClosingMessage:
+		// The user quit the daemon from the tray. Exit instead of reconnecting:
+		// a reconnect would launch a new daemon.
+		m.daemonClosing = true
+		m.connected = false
+		m.connecting = false
+		m.reconnecting = false
+		m.checkingUpdate = false
+		return tea.Quit
 	}
 	if m.client != nil {
 		return readCmd(m.client)
@@ -1373,12 +1383,19 @@ func (m *Model) Close() {
 // HasActiveTimer reports whether the TUI is leaving a running or paused timer
 // behind in the tray.
 func (m *Model) HasActiveTimer() bool {
+	if m.daemonClosing {
+		return false
+	}
 	switch m.status() {
 	case engine.Running, engine.Paused:
 		return true
 	}
 	return false
 }
+
+// DaemonClosing reports whether the TUI is exiting because the user quit the
+// daemon from the tray.
+func (m *Model) DaemonClosing() bool { return m.daemonClosing }
 
 func formDuration(seconds int) string {
 	if seconds <= 0 {

@@ -143,10 +143,11 @@ const (
 
 	Minutes = Key("unit.minutes")
 
-	ExitActive       = Key("exit.active")
-	AlreadyOpen      = Key("instance.already")
-	StartupInstalled = Key("startup.installed")
-	StartupRemoved   = Key("startup.removed")
+	ExitActive        = Key("exit.active")
+	ExitDaemonClosing = Key("exit.daemon.closing")
+	AlreadyOpen       = Key("instance.already")
+	StartupInstalled  = Key("startup.installed")
+	StartupRemoved    = Key("startup.removed")
 
 	TrayReady                = Key("tray.ready")
 	TrayRunning              = Key("tray.running")
@@ -325,7 +326,8 @@ var texts = map[Key]string{
 
 	Minutes: "min",
 
-	ExitActive: "The countdown is still running in the tray.",
+	ExitActive:        "The countdown is still running in the tray.",
+	ExitDaemonClosing: "The daemon quit; closing.",
 
 	AlreadyOpen: "Tuick-Tack is already open.",
 

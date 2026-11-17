@@ -167,6 +167,20 @@ func TestAcquireInstance(t *testing.T) {
 	}
 }
 
+func TestQuitIsIdempotentAndUserInitiated(t *testing.T) {
+	d := &Daemon{quitCh: make(chan struct{})}
+	d.Quit()
+	d.Quit()
+	select {
+	case <-d.quitCh:
+	default:
+		t.Fatal("Quit did not stop the loop")
+	}
+	if !d.userQuit.Load() {
+		t.Fatal("Quit should mark the shutdown as user initiated")
+	}
+}
+
 func TestSoundCatalogMatchesConfig(t *testing.T) {
 	if len(soundAssets) != len(config.Sounds) {
 		t.Fatalf("sound assets = %d, config sounds = %d", len(soundAssets), len(config.Sounds))

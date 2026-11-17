@@ -91,8 +91,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, "tuick-tack:", err)
 		os.Exit(1)
 	}
-	if fm, ok := final.(*tui.Model); ok && fm.HasActiveTimer() {
-		fmt.Println(copy.T(copy.ExitActive))
+	if fm, ok := final.(*tui.Model); ok {
+		switch {
+		case fm.DaemonClosing():
+			fmt.Println(copy.T(copy.ExitDaemonClosing))
+		case fm.HasActiveTimer():
+			fmt.Println(copy.T(copy.ExitActive))
+		}
 	}
 }
 

@@ -182,6 +182,18 @@ func TestErrorRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDaemonClosingRoundTrip(t *testing.T) {
+	data, _ := json.Marshal(NewDaemonClosing())
+	back, err := DecodeServer(data)
+	if err != nil {
+		t.Fatalf("DecodeServer: %v", err)
+	}
+	m, ok := back.(DaemonClosingMessage)
+	if !ok || m.Type != TypeDaemonClosing {
+		t.Fatalf("unexpected daemon closing message: %#v", back)
+	}
+}
+
 func TestDecodeServerUnknown(t *testing.T) {
 	msg, err := DecodeServer([]byte(`{"type":"nope"}`))
 	if err != nil {

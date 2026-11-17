@@ -67,6 +67,27 @@ func applyRunning(m *Model) {
 	})
 }
 
+func TestDaemonClosingExitsWithoutReconnect(t *testing.T) {
+	m, _ := testModel(80, 24)
+	applyRunning(m)
+	m.reconnecting = true
+
+	cmd := m.handleServerEvent(serverEventMsg{msg: protocol.NewDaemonClosing()})
+	if cmd == nil {
+		t.Fatal("daemon closing should quit the TUI")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("daemon closing should return tea.Quit")
+	}
+	if m.connected || m.reconnecting || !m.DaemonClosing() {
+		t.Fatalf("state after closing: connected=%v reconnecting=%v closing=%v",
+			m.connected, m.reconnecting, m.DaemonClosing())
+	}
+	if m.HasActiveTimer() {
+		t.Fatal("a quit daemon leaves no timer in the tray")
+	}
+}
+
 func TestViewIdle(t *testing.T) {
 	m, _ := testModel(80, 24)
 	plain := assertFrame(t, m, 80, 24)

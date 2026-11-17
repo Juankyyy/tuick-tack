@@ -269,6 +269,10 @@ func TestReconnectAndClose(t *testing.T) {
 	path := testPipePath(t)
 	srv, _ := startServer(t, path)
 	c1, _ := dial(t, path)
+	readUntil(t, c1, "initial state", func(m protocol.ServerMessage) bool {
+		_, ok := m.(protocol.StateMessage)
+		return ok
+	})
 	if err := srv.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -296,6 +300,36 @@ func TestReconnectAndClose(t *testing.T) {
 	})
 	if err := srv2.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestCloseWithNotice(t *testing.T) {
+	path := testPipePath(t)
+	srv, _ := startServer(t, path)
+	c, _ := dial(t, path)
+
+	// The handshake consumed hello; the initial snapshot is still queued.
+	readUntil(t, c, "initial state", func(m protocol.ServerMessage) bool {
+		_, ok := m.(protocol.StateMessage)
+		return ok
+	})
+
+	if err := srv.CloseWithNotice(protocol.NewDaemonClosing()); err != nil {
+		t.Fatalf("CloseWithNotice: %v", err)
+	}
+	_ = c.SetReadDeadline(time.Now().Add(time.Second))
+	msg, err := c.ReadMessage()
+	if err != nil {
+		t.Fatalf("read notice: %v", err)
+	}
+	if _, ok := msg.(protocol.DaemonClosingMessage); !ok {
+		t.Fatalf("got %#v, want the daemon closing notice", msg)
+	}
+	if _, err := c.ReadMessage(); err == nil {
+		t.Fatal("expected the pipe to be closed after the notice")
+	}
+	if err := srv.CloseWithNotice(protocol.NewDaemonClosing()); err != nil {
+		t.Fatalf("second CloseWithNotice: %v", err)
 	}
 }
 

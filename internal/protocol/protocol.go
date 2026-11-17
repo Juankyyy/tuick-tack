@@ -53,6 +53,10 @@ const (
 	// TypeUpdateResult is the reply to check_update and is only sent to the
 	// client that asked.
 	TypeUpdateResult = "update_result"
+	// TypeDaemonClosing is an additive server message: it tells connected TUIs
+	// that the daemon is shutting down on purpose, so they exit instead of
+	// reconnecting and launching a new daemon.
+	TypeDaemonClosing = "daemon_closing"
 )
 
 // Error codes.
@@ -140,6 +144,15 @@ type UpdateResultMessage struct {
 
 func (UpdateResultMessage) isServerMessage() {}
 
+// DaemonClosingMessage tells a connected TUI that the daemon is shutting down
+// because the user quit it. The TUI exits without reconnecting; reconnecting
+// would start a new daemon.
+type DaemonClosingMessage struct {
+	Type string `json:"type"`
+}
+
+func (DaemonClosingMessage) isServerMessage() {}
+
 // IgnoredMessage is returned by DecodeServer for a message type this build does
 // not know. Additive server messages must not break older clients.
 type IgnoredMessage struct{}
@@ -201,6 +214,11 @@ func NewUpdate(upd UpdatePayload) UpdateMessage {
 func NewUpdateResult(res UpdateResultMessage) UpdateResultMessage {
 	res.Type = TypeUpdateResult
 	return res
+}
+
+// NewDaemonClosing builds the shutdown notice sent to connected TUIs.
+func NewDaemonClosing() DaemonClosingMessage {
+	return DaemonClosingMessage{Type: TypeDaemonClosing}
 }
 
 // NewState converts an engine snapshot to the wire shape.
@@ -293,6 +311,12 @@ func DecodeServer(data []byte) (ServerMessage, error) {
 		return m, nil
 	case TypeUpdateResult:
 		var m UpdateResultMessage
+		if err := json.Unmarshal(data, &m); err != nil {
+			return nil, err
+		}
+		return m, nil
+	case TypeDaemonClosing:
+		var m DaemonClosingMessage
 		if err := json.Unmarshal(data, &m); err != nil {
 			return nil, err
 		}

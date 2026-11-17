@@ -89,8 +89,8 @@ El countdown, el sonido y el icono siguen funcionando aunque se cierre la TUI. A
 3. El daemon arranca: logger, config, mutex, engine + servidor IPC en goroutines, `systray.Run` en el hilo principal.
 4. La TUI recibe `hello` + config y renderiza.
 5. Al llegar a 0, el daemon incrementa `finish_seq`, reproduce el sonido elegido y actualiza bandeja. La TUI detecta el nuevo `finish_seq` y lanza la celebración.
-6. `q` cierra solo la TUI; el daemon sigue. `Quit` en la bandeja cierra todo.
-7. Al salir: parar sonido, cerrar el pipe, parar el engine y `systray.Quit()`.
+6. `q` cierra solo la TUI; el daemon sigue. `Quit` en la bandeja cierra todo: el daemon avisa `daemon_closing` a las TUIs conectadas y la TUI sale sin reintentar (si reintentase, `Ensure` relanzaría el daemon).
+7. Al salir desde la bandeja: `systray.Quit()`, parar el loop, enviar `daemon_closing` a los clientes (se espera la escritura, con timeout), cerrar el pipe y parar el sonido. Un cierre de systray sin `Quit` (logoff) no envía el aviso.
 
 ## 6. Motor del temporizador
 
@@ -124,12 +124,13 @@ Campos de estado:
 
 ## 7. Protocolo IPC
 
-- Transporte: named pipe de go-winio; mensajes JSON consecutivos con `json.Encoder`/`json.Decoder` sobre `net.Conn`.
+- Transporte: named pipe de go-winio; mensajes JSON consecutivos con `json.Encoder`/`json.Decoder` sobre `net.Conn`. Los buffers del pipe son explícitos (64 KiB): con los tamaños por defecto una escritura puede esperar a que el cliente lea, y eso bloquearía los snapshots o el aviso final.
 - Handshake: cliente `hello {protocol: 1}` ↔ servidor `hello {protocol: 1, app_version, config, update?}`.
 - El servidor acepta N clientes; broadcast de estado a 10 Hz mientras corre (y en cada cambio), y config solo al cambiar.
 - Errores: `{ "type": "error", "code": "...", "message": "..." }`.
 - La TUI reintenta la conexión cada 1 s si se cae; muestra banner de desconexión y deshabilita comandos.
-- Los mensajes de servidor desconocidos se decodifican como `IgnoredMessage` y se ignoran, para que un mensaje aditivo no rompa un cliente viejo. Por eso `update` no sube `Protocol`.
+- `daemon_closing` es la excepción: la TUI sale sin reintentar y sin lanzar un daemon nuevo, porque el cierre lo pidió el usuario desde la bandeja.
+- Los mensajes de servidor desconocidos se decodifican como `IgnoredMessage` y se ignoran, para que un mensaje aditivo no rompa un cliente viejo. Por eso `update` y `daemon_closing` no suben `Protocol`.
 
 Cliente → daemon:
 
@@ -161,6 +162,7 @@ Daemon → cliente:
 | `config` | `presets`, `theme`, `sound`, `sound_name`, `volume` |
 | `update` | `latest`, `url` |
 | `update_result` | `current`, `latest?`, `url?`, `error?` |
+| `daemon_closing` | — (la TUI sale sin reintentar) |
 | `error` | `code`, `message` |
 
 Validación: duración 1..86400 s; etiqueta 1..32 caracteres; máximo 16 presets; tema válido; sonido válido (`chime`, `marimba`, `digital`, `deep`); volumen 0..100. Comando inválido → error, sin cambiar estado.
@@ -260,6 +262,7 @@ Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pa
 - `finish_seq` evita celebrar dos veces. Si la TUI conecta con el timer ya en `finished`, celebra una ráfaga corta.
 - Si llega el final con un modal abierto, se cierra el modal y se celebra.
 - El cierre de la TUI no toca el daemon. Al salir se restaura la terminal y se imprime “The countdown is still running in the tray.”
+- Si el daemon se cierra desde la bandeja, envía `daemon_closing`, la TUI sale sin reintentar y sin relanzar el daemon, e imprime “The daemon quit; closing.” en vez del aviso del timer.
 
 ## 10. Dirección visual
 
@@ -355,7 +358,7 @@ Quit
 - **Sound settings:** submenú con los cuatro sonidos y check en el activo; Preview reproduce la selección. Elegir un sonido previsualiza si Sound está activo.
 - **Volume:** submenú con título dinámico; -5%/+5% y atajos 0/25/50/75/100. Cada cambio previsualiza si Sound está activo.
 - **Start with Windows:** check; lee/escribe `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, valor `TuickTack` apuntando a `"tuick-tack.exe" --daemon --hidden`. Sin admin. Al arrancar, el daemon migra un valor antiguo de `tuick-tack-tray.exe` para conservar el ajuste. En builds de `go run` el autostart queda deshabilitado: la ruta del ejecutable es temporal.
-- **Quit:** para sonido, cierra pipe y `systray.Quit()`.
+- **Quit:** cierra el loop y llama a `systray.Quit()`; avisa `daemon_closing` a las TUIs conectadas antes de cerrar el pipe, para que la TUI se cierre en vez de relanzar un daemon. Después para el sonido.
 
 ### Actualizaciones
 
@@ -486,15 +489,15 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - `duration`: tabla de formatos válidos/inválidos, clamps.
 - `config`: defaults, carga/guardado, corrupto → backup, migración v1→v2, validación de presets/sonido/volumen.
 - `engine`: reloj falso; start/pause/resume/adjust/finish una vez/replace/restart; `finish_seq`.
-- `protocol`: round-trip JSON, versión, errores, comandos de sonido y volumen, `update`, `check_update`/`update_result` y tolerancia a tipos desconocidos.
-- `ipc`: pipe de test con nombre único, handshake con `update`, start/pause/stop, broadcast, múltiples clientes, reconexión.
+- `protocol`: round-trip JSON, versión, errores, comandos de sonido y volumen, `update`, `check_update`/`update_result`, `daemon_closing` y tolerancia a tipos desconocidos.
+- `ipc`: pipe de test con nombre único, handshake con `update`, start/pause/stop, broadcast, múltiples clientes, reconexión y aviso final entregado antes de cerrar el pipe.
 - `update`: comparación semver y pre-releases, GET contra `httptest` (200/404/403/JSON roto/timeout), `User-Agent`.
 - `notify`: construcción del `Notification` (AUMID, título, cuerpo, URL de activación, duración) y validación; el COM real se prueba a mano.
 - `browser`: solo `https`, rechazo de `http`, `file` y `javascript`.
 - `canvas`/`bigfont`: dimensiones, clipping, ancho de runas, gradiente.
 - `fx`: RNG con semilla, física, caducidad, sin NaN, límites.
-- `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único; parseo y migración del valor de autostart; catálogo de sonidos, escalado PCM y caché; caché de la release y comprobación manual (up to date / available / failed) contra `httptest`; notificación inyectada solo para la bandeja.
-- `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; modal de sonido; aviso de actualización (degradado animado con `animTime`, flecha, fallback corto, hover, click y modo compacto); `u` y resultado manual (available / up to date / failed); aviso secundario debajo de los atajos con una fila en blanco a 80×24/120×40 y ausente en 48×22; 48×22, 80×24 y 120×40 (incluido el modo compacto); celebración una vez por `finish_seq`.
+- `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único; parseo y migración del valor de autostart; catálogo de sonidos, escalado PCM y caché; caché de la release y comprobación manual (up to date / available / failed) contra `httptest`; notificación inyectada solo para la bandeja; `Quit` idempotente y marcado como cierre pedido por el usuario.
+- `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; modal de sonido; aviso de actualización (degradado animado con `animTime`, flecha, fallback corto, hover, click y modo compacto); `u` y resultado manual (available / up to date / failed); aviso secundario debajo de los atajos con una fila en blanco a 80×24/120×40 y ausente en 48×22; 48×22, 80×24 y 120×40 (incluido el modo compacto); celebración una vez por `finish_seq`; cierre por `daemon_closing` sin reconexión.
 - Comandos: `go test ./...`, `go vet ./...`, `gofmt -l .`.
 
 ### Manual
@@ -514,6 +517,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 13. Compilar con `-Version v0.1.0`, salir antes del daemon de la bandeja y abrir: aparece `[Update available]` junto a la marca, el ítem en la bandeja y el click abre la página de la última release. `--check-updates` imprime el resultado. Sin red, arranca normal y no avisa de errores.
 14. Con el daemon y la TUI abiertos, pulsar `u`: la línea de estado muestra `Checking for updates…`, luego un toast interno (`vX available`, `Up to date…` o `Update check failed`) y el ítem de la bandeja refleja el mismo resultado. Repetirlo desde **Check for updates** de la bandeja: además debe salir un toast nativo de Windows; el de una release nueva abre la página al pulsar el cuerpo. La `u` debe verse atenuada debajo de los atajos, con una fila en blanco en medio, a 80×24.
 15. Desactivar las notificaciones de Tuick-Tack o activar Focus Assist: la comprobación sigue y el estado de la bandeja cambia, aunque el toast no se vea.
+16. Con la TUI abierta (con y sin timer, y con un modal abierto), pulsar **Quit** en la bandeja: la TUI sale, el icono desaparece y no reaparece un daemon. `q` sigue cerrando solo la TUI.
 
 ### Criterios de aceptación (v1)
 
