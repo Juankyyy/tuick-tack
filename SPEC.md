@@ -416,9 +416,13 @@ assets/
   icon.ico
   icon.png                    # fuente 256 px para go-winres
   icons/ idle.ico running.ico paused.ico finished.ico
+  banner.txt                  # ASCII 2x del nombre (branding, no se embebe)
+  banner-compact.txt          # ASCII 1x para terminales de 80
+  banner.png                  # PNG transparente, celdas cuadradas
 tools/
   gen-sounds/main.go
   gen-icons/main.go
+  gen-banner/main.go          # banner desde el 5×7 de bigfont
 scripts/
   build.ps1
 winres/
@@ -432,13 +436,14 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 
 - `scripts/build.ps1 -Version <ver>` (por defecto `dev`):
   1. comprobar `go`;
-  2. `go generate ./assets` (sonidos/iconos);
+  2. `go generate ./assets` (sonidos, iconos y banner);
   3. `go generate ./winres` (icono y metadatos del .exe; si falla, sigue con el `.syso` ya commiteado);
   4. `go test ./...`; `go vet ./...`; comprobar `gofmt -l`;
   5. `go build -trimpath -ldflags "-s -w -X ...Version=<ver>" -o dist/tuick-tack.exe ./cmd/tuick-tack`;
   6. borrar cualquier `dist/tuick-tack-tray.exe` obsoleto;
   7. generar `dist/SHA256SUMS.txt` y mostrar la versión.
 - `go-winres` genera un único `rsrc_windows_amd64.syso` desde `winres/winres.json` (icono `assets/icon.png`, manifiesto y versión); el `.syso` se commitea para que `go build` funcione sin regenerarlo.
+- `tools/gen-banner` genera `assets/banner.txt` (2x, 118 columnas), `assets/banner-compact.txt` (1x, 59) y `assets/banner.png` (celdas cuadradas) desde el mismo 5×7 de `bigfont` que el countdown. El PNG es transparente y el banner no se embebe en el ejecutable.
 - `CGO_ENABLED=0`; no se necesita compilador C.
 - Entrega: carpeta `dist/` con `tuick-tack.exe` y `SHA256SUMS.txt`. Sin instalador. Firma de código fuera de alcance (SmartScreen puede avisar).
 - `tuick-tack --version`; `tuick-tack --install-startup` / `--uninstall-startup` escriben el comando de autostart del propio ejecutable.

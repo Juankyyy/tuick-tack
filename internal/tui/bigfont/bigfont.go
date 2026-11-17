@@ -157,6 +157,14 @@ func glyphFor(r rune) [GlyphH]string {
 	return glyphs['?']
 }
 
+// Glyph returns the 5x7 cells of r and reports whether the font has it. The
+// banner generator uses this so the branding wordmark and the countdown share
+// a single font.
+func Glyph(r rune) ([GlyphH]string, bool) {
+	g, ok := glyphs[r]
+	return g, ok
+}
+
 func lerp(a, b color.RGBA, t float64) color.RGBA {
 	mix := func(x, y uint8) uint8 {
 		return uint8(float64(x) + (float64(y)-float64(x))*t)

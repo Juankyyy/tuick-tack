@@ -88,3 +88,23 @@ func TestUnknownRune(t *testing.T) {
 		t.Fatal("unknown rune should fall back to a visible glyph")
 	}
 }
+
+func TestGlyph(t *testing.T) {
+	for _, r := range "TUICK-TACK" {
+		g, ok := Glyph(r)
+		if !ok {
+			t.Fatalf("Glyph(%q) not found", r)
+		}
+		if len(g) != GlyphH {
+			t.Fatalf("Glyph(%q) has %d rows, want %d", r, len(g), GlyphH)
+		}
+		for row, line := range g {
+			if got := len([]rune(line)); got != GlyphW {
+				t.Fatalf("Glyph(%q) row %d has width %d, want %d", r, row, got, GlyphW)
+			}
+		}
+	}
+	if _, ok := Glyph('@'); ok {
+		t.Fatal("Glyph('@') should report a missing glyph")
+	}
+}

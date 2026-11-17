@@ -1,12 +1,14 @@
 // Package assets embeds the generated runtime assets: the completion sound
-// pack and the tray icons. The files are committed; regenerate them with
-// `go generate ./...`.
+// pack and the tray icons. It also hosts the generated branding banner, which
+// is not embedded in the executable. The files are committed; regenerate them
+// with `go generate ./...`.
 package assets
 
 import _ "embed"
 
 //go:generate go run ../tools/gen-sounds
 //go:generate go run ../tools/gen-icons
+//go:generate go run ../tools/gen-banner
 
 // ChimeWAV is the original 4-second bell arpeggio (44.1 kHz, 16-bit, mono).
 //
