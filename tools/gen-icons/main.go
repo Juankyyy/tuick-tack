@@ -1,8 +1,11 @@
-// Command gen-icons draws the tray and executable icons into assets/.
+// Command gen-icons draws the pixel-art tray and executable icons into assets/.
 //
-// The icons are original clock glyphs rendered with supersampling so they stay
-// readable at 16 px. Each .ico carries PNG images for 16, 32 and 48 px (the
-// executable icon also includes 256 px).
+// The tray icons live on a 7x7 grid with one cell of margin: at 16 px every
+// cell is exactly 2 px, and at 24/32/48 px it is 3/4/6 px. The executable icon
+// is a 16x16 grid on a navy tile. Every ICO entry is rendered at its own size
+// without antialiasing; the small entries are never downsampled from a 256 px
+// master. The ICO carries the sizes Windows asks for, and winres embeds the
+// same file in the executable.
 package main
 
 import (
@@ -12,41 +15,175 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"math"
 	"os"
 	"path/filepath"
 )
 
-type state struct {
-	name  string
-	ring  color.NRGBA
-	badge string
+var (
+	// traySizes covers the notification-area sizes: 16 px at 100%, 20 at 125%,
+	// 24 at 150%, 28 at 175% and 32 at 200%, plus the 2x HICON sizes systray
+	// loads (32/40/48/56/64).
+	traySizes = []int{16, 20, 24, 32, 40, 48, 56, 64}
+	// appSizes covers Explorer and the Start menu. 256 is the PNG master too.
+	appSizes = []int{16, 24, 32, 40, 48, 64, 96, 128, 256}
+
+	idleColor     = rgba(0x10B981) // emerald 500
+	runningColor  = rgba(0x3B82F6) // blue 500
+	pausedColor   = rgba(0xF59E0B) // amber 500
+	finishedColor = rgba(0xEF4444) // red 500
+
+	tileColor = rgba(0x0B1524) // midnight panel
+	mintColor = rgba(0x6EE7B7) // midnight accent
+	handColor = rgba(0xF8FAFC)
+)
+
+// sprite is a square pixel grid. Only cells whose rune is in colors are painted.
+type sprite struct {
+	rows   []string
+	colors map[rune]color.NRGBA
+}
+
+func solidSprite(rows []string, c color.NRGBA) sprite {
+	return sprite{rows: rows, colors: map[rune]color.NRGBA{'#': c}}
+}
+
+// render paints the grid at size with hard-edged cells, centered on the canvas.
+func (s sprite) render(size int) *image.NRGBA {
+	grid := len(s.rows)
+	cell := size / grid
+	if cell < 1 {
+		cell = 1
+	}
+	art := grid * cell
+	off := (size - art) / 2
+	// systray loads the 2x HICON and the shell halves it, so keep the offset even.
+	if size >= 32 && off%2 == 1 {
+		off--
+	}
+
+	img := image.NewNRGBA(image.Rect(0, 0, size, size))
+	for y, row := range s.rows {
+		for x, ch := range row {
+			c, ok := s.colors[ch]
+			if !ok {
+				continue
+			}
+			for py := 0; py < cell; py++ {
+				for px := 0; px < cell; px++ {
+					img.SetNRGBA(off+x*cell+px, off+y*cell+py, c)
+				}
+			}
+		}
+	}
+	return img
+}
+
+// Tray states. The ring is shared; the state glyph lives in the 5x5 interior.
+var (
+	// Idle: a T for Tuick-Tack inside the ready ring.
+	idleRows = []string{
+		"..###..",
+		".#...#.",
+		"#.###.#",
+		"#..#..#",
+		"#..#..#",
+		".#...#.",
+		"..###..",
+	}
+	// Running: a play triangle. Hands at 12:15 were tried first, but at 16 px
+	// they merged with the ring and read as a spiral; play pairs with pause.
+	runningRows = []string{
+		"..###..",
+		".#...#.",
+		"#.#...#",
+		"#.###.#",
+		"#.#...#",
+		".#...#.",
+		"..###..",
+	}
+	// Paused: two bars.
+	pausedRows = []string{
+		"..###..",
+		".#...#.",
+		"#.#.#.#",
+		"#.#.#.#",
+		"#.#.#.#",
+		".#...#.",
+		"..###..",
+	}
+	// Finished: a zero for 00:00.
+	finishedRows = []string{
+		"..###..",
+		".#...#.",
+		"#.###.#",
+		"#.#.#.#",
+		"#.###.#",
+		".#...#.",
+		"..###..",
+	}
+)
+
+// appRows is the 16x16 executable icon: a navy rounded tile, a mint ring and
+// white clock hands. The orange 12 o'clock tick was dropped on purpose.
+var appRows = []string{
+	"..nnnnnnnnnnnn..",
+	".nnnnnnnnnnnnnn.",
+	"nnnnnnmmmmnnnnnn",
+	"nnnnmmmmmmmmnnnn",
+	"nnnmmmnwwnmmmnnn",
+	"nnnmmnnwwnnmmnnn",
+	"nnmmnnnwwnnnmmnn",
+	"nnmmnnnwwwwwmmnn",
+	"nnmmnnnwwwwwmmnn",
+	"nnmmnnnnnnnnmmnn",
+	"nnnmmnnnnnnmmnnn",
+	"nnnmmmnnnnmmmnnn",
+	"nnnnmmmmmmmmnnnn",
+	"nnnnnnmmmmnnnnnn",
+	".nnnnnnnnnnnnnn.",
+	"..nnnnnnnnnnnn..",
+}
+
+var appSprite = sprite{
+	rows: appRows,
+	colors: map[rune]color.NRGBA{
+		'n': tileColor,
+		'm': mintColor,
+		'w': handColor,
+	},
 }
 
 func main() {
 	root := repoRoot()
-	states := []state{
-		{name: "idle", ring: color.NRGBA{R: 0x6E, G: 0xE7, B: 0xB7, A: 0xFF}, badge: "dot"},
-		{name: "running", ring: color.NRGBA{R: 0x60, G: 0xA5, B: 0xFA, A: 0xFF}, badge: "hand"},
-		{name: "paused", ring: color.NRGBA{R: 0xFB, G: 0xBF, B: 0x24, A: 0xFF}, badge: "pause"},
-		{name: "finished", ring: color.NRGBA{R: 0xF8, G: 0x71, B: 0x71, A: 0xFF}, badge: "bang"},
+	iconsDir := filepath.Join(root, "assets", "icons")
+	if err := os.MkdirAll(iconsDir, 0o755); err != nil {
+		fail(err)
 	}
 
-	if err := os.MkdirAll(filepath.Join(root, "assets", "icons"), 0o755); err != nil {
-		fail(err)
+	states := []struct {
+		name string
+		art  sprite
+	}{
+		{"idle", solidSprite(idleRows, idleColor)},
+		{"running", solidSprite(runningRows, runningColor)},
+		{"paused", solidSprite(pausedRows, pausedColor)},
+		{"finished", solidSprite(finishedRows, finishedColor)},
 	}
-	for _, s := range states {
-		img := draw(s, 256)
-		if err := writeICO(filepath.Join(root, "assets", "icons", s.name+".ico"), img, []int{16, 32, 48}); err != nil {
+	for _, st := range states {
+		art := st.art
+		path := filepath.Join(iconsDir, st.name+".ico")
+		if err := writeICO(path, traySizes, func(size int) image.Image { return art.render(size) }); err != nil {
 			fail(err)
 		}
-		fmt.Printf("gen-icons: wrote assets/icons/%s.ico\n", s.name)
+		fmt.Printf("gen-icons: wrote assets/icons/%s.ico\n", st.name)
 	}
-	// The executable icon uses the idle artwork and adds a 256 px image.
-	if err := writeICO(filepath.Join(root, "assets", "icon.ico"), draw(states[0], 256), []int{16, 32, 48, 256}); err != nil {
+
+	if err := writeICO(filepath.Join(root, "assets", "icon.ico"), appSizes, func(size int) image.Image {
+		return appSprite.render(size)
+	}); err != nil {
 		fail(err)
 	}
-	if err := writePNG(filepath.Join(root, "assets", "icon.png"), draw(states[0], 256)); err != nil {
+	if err := writePNG(filepath.Join(root, "assets", "icon.png"), appSprite.render(256)); err != nil {
 		fail(err)
 	}
 	fmt.Println("gen-icons: wrote assets/icon.ico and assets/icon.png")
@@ -57,141 +194,18 @@ func fail(err error) {
 	os.Exit(1)
 }
 
-// draw renders the icon at the requested size with 4x supersampling.
-func draw(s state, size int) image.Image {
-	const ss = 4
-	big := size * ss
-	// Accumulate coverage and color at high resolution, then downsample.
-	accR := make([]float64, size*size)
-	accG := make([]float64, size*size)
-	accB := make([]float64, size*size)
-	accA := make([]float64, size*size)
-
-	ring := float64(big) * 0.36
-	stroke := float64(big) * 0.095
-	cx := float64(big) * 0.5
-	cy := float64(big) * 0.5
-	white := color.NRGBA{R: 0xF4, G: 0xF7, B: 0xFB, A: 0xFF}
-
-	for y := 0; y < big; y++ {
-		for x := 0; x < big; x++ {
-			px := float64(x) + 0.5
-			py := float64(y) + 0.5
-			dx := px - cx
-			dy := py - cy
-			dist := math.Hypot(dx, dy)
-			var c color.NRGBA
-			alpha := 0.0
-
-			// Antialiased ring.
-			if ringCoverage(dist, ring, stroke/2) > 0 {
-				alpha = ringCoverage(dist, ring, stroke/2)
-				c = s.ring
-			}
-
-			// State glyph inside the ring.
-			ga, gc := glyph(s.badge, dx, dy, float64(big), white, s.ring)
-			if ga > alpha {
-				alpha = ga
-				c = gc
-			}
-
-			si := (y/ss)*size + (x / ss)
-			accR[si] += float64(c.R) / 255 * alpha
-			accG[si] += float64(c.G) / 255 * alpha
-			accB[si] += float64(c.B) / 255 * alpha
-			accA[si] += alpha
-		}
-	}
-
-	img := image.NewNRGBA(image.Rect(0, 0, size, size))
-	inv := 1.0 / float64(ss*ss)
-	for i := 0; i < size*size; i++ {
-		a := accA[i] * inv
-		if a <= 0 {
-			continue
-		}
-		r := accR[i] / accA[i]
-		g := accG[i] / accA[i]
-		b := accB[i] / accA[i]
-		img.SetNRGBA(i%size, i/size, color.NRGBA{
-			R: clamp8(r),
-			G: clamp8(g),
-			B: clamp8(b),
-			A: clamp8(a),
-		})
-	}
-	return img
+func rgba(v uint32) color.NRGBA {
+	return color.NRGBA{R: uint8(v >> 16), G: uint8(v >> 8), B: uint8(v), A: 0xFF}
 }
 
-func ringCoverage(dist, radius, halfStroke float64) float64 {
-	d := math.Abs(dist - radius)
-	if d >= halfStroke+0.75 {
-		return 0
-	}
-	if d <= halfStroke-0.75 {
-		return 1
-	}
-	return math.Max(0, math.Min(1, halfStroke+0.75-d))
-}
-
-func glyph(kind string, dx, dy, size float64, white, ring color.NRGBA) (float64, color.NRGBA) {
-	unit := size / 100
-	switch kind {
-	case "dot":
-		d := math.Hypot(dx, dy)
-		if d < 9*unit {
-			return 1, white
-		}
-	case "hand":
-		// Minute hand up, hour hand right.
-		if math.Abs(dx) < 4.5*unit && dy < 2*unit && dy > -26*unit {
-			return 1, white
-		}
-		if math.Abs(dy) < 4.5*unit && dx > 2*unit && dx < 18*unit {
-			return 1, white
-		}
-		if math.Hypot(dx, dy) < 7*unit {
-			return 1, white
-		}
-	case "pause":
-		if math.Abs(dx+8*unit) < 5*unit && math.Abs(dy) < 18*unit {
-			return 1, white
-		}
-		if math.Abs(dx-8*unit) < 5*unit && math.Abs(dy) < 18*unit {
-			return 1, white
-		}
-	case "bang":
-		if math.Abs(dx) < 5*unit && dy > -23*unit && dy < 8*unit {
-			return 1, white
-		}
-		if math.Hypot(dx, dy-18*unit) < 5*unit {
-			return 1, white
-		}
-	}
-	return 0, ring
-}
-
-func clamp8(v float64) uint8 {
-	if v <= 0 {
-		return 0
-	}
-	if v >= 1 {
-		return 255
-	}
-	return uint8(math.Round(v * 255))
-}
-
-func writeICO(path string, src image.Image, sizes []int) error {
-	base := src.Bounds()
-	var payloads [][]byte
-	for _, size := range sizes {
-		img := scaleImage(src, size, base)
+func writeICO(path string, sizes []int, render func(int) image.Image) error {
+	payloads := make([][]byte, len(sizes))
+	for i, size := range sizes {
 		var buf bytes.Buffer
-		if err := png.Encode(&buf, img); err != nil {
-			return err
+		if err := png.Encode(&buf, render(size)); err != nil {
+			return fmt.Errorf("%s %d px: %w", filepath.Base(path), size, err)
 		}
-		payloads = append(payloads, buf.Bytes())
+		payloads[i] = buf.Bytes()
 	}
 
 	var out bytes.Buffer
@@ -203,7 +217,7 @@ func writeICO(path string, src image.Image, sizes []int) error {
 	for i, size := range sizes {
 		b := byte(size)
 		if size >= 256 {
-			b = 0
+			b = 0 // 256 is encoded as 0 in the directory
 		}
 		out.WriteByte(b) // width
 		out.WriteByte(b) // height
@@ -218,6 +232,7 @@ func writeICO(path string, src image.Image, sizes []int) error {
 	for _, p := range payloads {
 		out.Write(p)
 	}
+
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -232,23 +247,11 @@ func writePNG(path string, img image.Image) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return png.Encode(f, img)
-}
-
-func scaleImage(src image.Image, size int, bounds image.Rectangle) image.Image {
-	if bounds.Dx() == size && bounds.Dy() == size {
-		return src
+	if err := png.Encode(f, img); err != nil {
+		f.Close()
+		return err
 	}
-	dst := image.NewNRGBA(image.Rect(0, 0, size, size))
-	for y := 0; y < size; y++ {
-		for x := 0; x < size; x++ {
-			sx := bounds.Min.X + x*bounds.Dx()/size
-			sy := bounds.Min.Y + y*bounds.Dy()/size
-			dst.Set(x, y, src.At(sx, sy))
-		}
-	}
-	return dst
+	return f.Close()
 }
 
 // repoRoot walks up from the working directory until it finds go.mod.

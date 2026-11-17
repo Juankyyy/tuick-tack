@@ -30,11 +30,6 @@ var DigitalWAV []byte
 //go:embed sounds/deep.wav
 var DeepWAV []byte
 
-// AppIcon is the icon used for the executable and the tray's default state.
-//
-//go:embed icon.ico
-var AppIcon []byte
-
 // IdleIcon is the tray icon used while no countdown is active.
 //
 //go:embed icons/idle.ico

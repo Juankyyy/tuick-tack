@@ -346,7 +346,9 @@ Quit
 
 ### Iconos
 
-- 4 ICO embebidos (`idle`, `running`, `paused`, `finished`), 16/32/48 px; el `.ico` del ejecutable usa el de idle.
+- Iconos de bandeja de píxeles duros, rejilla 7×7 con una celda de margen y sin antialiasing; estados T, play, pausa y 0 en el color del estado.
+- 4 ICO embebidos (`idle`, `running`, `paused`, `finished`) con 16/20/24/32/40/48/56/64 px. `systray` carga el HICON de 2× (32/40/48/56/64) y el shell lo reduce a 16/20/24/28/32; la rejilla y el margen están pensados para esa reducción.
+- El `.ico` del ejecutable (`assets/icon.ico`) es una loseta navy de 16×16 celdas con anillo mint y agujas blancas, con 16/24/32/40/48/64/96/128/256 px. `winres` lo embebe completo en el `.syso`; `assets/icon.png` es el máster de 256 px para previews.
 - No se regenera el icono cada segundo: systray escribe cada icono nuevo en un archivo temporal. El tiempo va en el tooltip.
 - Tooltip: `Tuick-Tack · ready`, `Tuick-Tack · 04:31 remaining (5 min)`, `Tuick-Tack · time's up!`.
 - Actualización de título/estado/habilitados en cada snapshot (1 Hz) y reconstrucción del submenú de presets solo al cambiar config.
@@ -413,8 +415,8 @@ internal/
     fx/                       # dust + confetti
 assets/
   sounds/ chime.wav marimba.wav digital.wav deep.wav
-  icon.ico
-  icon.png                    # fuente 256 px para go-winres
+  icon.ico                    # ICO multi-tamaño del ejecutable (winres)
+  icon.png                    # máster 256 px para previews
   icons/ idle.ico running.ico paused.ico finished.ico
   banner.txt                  # ASCII 2x del nombre (branding, no se embebe)
   banner-compact.txt          # ASCII 1x para terminales de 80
@@ -442,7 +444,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
   5. `go build -trimpath -ldflags "-s -w -X ...Version=<ver>" -o dist/tuick-tack.exe ./cmd/tuick-tack`;
   6. borrar cualquier `dist/tuick-tack-tray.exe` obsoleto;
   7. generar `dist/SHA256SUMS.txt` y mostrar la versión.
-- `go-winres` genera un único `rsrc_windows_amd64.syso` desde `winres/winres.json` (icono `assets/icon.png`, manifiesto y versión); el `.syso` se commitea para que `go build` funcione sin regenerarlo.
+- `go-winres` genera un único `rsrc_windows_amd64.syso` desde `winres/winres.json` (icono multi-tamaño `assets/icon.ico`, manifiesto y versión); el `.syso` se commitea para que `go build` funcione sin regenerarlo.
 - `tools/gen-banner` genera `assets/banner.txt` (2x, 118 columnas), `assets/banner-compact.txt` (1x, 59) y `assets/banner.png` (celdas cuadradas) desde el mismo 5×7 de `bigfont` que el countdown. El PNG es transparente y el banner no se embebe en el ejecutable.
 - `CGO_ENABLED=0`; no se necesita compilador C.
 - Entrega: carpeta `dist/` con `tuick-tack.exe` y `SHA256SUMS.txt`. Sin instalador. Firma de código fuera de alcance (SmartScreen puede avisar).
