@@ -7,8 +7,8 @@
 - Stack: Go 1.26+ (pinned Bubble Tea v2/go-winio require it), Bubble Tea v2.1.1, Lipgloss v2.1.0, `fyne.io/systray` v1.12.2, `github.com/Microsoft/go-winio` v0.6.4, `golang.org/x/sys/windows`; `CGO_ENABLED=0`.
 - App code lives in `cmd/` and `internal/`. Windows-specific code lives in `internal/tray/`, `internal/ipc/` and the `*_windows.go` files under `internal/daemon/`.
 - Platform features that cannot live in the shared layer stay in the native layer behind small, documented bridges: systray/menu (`internal/tray`), `PlaySoundW` (`internal/daemon/sound_windows.go`), registry/autostart (`internal/daemon/autostart_windows.go`) and named pipes (`internal/ipc`).
-- Current state: v1 implemented in `dev` (M0–M5 complete) plus the selectable sound pack and volume; `SPEC.md` is the functional source. Next work is polish/QA and, only on request, the release build from `main`.
-- Generated assets (`assets/sounds/*.wav`, `assets/icon.ico`, `assets/icon.png`, `assets/icons/*.ico`, the `.syso` file under `cmd/`) are committed; do not hand-edit them. Regenerate with `go generate ./...` / `scripts/build.ps1`.
+- Current state: v1 implemented in `dev` (M0–M5 complete) plus the selectable sound pack and volume; `SPEC.md` is the functional source. Next work is polish/QA; releases are published on GitHub when the user asks for one.
+- Generated assets (`assets/sounds/*.wav`, `assets/icon.ico`, `assets/icon.png`, `assets/icons/*.ico`, `assets/banner.txt`, `assets/banner-compact.txt`, `assets/banner.png`, the `.syso` file under `cmd/`) are committed; do not hand-edit them. Regenerate with `go generate ./...` / `scripts/build.ps1`. The branding banner comes from the same 5×7 bigfont grid as the countdown and is not embedded in the executable: `banner.txt` is the 2x ASCII (118 columns) and `banner-compact.txt` the 1x version (59 columns).
 
 ## Commands
 
@@ -45,8 +45,8 @@ internal/
   daemon/               wiring, sound, autostart, logging
   tray/                 systray menu, icons, tooltip
   tui/                  Bubble Tea model/view, canvas, bigfont, theme, fx
-assets/                 sounds/*.wav, icon.ico, icons/
-tools/                  gen-sounds, gen-icons
+assets/                 sounds/*.wav, icon.ico, icons/, banner.txt, banner-compact.txt, banner.png, screenshot.png
+tools/                  gen-sounds, gen-icons, gen-banner
 scripts/build.ps1
 winres/                 go-winres metadata
 ```
@@ -93,29 +93,34 @@ La fuente funcional es `SPEC.md`; este documento manda en el proceso.
 3. **Aviso previo**: no se hacen commits ni pushes sin avisar antes. Propón el mensaje y
    espera el OK. «Haz los commits» autoriza commit **y push a `dev`** a la vez, sin lanzar
    ninguna release: el trabajo nunca se queda solo en local.
-4. **`main` y releases, solo a petición**: el merge o push a `main` se hace únicamente
-   cuando el usuario lo pide, tras verificar el bloque en su máquina. El agente nunca toca
-   `main` por iniciativa propia, ni siquiera con «Haz los commits». Para este proyecto,
-   “release” v1 significa una build local portable en `dist/` (un `.exe`); no hay CI de
-   release ni instalador. Si el usuario pide publicar, se hace desde `main` con un tag
-   `vX.Y.Z` y se adjuntan el `.exe` + `SHA256SUMS.txt`; sin firma de código en v1.
+4. **`main` y releases, solo a petición**: `main` permanece estable y el agente nunca hace
+   merge ni push a `main` por iniciativa propia, ni siquiera con «Haz los commits».
+   «Verifica todo lo nuevo para crear una nueva release» (o «prepara/saca una release») es
+   una petición explícita: autoriza el merge/push de `dev` a `main`, el tag `vX.Y.Z` y la
+   publicación en GitHub en ese mismo momento. No preguntar si la release es local o de
+   GitHub: **siempre es una release de GitHub** y se crea directamente con
+   `gh release create`. Si no se indica versión, se sube el patch.
 5. **Versiones y notas**: no hay manifiesto de versión en el repo. `internal/buildinfo.Version`
-   vale `dev` por defecto; las builds de release la fijan con `-ldflags "-X ..."`. Las notas,
-   si se piden, van en inglés y se escriben a mano. No crear tags ni releases sin pedido
-   explícito.
+   vale `dev` por defecto; las builds de release la fijan con `-ldflags "-X ..."`. Las notas
+   van en inglés, se escriben a mano y se pasan a `gh release create` (`--notes-file`). Un
+   pedido de release ya autoriza tag y release; no hace falta confirmarlo otra vez.
 6. **Documentación como parte del cambio**: actualiza `SPEC.md` si cambia el comportamiento
    o la arquitectura, y `README.md` si el cambio es visible para el usuario.
 
 ## Releases
 
-- **v1**: carpeta `dist/` con un único `tuick-tack.exe` (TUI de consola y daemon de
-  bandeja con `--daemon`), generada por `scripts/build.ps1`. Portable, sin instalador, sin
-  auto-update y sin firma. SmartScreen puede avisar la primera vez.
-- **Publicación**: solo a petición, desde `main` y tras verificación del usuario. Tag
-  `vX.Y.Z`; adjuntar el `.exe` y `SHA256SUMS.txt`. Notas en inglés, manuales.
-- **Nada automático**: no hay workflow de release, secrets ni artefactos firmados. No añadir
-  CI de release sin pedirlo.
-- **Nunca** push/tag/merge a `main` por iniciativa propia.
+- **Artefacto**: carpeta `dist/` con un único `tuick-tack.exe` (TUI de consola y daemon de
+  bandeja con `--daemon`), generada por `scripts/build.ps1 -Version vX.Y.Z`. Portable, sin
+  instalador, sin auto-update y sin firma. SmartScreen puede avisar la primera vez.
+- **Publicación**: siempre en GitHub, a petición del usuario y desde `main`. Tag `vX.Y.Z`
+  (patch por defecto si no se indica versión); adjuntar el `.exe` y `SHA256SUMS.txt`. Notas
+  en inglés, manuales, con el formato de las releases anteriores.
+- **Procedimiento**: verificar `dev` (diff `main..dev`, `go vet`, `go test`, `go build`),
+  actualizar docs, merge/push a `main`, tag, compilar desde `main`, `gh release create`.
+- **Nada automático**: no hay workflow de release, secrets ni artefactos firmados. La
+  publicación la hace el agente a mano con `gh`; no añadir CI de release sin pedirlo.
+- **Nunca** push/tag/merge a `main` por iniciativa propia; la única excepción es una
+  release pedida por el usuario.
 
 ## Antes de decir que algo está terminado
 
