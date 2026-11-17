@@ -203,7 +203,7 @@ go generate ./...                # regenerate sounds, icons, banner and .syso
 
 ```powershell
 .\scripts\build.ps1              # dev build into dist/
-.\scripts\build.ps1 -Version v0.1.2
+.\scripts\build.ps1 -Version v0.2.0
 ```
 
 The script regenerates the assets, checks formatting, runs vet and the tests, and writes:
