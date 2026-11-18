@@ -47,16 +47,31 @@ const (
 	TypeStopSound    = "stop_sound"
 	TypeCheckUpdate  = "check_update"
 
+	// TypeInstallUpdate downloads the release installer and runs it after the
+	// daemon and the TUI exit. Force is required when a countdown is active.
+	TypeInstallUpdate = "install_update"
+	// TypeDownloadPortable saves the portable executable in the user's
+	// Downloads folder without restarting the app.
+	TypeDownloadPortable = "download_portable"
+
 	// TypeUpdate is an additive server message: clients that do not know it
 	// ignore it (see DecodeServer), so it does not require a protocol bump.
 	TypeUpdate = "update"
 	// TypeUpdateResult is the reply to check_update and is only sent to the
 	// client that asked.
 	TypeUpdateResult = "update_result"
+	// TypeUpdateProgress reports a setup or portable download. It is additive.
+	TypeUpdateProgress = "update_progress"
 	// TypeDaemonClosing is an additive server message: it tells connected TUIs
 	// that the daemon is shutting down on purpose, so they exit instead of
 	// reconnecting and launching a new daemon.
 	TypeDaemonClosing = "daemon_closing"
+)
+
+// Reasons carried by TypeDaemonClosing.
+const (
+	CloseReasonQuit   = "quit"
+	CloseReasonUpdate = "update"
 )
 
 // Error codes.
@@ -89,6 +104,7 @@ type ClientMessage struct {
 	SoundName    string `json:"sound_name,omitempty"`
 	Volume       *int   `json:"volume,omitempty"`
 	Enabled      *bool  `json:"enabled,omitempty"`
+	Force        bool   `json:"force,omitempty"`
 }
 
 // ConfigPayload is the shared preset, theme, sound and volume shape.
@@ -117,10 +133,13 @@ type HelloMessage struct {
 func (HelloMessage) isServerMessage() {}
 
 // UpdatePayload is the latest release the daemon knows about. It is carried by
-// the handshake and by the update broadcast.
+// the handshake and by the update broadcast. Setup and Portable say which
+// download actions the release supports.
 type UpdatePayload struct {
-	Latest string `json:"latest"`
-	URL    string `json:"url"`
+	Latest   string `json:"latest"`
+	URL      string `json:"url"`
+	Setup    bool   `json:"setup,omitempty"`
+	Portable bool   `json:"portable,omitempty"`
 }
 
 // UpdateMessage announces a newer release. The TUI and the tray turn it into a
@@ -135,12 +154,30 @@ func (UpdateMessage) isServerMessage() {}
 // UpdateResultMessage answers a manual check. Error is non-empty when GitHub
 // could not be reached; the TUI then keeps the previous notice untouched.
 type UpdateResultMessage struct {
-	Type    string `json:"type"`
-	Current string `json:"current"`
-	Latest  string `json:"latest,omitempty"`
-	URL     string `json:"url,omitempty"`
-	Error   string `json:"error,omitempty"`
+	Type     string `json:"type"`
+	Current  string `json:"current"`
+	Latest   string `json:"latest,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Setup    bool   `json:"setup,omitempty"`
+	Portable bool   `json:"portable,omitempty"`
+	Error    string `json:"error,omitempty"`
 }
+
+// UpdateProgressMessage reports one update download. Kind is "setup" or
+// "portable". Phase is "downloading", "verifying", "installing", "done" or
+// "failed". Path is set when a portable executable was saved, and Error is a
+// short code ("network", "checksum", "timer_active", ...).
+type UpdateProgressMessage struct {
+	Type     string `json:"type"`
+	Kind     string `json:"kind"`
+	Phase    string `json:"phase"`
+	Received int64  `json:"received,omitempty"`
+	Total    int64  `json:"total,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+func (UpdateProgressMessage) isServerMessage() {}
 
 func (UpdateResultMessage) isServerMessage() {}
 
@@ -148,7 +185,8 @@ func (UpdateResultMessage) isServerMessage() {}
 // because the user quit it. The TUI exits without reconnecting; reconnecting
 // would start a new daemon.
 type DaemonClosingMessage struct {
-	Type string `json:"type"`
+	Type   string `json:"type"`
+	Reason string `json:"reason,omitempty"`
 }
 
 func (DaemonClosingMessage) isServerMessage() {}
@@ -216,9 +254,20 @@ func NewUpdateResult(res UpdateResultMessage) UpdateResultMessage {
 	return res
 }
 
-// NewDaemonClosing builds the shutdown notice sent to connected TUIs.
-func NewDaemonClosing() DaemonClosingMessage {
-	return DaemonClosingMessage{Type: TypeDaemonClosing}
+// NewDaemonClosing builds the shutdown notice sent to connected TUIs. The
+// optional reason tells an updating TUI that the app will reopen.
+func NewDaemonClosing(reason ...string) DaemonClosingMessage {
+	r := CloseReasonQuit
+	if len(reason) > 0 && reason[0] != "" {
+		r = reason[0]
+	}
+	return DaemonClosingMessage{Type: TypeDaemonClosing, Reason: r}
+}
+
+// NewUpdateProgress builds a download progress notice.
+func NewUpdateProgress(m UpdateProgressMessage) UpdateProgressMessage {
+	m.Type = TypeUpdateProgress
+	return m
 }
 
 // NewState converts an engine snapshot to the wire shape.
@@ -315,6 +364,12 @@ func DecodeServer(data []byte) (ServerMessage, error) {
 			return nil, err
 		}
 		return m, nil
+	case TypeUpdateProgress:
+		var m UpdateProgressMessage
+		if err := json.Unmarshal(data, &m); err != nil {
+			return nil, err
+		}
+		return m, nil
 	case TypeDaemonClosing:
 		var m DaemonClosingMessage
 		if err := json.Unmarshal(data, &m); err != nil {
@@ -352,7 +407,8 @@ func (m ClientMessage) Validate() *ErrorMessage {
 		return nil
 	case TypePause, TypeResume, TypeStop, TypeDismiss, TypeRestart,
 		TypePresetsRestoreDefault, TypeGetState, TypeQuitDaemon,
-		TypePreviewSound, TypeStopSound, TypeCheckUpdate:
+		TypePreviewSound, TypeStopSound, TypeCheckUpdate,
+		TypeInstallUpdate, TypeDownloadPortable:
 		return nil
 	case TypeAdjust:
 		if m.DeltaSeconds == 0 || math.Abs(float64(m.DeltaSeconds)) > config.MaxSeconds {

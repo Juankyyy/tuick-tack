@@ -39,6 +39,68 @@ const (
 	UpdateArrow      = Key("update.arrow")
 	UpdateChecking   = Key("update.checking")
 	UpdateHint       = Key("hint.update")
+	UpdateHintNew    = Key("hint.update.new")
+
+	UpdateBody               = Key("update.body")
+	UpdateCurrent            = Key("update.current")
+	UpdateType               = Key("update.type")
+	UpdateTypeSetup          = Key("update.type.setup")
+	UpdateTypePortable       = Key("update.type.portable")
+	UpdateStatusInstalled    = Key("update.status.installed")
+	UpdateStatusNotInstalled = Key("update.status.notinstalled")
+	UpdateStatusInUse        = Key("update.status.inuse")
+	UpdateStatusNotInUse     = Key("update.status.notinuse")
+	UpdateStatusNotInRelease = Key("update.status.notinrelease")
+	UpdateOtherBody          = Key("update.other.body")
+	UpdateOtherKeep1         = Key("update.other.keep1")
+	UpdateOtherKeep2         = Key("update.other.keep2")
+	UpdateCurrentSetup       = Key("update.current.setup")
+	UpdateCurrentPortable    = Key("update.current.portable")
+	UpdateInstallShort       = Key("update.install.short")
+	UpdateInstalledBadge     = Key("update.installed")
+	UpdatePortableBadge      = Key("update.portable")
+	UpdateInstall            = Key("update.install")
+	UpdateDownloadPortable   = Key("update.download.portable")
+	UpdateInstallSetup       = Key("update.install.setup")
+	UpdateReleasePage        = Key("update.release")
+	UpdateDownloadShort      = Key("update.download.short")
+	UpdateReleaseShort       = Key("update.release.short")
+	UpdateLater              = Key("update.later")
+	UpdateSetupNote          = Key("update.setup.note")
+	UpdatePortableNote       = Key("update.portable.note")
+	UpdateChooseInstalled    = Key("update.choose.installed")
+	UpdateChoosePortable     = Key("update.choose.portable")
+	UpdateTimerTitle         = Key("update.timer.title")
+	UpdateTimerBody          = Key("update.timer.body")
+	UpdateTimerWarn          = Key("update.timer.warn")
+	UpdateTimerPortable      = Key("update.timer.portable")
+	UpdateContinue           = Key("update.continue")
+	UpdateBack               = Key("update.back")
+	UpdateDownloading        = Key("update.downloading")
+	UpdateVerifying          = Key("update.verifying")
+	UpdateInstalling         = Key("update.installing")
+	UpdateRestarting         = Key("update.restarting")
+	UpdateInProgress         = Key("update.inprogress")
+	UpdatePortableTitle      = Key("update.portable.title")
+	UpdatePortableSaved      = Key("update.portable.saved")
+	UpdatePortablePath       = Key("update.portable.path")
+	UpdatePortableDone       = Key("update.portable.done")
+	UpdateOpenFolder         = Key("update.open.folder")
+	UpdateFailed             = Key("update.failed")
+	UpdateRetry              = Key("update.retry")
+	UpdateUnavailable        = Key("update.unavailable")
+	UpdateNoAssets           = Key("update.no.assets")
+	UpdateTimerActive        = Key("update.timer.active")
+	UpdateNetwork            = Key("update.network")
+	UpdateChecksum           = Key("update.checksum")
+	UpdateWrite              = Key("update.write")
+	UpdateBusy               = Key("update.busy")
+	UpdateSetupFailed        = Key("update.setup.failed")
+	UpdateSize               = Key("update.size")
+	UpdatePreparing          = Key("update.preparing")
+	UpdateWait               = Key("update.wait")
+	UpdateStepsSetup         = Key("update.steps.setup")
+	UpdateStepsPortable      = Key("update.steps.portable")
 
 	NotifyFoundTitle    = Key("notify.found.title")
 	NotifyFoundBody     = Key("notify.found.body")
@@ -122,13 +184,14 @@ const (
 	DaemonOnline = Key("conn.online")
 	DaemonLost   = Key("conn.lost")
 
-	ErrorDuration = Key("error.duration")
-	ErrorLabel    = Key("error.label")
-	ErrorPresets  = Key("error.presets")
-	ErrorNoPreset = Key("error.nopreset")
-	ErrorOffline  = Key("error.offline")
-	ErrorOpenURL  = Key("error.openurl")
-	ErrorUpdate   = Key("error.update.check")
+	ErrorDuration   = Key("error.duration")
+	ErrorLabel      = Key("error.label")
+	ErrorPresets    = Key("error.presets")
+	ErrorNoPreset   = Key("error.nopreset")
+	ErrorOffline    = Key("error.offline")
+	ErrorOpenURL    = Key("error.openurl")
+	ErrorOpenFolder = Key("error.openfolder")
+	ErrorUpdate     = Key("error.update.check")
 
 	ToastAdded       = Key("toast.added")
 	ToastUpdated     = Key("toast.updated")
@@ -143,11 +206,15 @@ const (
 
 	Minutes = Key("unit.minutes")
 
-	ExitActive        = Key("exit.active")
-	ExitDaemonClosing = Key("exit.daemon.closing")
-	AlreadyOpen       = Key("instance.already")
-	StartupInstalled  = Key("startup.installed")
-	StartupRemoved    = Key("startup.removed")
+	ExitActive              = Key("exit.active")
+	ExitDaemonClosing       = Key("exit.daemon.closing")
+	ExitUpdating            = Key("exit.updating")
+	ToastPortable           = Key("toast.update.portable")
+	NotifyUpdateFailedTitle = Key("notify.update.failed.title")
+	NotifyUpdateFailedBody  = Key("notify.update.failed.body")
+	AlreadyOpen             = Key("instance.already")
+	StartupInstalled        = Key("startup.installed")
+	StartupRemoved          = Key("startup.removed")
 
 	TrayReady                = Key("tray.ready")
 	TrayRunning              = Key("tray.running")
@@ -206,29 +273,91 @@ var texts = map[Key]string{
 	StatusOffline:    "offline",
 	StatusConnecting: "connecting",
 
-	ReadyTitle:          "Ready when you are",
-	ReadyMeta:           "Type a duration or pick a preset",
-	InputPlaceholder:    "25 · 12:30 · 90s · 1h30m",
-	PausedMeta:          "%s remaining · [Space] resume",
-	RunningMeta:         "%s remaining",
-	FinishedTitle:       "%s completed",
-	FinishedMeta:        "[r] repeat · [Enter] close",
-	EndsAt:              "ends at %s",
-	TimeAt:              "at %s",
-	HeaderOnHold:        "on hold",
-	HeaderNoTimer:       "no countdown",
-	Completed:           "%s completed",
-	UpdateAvailable:     "Update available",
-	UpdateShort:         "Update",
-	UpdateArrow:         "→",
-	UpdateChecking:      "Checking for updates…",
-	UpdateHint:          "[u] check for updates",
-	NotifyFoundTitle:    "Update available",
-	NotifyFoundBody:     "Version %s is available. Click to open the release page.",
-	NotifyUpToDateTitle: "You're up to date",
-	NotifyUpToDateBody:  "You have the latest version (%s).",
-	NotifyFailedTitle:   "Update check failed",
-	NotifyFailedBody:    "Could not reach GitHub. Try again later.",
+	ReadyTitle:       "Ready when you are",
+	ReadyMeta:        "Type a duration or pick a preset",
+	InputPlaceholder: "25 · 12:30 · 90s · 1h30m",
+	PausedMeta:       "%s remaining · [Space] resume",
+	RunningMeta:      "%s remaining",
+	FinishedTitle:    "%s completed",
+	FinishedMeta:     "[r] repeat · [Enter] close",
+	EndsAt:           "ends at %s",
+	TimeAt:           "at %s",
+	HeaderOnHold:     "on hold",
+	HeaderNoTimer:    "no countdown",
+	Completed:        "%s completed",
+	UpdateAvailable:  "Update available",
+	UpdateShort:      "Update",
+	UpdateArrow:      "→",
+	UpdateChecking:   "Checking for updates…",
+	UpdateHint:       "[u] check for updates",
+	UpdateHintNew:    "[u] update to %s",
+
+	UpdateBody:               "%s is available",
+	UpdateCurrent:            "You have %s.",
+	UpdateType:               "Type",
+	UpdateTypeSetup:          "Setup",
+	UpdateTypePortable:       "Portable",
+	UpdateStatusInstalled:    "Installed",
+	UpdateStatusNotInstalled: "Not installed",
+	UpdateStatusInUse:        "In use",
+	UpdateStatusNotInUse:     "Not in use",
+	UpdateStatusNotInRelease: "Not available",
+	UpdateOtherBody:          "This is not the copy you use.",
+	UpdateOtherKeep1:         "Your settings, presets and sounds",
+	UpdateOtherKeep2:         "and theme will carry over.",
+	UpdateCurrentSetup:       "Updates this copy.",
+	UpdateCurrentPortable:    "Saves the new .exe to Downloads.",
+	UpdateInstallShort:       "install",
+	UpdateInstalledBadge:     "Installed · %s",
+	UpdatePortableBadge:      "Portable · tuick-tack.exe",
+	UpdateInstall:            "install update",
+	UpdateDownloadPortable:   "download portable",
+	UpdateInstallSetup:       "install with setup",
+	UpdateReleasePage:        "release page",
+	UpdateDownloadShort:      "download",
+	UpdateReleaseShort:       "github",
+	UpdateLater:              "later",
+	UpdateSetupNote:          "Install runs the setup and reopens Tuick-Tack.",
+	UpdatePortableNote:       "Download saves the portable .exe to Downloads.",
+	UpdateChooseInstalled:    "Install updates this copy. Download saves the portable .exe.",
+	UpdateChoosePortable:     "Download saves the .exe. Install adds a Documents copy.",
+	UpdateTimerTitle:         "Countdown active",
+	UpdateTimerBody:          "Installing the update restarts Tuick-Tack.",
+	UpdateTimerWarn:          "The countdown (%s) will be lost.",
+	UpdateTimerPortable:      "The portable download does not restart the app.",
+	UpdateContinue:           "continue",
+	UpdateBack:               "back",
+	UpdateDownloading:        "Downloading…",
+	UpdateVerifying:          "Verifying…",
+	UpdateInstalling:         "Installing… Tuick-Tack will restart.",
+	UpdateRestarting:         "Installing update…",
+	UpdateInProgress:         "Update in progress",
+	UpdatePortableTitle:      "Portable update",
+	UpdatePortableSaved:      "Portable update saved",
+	UpdatePortablePath:       "Saved to %s",
+	UpdatePortableDone:       "The current version keeps running. Replace it when convenient.",
+	UpdateOpenFolder:         "open folder",
+	UpdateFailed:             "Update failed",
+	UpdateRetry:              "try again",
+	UpdateUnavailable:        "Update install is not available",
+	UpdateNoAssets:           "This release has no downloadable files",
+	UpdateTimerActive:        "Confirm the restart to continue",
+	UpdateNetwork:            "Could not download the update",
+	UpdateChecksum:           "The download failed verification",
+	UpdateWrite:              "Could not save the update",
+	UpdateBusy:               "Another update is already running",
+	UpdateSetupFailed:        "The installer did not finish",
+	UpdateSize:               "%s of %s",
+	UpdatePreparing:          "Preparing…",
+	UpdateWait:               "This may take a moment.",
+	UpdateStepsSetup:         "Download · Verify · Install · Reopen",
+	UpdateStepsPortable:      "Download · Verify · Done",
+	NotifyFoundTitle:         "Update available",
+	NotifyFoundBody:          "Version %s is available. Click to open the release page.",
+	NotifyUpToDateTitle:      "You're up to date",
+	NotifyUpToDateBody:       "You have the latest version (%s).",
+	NotifyFailedTitle:        "Update check failed",
+	NotifyFailedBody:         "Could not reach GitHub. Try again later.",
 
 	ControlsIdle:     "[p] presets · [t] theme · [v] sound · [s] mute · [?] help · [q] quit",
 	ControlsRunning:  "[Space] pause · [Esc] cancel · [+/-] 1 min · [v] sound · [q] quit",
@@ -305,13 +434,14 @@ var texts = map[Key]string{
 	DaemonOnline: "Connected",
 	DaemonLost:   "Connection lost — retrying…",
 
-	ErrorDuration: "Use 25, 12:30, 90s or 1h30m",
-	ErrorLabel:    "Name must be 1-32 characters",
-	ErrorPresets:  "You can keep up to 16 presets",
-	ErrorNoPreset: "No preset selected",
-	ErrorOffline:  "The daemon is offline",
-	ErrorOpenURL:  "Could not open the release page",
-	ErrorUpdate:   "Update check failed",
+	ErrorDuration:   "Use 25, 12:30, 90s or 1h30m",
+	ErrorLabel:      "Name must be 1-32 characters",
+	ErrorPresets:    "You can keep up to 16 presets",
+	ErrorNoPreset:   "No preset selected",
+	ErrorOffline:    "The daemon is offline",
+	ErrorOpenURL:    "Could not open GitHub",
+	ErrorOpenFolder: "Could not open the Downloads folder",
+	ErrorUpdate:     "Update check failed",
 
 	ToastAdded:       "“%s” added",
 	ToastUpdated:     "“%s” updated",
@@ -326,8 +456,12 @@ var texts = map[Key]string{
 
 	Minutes: "min",
 
-	ExitActive:        "The countdown is still running in the tray.",
-	ExitDaemonClosing: "The daemon quit; closing.",
+	ExitActive:              "The countdown is still running in the tray.",
+	ExitDaemonClosing:       "The daemon quit; closing.",
+	ExitUpdating:            "Updating Tuick-Tack; it will reopen.",
+	ToastPortable:           "Portable %s saved to Downloads",
+	NotifyUpdateFailedTitle: "Update failed",
+	NotifyUpdateFailedBody:  "The previous version is still installed. Open Tuick-Tack and try again.",
 
 	AlreadyOpen: "Tuick-Tack is already open.",
 

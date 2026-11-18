@@ -12,6 +12,7 @@ import (
 	"tuick-tack/internal/buildinfo"
 	"tuick-tack/internal/config"
 	"tuick-tack/internal/engine"
+	"tuick-tack/internal/install"
 	"tuick-tack/internal/protocol"
 	"tuick-tack/internal/tui/canvas"
 	"tuick-tack/internal/tui/copy"
@@ -146,12 +147,26 @@ func TestUpdateHintAndClick(t *testing.T) {
 		t.Fatal("motion away from the notice did not clear the hover state")
 	}
 	_, _ = m.Update(tea.MouseClickMsg{X: hit.x, Y: hit.y, Button: tea.MouseLeft})
+	if m.modal != modalUpdate {
+		t.Fatalf("clicking the notice opened modal %v, want the update modal", m.modal)
+	}
+	assertFrame(t, m, 80, 24)
+	var release *hitbox
+	for i := range m.hits {
+		if m.hits[i].action == hitUpdateRelease {
+			release = &m.hits[i]
+		}
+	}
+	if release == nil {
+		t.Fatal("the update modal has no release target")
+	}
+	_, _ = m.Update(tea.MouseClickMsg{X: release.x, Y: release.y, Button: tea.MouseLeft})
 	if opened != url {
 		t.Fatalf("opened %q, want %q", opened, url)
 	}
 
 	m.openURL = func(string) error { return errors.New("no browser") }
-	m.Update(tea.MouseClickMsg{X: hit.x, Y: hit.y, Button: tea.MouseLeft})
+	m.Update(tea.MouseClickMsg{X: release.x, Y: release.y, Button: tea.MouseLeft})
 	if m.toast != copy.T(copy.ErrorOpenURL) {
 		t.Fatalf("toast = %q, want %q", m.toast, copy.T(copy.ErrorOpenURL))
 	}
@@ -160,6 +175,359 @@ func TestUpdateHintAndClick(t *testing.T) {
 	m.setUpdate(&protocol.UpdatePayload{Latest: buildinfo.Version, URL: url})
 	if m.update != nil {
 		t.Fatalf("same version should clear the notice: %+v", m.update)
+	}
+	if m.modal != modalNone {
+		t.Fatal("clearing the update should close the modal")
+	}
+}
+
+func TestUpdateChooserRenders(t *testing.T) {
+	for _, size := range [][2]int{{48, 22}, {64, 24}, {80, 24}, {120, 40}} {
+		m, _ := testModel(size[0], size[1])
+		m.setUpdate(&protocol.UpdatePayload{
+			Latest: "v9.9.9", URL: "https://example.test/release", Setup: true, Portable: true,
+		})
+		m.installInfo = install.Info{Installed: true, Dir: `C:\Users\A\Documents\tuick-tack`}
+		m.openUpdateModal()
+		plain := assertFrame(t, m, size[0], size[1])
+		for _, want := range []string{
+			"v9.9.9 is available", "You have", "Installed", "Type",
+			"Setup", "Portable", "Not in use", "install", "github", "later",
+		} {
+			if !strings.Contains(plain, want) {
+				t.Errorf("%dx%d update chooser missing %q:\n%s", size[0], size[1], want, plain)
+			}
+		}
+	}
+
+	m, _ := testModel(80, 24)
+	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: "https://example.test/release", Setup: true, Portable: true})
+	m.openUpdateModal()
+	plain := assertFrame(t, m, 80, 24)
+	if !strings.Contains(plain, "Portable · tuick-tack.exe") {
+		t.Fatalf("portable badge missing:\n%s", plain)
+	}
+	if !strings.Contains(plain, "[Enter] select · [g] github · [Esc] later") {
+		t.Fatalf("portable hint should use the focused select wording:\n%s", plain)
+	}
+	if strings.Contains(plain, "[←") || strings.Contains(plain, "[→") {
+		t.Fatalf("the arrow keys must not be advertised in the hint:\n%s", plain)
+	}
+	if m.updateType != updateTypePortable || m.updateFocus != hitUpdatePortable {
+		t.Fatalf("portable copy should start on download, type=%q focus=%v", m.updateType, m.updateFocus)
+	}
+	if !strings.Contains(plain, "In use") || !strings.Contains(plain, "Not installed") {
+		t.Fatalf("portable type statuses missing:\n%s", plain)
+	}
+	press(m, tea.KeyRight, "")
+	if m.updateFocus != hitUpdateRelease {
+		t.Fatalf("missing install action should be skipped, got %v", m.updateFocus)
+	}
+}
+
+func TestUpdateTypeSelection(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: "https://example.test/release", Setup: true, Portable: true})
+	m.installInfo = install.Info{Installed: true, Dir: `C:\Users\A\Documents\tuick-tack`}
+	m.openUpdateModal()
+	if m.updateType != updateTypeSetup || m.updateFocus != hitUpdateInstall {
+		t.Fatalf("installed copy should start on Setup/install, type=%q focus=%v", m.updateType, m.updateFocus)
+	}
+
+	press(m, tea.KeyDown, "")
+	if m.updateType != updateTypePortable || m.updateFocus != hitUpdatePortable {
+		t.Fatalf("down should select Portable/download, type=%q focus=%v", m.updateType, m.updateFocus)
+	}
+	plain := assertFrame(t, m, 80, 24)
+	for _, want := range []string{
+		"This is not the copy you use.",
+		"Your settings, presets and sounds",
+		"and theme will carry over.",
+		"download",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("other-copy warning missing %q:\n%s", want, plain)
+		}
+	}
+
+	press(m, tea.KeyDown, "")
+	if m.updateType != updateTypePortable {
+		t.Fatalf("down at the other copy should stay, type=%q", m.updateType)
+	}
+	press(m, tea.KeyUp, "")
+	if m.updateType != updateTypeSetup || m.updateFocus != hitUpdateInstall {
+		t.Fatalf("up should return to Setup/install, type=%q focus=%v", m.updateType, m.updateFocus)
+	}
+	plain = assertFrame(t, m, 80, 24)
+	if strings.Contains(plain, "This is not the copy you use.") {
+		t.Fatalf("current-copy view should not show the other-copy warning:\n%s", plain)
+	}
+
+	// A missing asset keeps the current type visible but unavailable and starts
+	// on the only type that can actually be downloaded.
+	m, _ = testModel(80, 24)
+	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: "https://example.test/release", Portable: true})
+	m.installInfo = install.Info{Installed: true}
+	m.openUpdateModal()
+	if m.updateType != updateTypePortable || !strings.Contains(assertFrame(t, m, 80, 24), "Not available") {
+		t.Fatalf("missing setup should fall back to Portable, type=%q", m.updateType)
+	}
+}
+
+func TestUpdateTypeTab(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: "https://example.test/release", Setup: true, Portable: true})
+	m.installInfo = install.Info{Installed: true, Dir: `C:\Users\A\Documents\tuick-tack`}
+	m.openUpdateModal()
+	if m.updateType != updateTypeSetup {
+		t.Fatalf("installed copy should start on Setup, got %q", m.updateType)
+	}
+
+	press(m, tea.KeyTab, "")
+	if m.updateType != updateTypePortable || m.updateFocus != hitUpdatePortable {
+		t.Fatalf("Tab should select Portable/download, type=%q focus=%v", m.updateType, m.updateFocus)
+	}
+	plain := assertFrame(t, m, 80, 24)
+	if !strings.Contains(plain, "This is not the copy you use.") {
+		t.Fatalf("Tab should show the other-copy warning:\n%s", plain)
+	}
+	if strings.Contains(plain, "[Tab]") {
+		t.Fatalf("Tab must stay out of the shortcut hints:\n%s", plain)
+	}
+
+	press(m, tea.KeyTab, "")
+	if m.updateType != updateTypeSetup || m.updateFocus != hitUpdateInstall {
+		t.Fatalf("Tab should return to Setup/install, type=%q focus=%v", m.updateType, m.updateFocus)
+	}
+
+	// A missing setup asset is not selectable; the portable copy is the only
+	// available type and the dialog explains why Tab/up/down do nothing.
+	m, _ = testModel(80, 24)
+	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: "https://example.test/release", Portable: true})
+	m.openUpdateModal()
+	press(m, tea.KeyTab, "")
+	if m.updateType != updateTypePortable {
+		t.Fatalf("Tab must not select a missing setup asset, type=%q", m.updateType)
+	}
+	plain = assertFrame(t, m, 80, 24)
+	if !strings.Contains(plain, "Not available") {
+		t.Fatalf("unavailable type status missing:\n%s", plain)
+	}
+}
+
+func TestUpdateTypeHorizontalActions(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: "https://example.test/release", Setup: true, Portable: true})
+	m.installInfo = install.Info{Installed: true}
+	m.openUpdateModal()
+	press(m, tea.KeyDown, "")
+	press(m, tea.KeyRight, "")
+	if m.updateFocus != hitUpdateRelease {
+		t.Fatalf("right should move to github, got %v", m.updateFocus)
+	}
+	press(m, tea.KeyRight, "")
+	if m.updateFocus != hitUpdateLater {
+		t.Fatalf("right should move to later, got %v", m.updateFocus)
+	}
+	press(m, tea.KeyRight, "")
+	if m.updateFocus != hitUpdatePortable {
+		t.Fatalf("right should wrap to download, got %v", m.updateFocus)
+	}
+	press(m, tea.KeyLeft, "")
+	if m.updateFocus != hitUpdateLater {
+		t.Fatalf("left should wrap to later, got %v", m.updateFocus)
+	}
+}
+
+func TestUpdateGitHubShortcut(t *testing.T) {
+	m, _ := testModel(80, 24)
+	url := "https://github.com/Juankyyy/tuick-tack/releases/tag/v9.9.9"
+	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: url, Setup: true, Portable: true})
+	m.openUpdateModal()
+	opened := ""
+	m.openURL = func(u string) error { opened = u; return nil }
+
+	press(m, 'g', "g")
+	if opened != url {
+		t.Fatalf("g opened %q, want %q", opened, url)
+	}
+	if m.modal != modalUpdate {
+		t.Fatal("opening GitHub should keep the update chooser visible")
+	}
+
+	opened = ""
+	press(m, 'o', "o")
+	if opened != "" {
+		t.Fatalf("o should not open GitHub anymore, got %q", opened)
+	}
+
+	m.updateStep = updateStepFailed
+	m.updateErr = "network"
+	press(m, 'g', "g")
+	if opened != url {
+		t.Fatalf("g in the failure view opened %q, want %q", opened, url)
+	}
+}
+
+func TestUpdateChooserArrowFocus(t *testing.T) {
+	m, _ := testModel(80, 24)
+	url := "https://example.test/release"
+	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: url, Setup: true, Portable: true})
+	m.installInfo = install.Info{Installed: true, Dir: `C:\Users\A\Documents\tuick-tack`}
+	m.openUpdateModal()
+	if m.updateFocus != hitUpdateInstall || m.updateType != updateTypeSetup {
+		t.Fatalf("installed copy should start on Setup/install, type=%q focus=%v", m.updateType, m.updateFocus)
+	}
+	press(m, tea.KeyRight, "")
+	if m.updateFocus != hitUpdateRelease {
+		t.Fatalf("right should focus github, got %v", m.updateFocus)
+	}
+	press(m, tea.KeyRight, "")
+	if m.updateFocus != hitUpdateLater {
+		t.Fatalf("right should focus later, got %v", m.updateFocus)
+	}
+	press(m, tea.KeyRight, "")
+	if m.updateFocus != hitUpdateInstall {
+		t.Fatalf("right should wrap to install, got %v", m.updateFocus)
+	}
+	press(m, tea.KeyLeft, "")
+	if m.updateFocus != hitUpdateLater {
+		t.Fatalf("left should wrap to later, got %v", m.updateFocus)
+	}
+
+	opened := ""
+	m.openURL = func(u string) error { opened = u; return nil }
+	m.updateFocus = hitUpdateRelease
+	press(m, tea.KeyEnter, "")
+	if opened != url {
+		t.Fatalf("enter on github opened %q, want %q", opened, url)
+	}
+	if m.modal != modalUpdate {
+		t.Fatal("opening GitHub should keep the chooser visible")
+	}
+
+	m.updateFocus = hitUpdateLater
+	press(m, tea.KeyEnter, "")
+	if m.modal != modalNone {
+		t.Fatal("enter on later should close the chooser")
+	}
+
+	// Without assets the only real action is the release page; Enter must not
+	// fall back to a download that does not exist.
+	m, _ = testModel(80, 24)
+	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: url})
+	m.openUpdateModal()
+	if m.updateFocus != hitUpdateRelease {
+		t.Fatalf("release-only chooser should start on github, got %v", m.updateFocus)
+	}
+	opened = ""
+	m.openURL = func(u string) error { opened = u; return nil }
+	press(m, tea.KeyEnter, "")
+	if opened != url {
+		t.Fatalf("release-only enter opened %q, want %q", opened, url)
+	}
+}
+
+func TestUpdateKeyOpensChooser(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: "https://example.test/release", Setup: true, Portable: true})
+	press(m, 'u', "u")
+	if m.modal != modalUpdate || m.updateStep != updateStepChoose {
+		t.Fatalf("u opened modal %v step %v", m.modal, m.updateStep)
+	}
+	m.width, m.height = 48, 22
+	assertFrame(t, m, 48, 22)
+}
+
+func TestUpdateTimerWarning(t *testing.T) {
+	m, _ := testModel(80, 24)
+	applyRunning(m)
+	m.installInfo = install.Info{Installed: true}
+	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: "https://example.test/release", Setup: true, Portable: true})
+	m.openUpdateModal()
+	press(m, tea.KeyEnter, "")
+	if m.updateStep != updateStepWarn {
+		t.Fatalf("step = %v, want warning", m.updateStep)
+	}
+	plain := assertFrame(t, m, 80, 24)
+	for _, want := range []string{"Countdown active", "will be lost", "continue", "back"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("warning missing %q:\n%s", want, plain)
+		}
+	}
+	press(m, tea.KeyEscape, "")
+	if m.updateStep != updateStepChoose {
+		t.Fatalf("escape should return to the chooser, got %v", m.updateStep)
+	}
+}
+
+func TestUpdateProgressAndPortableResult(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: "https://example.test/release", Setup: true, Portable: true})
+	m.openUpdateModal()
+	m.updateStep = updateStepProgress
+	m.updateKind = "setup"
+	m.handleUpdateProgress(protocol.NewUpdateProgress(protocol.UpdateProgressMessage{
+		Kind: "setup", Phase: "downloading", Received: 42, Total: 100,
+	}))
+	plain := assertFrame(t, m, 80, 24)
+	for _, want := range []string{"Downloading", "42%", "Download · Verify · Install · Reopen"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("progress missing %q:\n%s", want, plain)
+		}
+	}
+
+	m.handleUpdateProgress(protocol.NewUpdateProgress(protocol.UpdateProgressMessage{
+		Kind: "setup", Phase: "failed", Error: "checksum",
+	}))
+	if m.updateStep != updateStepFailed {
+		t.Fatalf("checksum failure step = %v", m.updateStep)
+	}
+	failure := assertFrame(t, m, 80, 24)
+	if !strings.Contains(failure, copy.T(copy.UpdateChecksum)) {
+		t.Fatal("checksum failure text missing")
+	}
+	if !strings.Contains(failure, "[g] github") {
+		t.Fatalf("failure hint should use the GitHub shortcut:\n%s", failure)
+	}
+
+	m.updateStep = updateStepProgress
+	m.updateKind = "portable"
+	path := `C:\Users\A\Downloads\tuick-tack-v9.9.9.exe`
+	m.handleUpdateProgress(protocol.NewUpdateProgress(protocol.UpdateProgressMessage{
+		Kind: "portable", Phase: "done", Received: 100, Total: 100, Path: path,
+	}))
+	if m.updateStep != updateStepPortableDone {
+		t.Fatalf("portable step = %v", m.updateStep)
+	}
+	plain = assertFrame(t, m, 80, 24)
+	if !strings.Contains(plain, "Portable update saved") || !strings.Contains(plain, "tuick-tack-v9.9.9.exe") {
+		t.Fatalf("portable result missing:\n%s", plain)
+	}
+
+	opened := ""
+	m.openPath = func(p string) error { opened = p; return nil }
+	press(m, 'o', "o")
+	if opened != path {
+		t.Fatalf("opened folder %q, want %q", opened, path)
+	}
+	press(m, tea.KeyEnter, "")
+	if m.modal != modalNone {
+		t.Fatal("enter should close the portable result")
+	}
+}
+
+func TestUpdateClosingReason(t *testing.T) {
+	m, _ := testModel(80, 24)
+	cmd := m.handleServerEvent(serverEventMsg{msg: protocol.NewDaemonClosing(protocol.CloseReasonUpdate)})
+	if cmd == nil {
+		t.Fatal("update closing should quit the TUI")
+	}
+	if !m.Updating() || !m.DaemonClosing() {
+		t.Fatalf("updating = %v, closing = %v", m.Updating(), m.DaemonClosing())
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("update closing should return tea.Quit")
 	}
 }
 

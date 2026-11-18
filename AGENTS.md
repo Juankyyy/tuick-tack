@@ -6,9 +6,9 @@
 
 - Stack: Go 1.26+ (pinned Bubble Tea v2/go-winio require it), Bubble Tea v2.1.1, Lipgloss v2.1.0, `fyne.io/systray` v1.12.2, `github.com/Microsoft/go-winio` v0.6.4, `github.com/mtunjic/winrt-toast` v1.2.0 (pure-Go WinRT toasts), `golang.org/x/sys/windows`; `CGO_ENABLED=0`.
 - App code lives in `cmd/` and `internal/`. Windows-specific code lives in `internal/tray/`, `internal/browser/`, `internal/notify/`, `internal/ipc/` and the `*_windows.go` files under `internal/daemon/`.
-- Platform features that cannot live in the shared layer stay in the native layer behind small, documented bridges: systray/menu (`internal/tray`), `PlaySoundW` (`internal/daemon/sound_windows.go`), registry/autostart (`internal/daemon/autostart_windows.go`), named pipes (`internal/ipc`), the default browser (`internal/browser`, `ShellExecuteW`) and native toasts (`internal/notify`, WinRT COM).
-- Current state: v1 implemented in `dev` (M0–M5 complete) plus the selectable sound pack and volume, the release update notice and its Windows toast; `SPEC.md` is the functional source. Next work is polish/QA; releases are published on GitHub when the user asks for one.
-- Generated assets (`assets/sounds/*.wav`, `assets/icon.ico`, `assets/icon.png`, `assets/icons/*.ico`, `assets/banner.txt`, `assets/banner-compact.txt`, `assets/banner.png`, the `.syso` file under `cmd/`) are committed; do not hand-edit them. Regenerate with `go generate ./...` / `scripts/build.ps1`. The branding banner comes from the same 5×7 bigfont grid as the countdown and is not embedded in the executable: `banner.txt` is the 2x ASCII (118 columns) and `banner-compact.txt` the 1x version (59 columns).
+- Platform features that cannot live in the shared layer stay in the native layer behind small, documented bridges: systray/menu (`internal/tray`), `PlaySoundW` (`internal/daemon/sound_windows.go`), registry/autostart (`internal/daemon/autostart_windows.go`), named pipes (`internal/ipc`), the default browser (`internal/browser`, `ShellExecuteW`), native toasts (`internal/notify`, WinRT COM), process/mutex helpers (`internal/winproc`, `internal/instance`) and the installer/update helper (`installer/`, `internal/updater`). Inno Setup 6 is a build-time dependency only; the app stays cgo-free.
+- Current state: v1 implemented in `dev` (M0–M5 complete) plus the selectable sound pack and volume, the release update notice and its Windows toast, the per-user Inno Setup installer and the in-app update flow (install with setup or download the portable `.exe`); `SPEC.md` is the functional source. Next work is polish/QA; releases are published on GitHub when the user asks for one.
+- Generated assets (`assets/sounds/*.wav`, `assets/icon.ico`, `assets/icon.png`, `assets/icons/*.ico`, `assets/banner.txt`, `assets/banner-compact.txt`, `assets/banner.png`, `installer/wizard-large.png`, `installer/wizard-small.png`, the `.syso` file under `cmd/`) are committed; do not hand-edit them. Regenerate with `go generate ./...` / `scripts/build.ps1`. The branding banner comes from the same 5×7 bigfont grid as the countdown and is not embedded in the executable: `banner.txt` is the 2x ASCII (118 columns) and `banner-compact.txt` the 1x version (59 columns).
 - The tray states are a 7×7 pixel grid and the executable icon a 16×16 grid, drawn without antialiasing by `tools/gen-icons`; keep the ICO sizes and the 2× HICON caveat from `SPEC.md` §12.
 
 ## Commands
@@ -24,9 +24,10 @@ go run ./cmd/tuick-tack          # TUI (console; starts the hidden daemon)
 go run ./cmd/tuick-tack --daemon # daemon (console in dev; --hidden at sign-in)
 go run ./cmd/tuick-tack --check-updates # one GitHub release check and exit
 go fmt ./...                     # format
-go generate ./...                # regenerate sounds/icons and .syso resources
-.\scripts\build.ps1              # vet + test + build the single exe into dist/
+go generate ./...                # regenerate sounds/icons/banners, installer art and .syso resources
+.\scripts\build.ps1              # vet + test + build the portable exe into dist/
 .\scripts\build.ps1 -Version v1.0.0
+.\scripts\build.ps1 -Version v1.0.0 -Installer # portable + Inno setup + checksums
 ```
 
 - Hot reload: none. Restart the TUI; the daemon can stay running and keeps the timer.
@@ -45,19 +46,25 @@ internal/
   protocol/             IPC message types
   ipc/                  named-pipe server/client
   daemon/               wiring, sound, autostart, logging
-  update/               GitHub release check (semver, no download)
+  update/               GitHub release check, assets, SHA-256 downloader
+  updater/              temporary helper that runs the setup and reopens the TUI
+  install/              reads the Inno uninstall entry (installed vs portable)
+  instance/             daemon/TUI mutex names and acquisition
+  winproc/              CreateProcess helpers (hidden daemon, new console)
+  explorer/             open the downloaded portable in Explorer
   browser/              ShellExecuteW for https links
   notify/               native Windows toasts (WinRT, AUMID)
   tray/                 systray menu, icons, tooltip
   tui/                  Bubble Tea model/view, canvas, bigfont, theme, fx
+installer/              Inno Setup script and branded wizard images
 assets/                 sounds/*.wav, icon.ico, icons/, banner.txt, banner-compact.txt, banner.png, screenshot.png
-tools/                  gen-sounds, gen-icons, gen-banner
+tools/                  gen-sounds, gen-icons, gen-banner, gen-installer
 scripts/build.ps1
 winres/                 go-winres metadata
 ```
 
 - State management: the **daemon is the single source of truth** (timer, presets, theme, sound selection, volume, tray). The TUI is a client; it renders snapshots and interpolates locally for smoothness. `finish_seq` dedupes celebrations. No client-side timer truth, no external state library.
-- Local persistence: JSON config at `%APPDATA%\tuick-tack\config.json`; the daemon is the only writer; atomic writes; no DB. The Windows registry is used **only** for autostart (`HKCU\...\Run`) and the per-user AUMID registration (`HKCU\Software\Classes\AppUserModelId\Juankyyy.TuickTack`, `DisplayName`), never for app state. Do not add SQLite or a second config store.
+- Local persistence: JSON config at `%APPDATA%\tuick-tack\config.json`; the daemon is the only writer; atomic writes; no DB. The Windows registry is used **only** for autostart (`HKCU\...\Run`), the per-user AUMID registration (`HKCU\Software\Classes\AppUserModelId\Juankyyy.TuickTack`, `DisplayName`) and the standard Inno uninstall entry (read-only from the app; written by the setup), never for app state. Do not add SQLite or a second config store.
 - Localization: all user-facing copy lives in `internal/tui/copy`; UI code reads it via `copy.T(...)`. Do not hardcode labels, tooltips, dialogs or toasts in widgets. The v1 UI is English; if Spanish is added later, its messages live in the same package.
 - Dependencies pinned for a reason keep a comment next to them; do not bump until the packages are compatible. Bubble Tea/Lipgloss v2 use the `charm.land/...` module paths and the v2 API; `systray` v1.12.2 is the Fyne fork with left/right-click callbacks and package-level menu state.
 - Keep time-dependent logic testable by injecting a clock; never call `time.Now()` in domain logic that has tests. `time.Now()` belongs in `main`/wiring; tests use a fake clock. The engine relies on the monotonic reading inside `time.Time`.
@@ -69,7 +76,7 @@ winres/                 go-winres metadata
 - The daemon must remain fully usable with the TUI closed (tray, timer, selected sound at the configured volume).
 - The IPC protocol is versioned. Bump the protocol version for incompatible message changes; do not silently break the TUI/daemon pair.
 - `PlaySoundW` uses a WAV file path with `SND_ASYNC`; do not use `SND_MEMORY` (it does not combine with async). Volume is applied by scaling the PCM samples into a cached WAV; never change the system or wave-out device volume.
-- Updates are notification-only: `internal/update` checks the GitHub release once at startup and every 24 h, the TUI and the tray link to it, and nothing downloads or replaces the executable. The tray's **Check for updates** and the TUI `u` key trigger the same manual check; only the tray path raises a native Windows toast (`internal/notify`).
+- Updates are explicit and checksum-verified: `internal/update` checks the GitHub release once at startup and every 24 h and selects the stable assets `tuick-tack-setup.exe`, `tuick-tack.exe` and `SHA256SUMS.txt`. Nothing downloads until the TUI asks. The installed copy downloads the setup, verifies it and lets `internal/updater` run it silently after the daemon/TUI exit; the portable copy downloads the new `.exe` to Downloads. `internal/install` only reads the standard Inno uninstall entry to highlight the matching action. The tray's **Check for updates** and the TUI `u` key trigger the same manual check; only the tray path raises a native Windows toast (`internal/notify`). Do not move the download into the TUI: the daemon owns network, verification and the update shutdown.
 - Truecolor is assumed; Windows Terminal is the reference terminal. `conhost` is a fallback, not a design target.
 
 ## Convenciones
@@ -115,14 +122,18 @@ La fuente funcional es `SPEC.md`; este documento manda en el proceso.
 
 ## Releases
 
-- **Artefacto**: carpeta `dist/` con un único `tuick-tack.exe` (TUI de consola y daemon de
-  bandeja con `--daemon`), generada por `scripts/build.ps1 -Version vX.Y.Z`. Portable, sin
-  instalador, sin auto-update y sin firma. SmartScreen puede avisar la primera vez.
+- **Artefacto**: carpeta `dist/` con `tuick-tack.exe` (portable) y `tuick-tack-setup.exe`
+  (instalador por usuario en `Documentos\tuick-tack`) más `SHA256SUMS.txt`, generada por
+  `scripts/build.ps1 -Version vX.Y.Z -Installer`. Sin firma; SmartScreen puede avisar.
+  Mantener el portable como opción de la release; el setup es el recomendado.
 - **Publicación**: siempre en GitHub, a petición del usuario y desde `main`. Tag `vX.Y.Z`
-  (patch por defecto si no se indica versión); adjuntar el `.exe` y `SHA256SUMS.txt`. Notas
-  en inglés, manuales, con el formato de las releases anteriores.
+  (patch por defecto si no se indica versión); adjuntar los dos `.exe` y `SHA256SUMS.txt`.
+  Notas en inglés, manuales, con el formato de las releases anteriores e indicando que
+  quien venga de una versión sin actualizador debe instalar esta una vez.
 - **Procedimiento**: verificar `dev` (diff `main..dev`, `go vet`, `go test`, `go build`),
-  actualizar docs, merge/push a `main`, tag, compilar desde `main`, `gh release create`.
+  actualizar `winres/winres.json` (FileVersion/ProductVersion) y regenerar el `.syso`,
+  actualizar docs, merge/push a `main`, tag, compilar desde `main` con `-Installer`,
+  `gh release create`. Comprobar que el setup compila con Inno Setup 6 (`ISCC.exe`).
 - **Nada automático**: no hay workflow de release, secrets ni artefactos firmados. La
   publicación la hace el agente a mano con `gh`; no añadir CI de release sin pedirlo.
 - **Nunca** push/tag/merge a `main` por iniciativa propia; la única excepción es una
@@ -130,9 +141,10 @@ La fuente funcional es `SPEC.md`; este documento manda en el proceso.
 
 ## Antes de decir que algo está terminado
 
-- [ ] `go vet ./...`, `go test ./...` y `go build ./...` (o `scripts/build.ps1`) en verde.
-- [ ] Assets generados regenerados y commiteados; `.syso` regenerado si cambió el icono.
+- [ ] `go vet ./...`, `go test ./...` y `go build ./...` (o `scripts/build.ps1 -Installer`) en verde.
+- [ ] Assets generados regenerados y commiteados; `.syso` regenerado si cambió el icono; imágenes del instalador regeneradas con `go generate ./...`.
 - [ ] `SPEC.md` / `README.md` actualizados si cambió el comportamiento o la UI.
 - [ ] La respuesta dice qué debe probar el usuario y qué quedó fuera.
 - [ ] El `.exe` compila; el daemon no abre consola con `--hidden`; QA manual a 80×24 y 120×40.
+- [ ] Instalador probado (instalar, actualizar, desinstalar, autostart) y actualización TUI probada en copia instalada y portable, incluido el aviso de countdown y un fallo de red/checksum.
 - [ ] Sin `time.Now()` en lógica de dominio; sin runas anchas en la TUI.

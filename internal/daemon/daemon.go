@@ -5,6 +5,7 @@ package daemon
 import (
 	"context"
 	"log"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,7 @@ import (
 	"tuick-tack/internal/tray"
 	"tuick-tack/internal/tui/copy"
 	"tuick-tack/internal/update"
+	"tuick-tack/internal/updater"
 )
 
 // Daemon owns the runtime state. Actions is implemented by this type.
@@ -33,13 +35,29 @@ type Daemon struct {
 	tray    *tray.Tray
 	sound   *soundPlayer
 	exePath string
+	selfExe string
+	pipe    string
 
 	mu        sync.RWMutex
 	cfg       config.Config
 	autostart bool
 
-	checker *update.Checker
-	checkMu sync.Mutex
+	checker      *update.Checker
+	downloader   *update.Downloader
+	updateDir    func() (string, error)
+	spawnUpdater func(setup, fallback, pipe string) error
+	progress     func(protocol.UpdateProgressMessage)
+	checkMu      sync.Mutex
+
+	// applyMu serializes the final update check with starting a timer. updating
+	// is true from the moment an install starts until the daemon exits or the
+	// download fails.
+	applyMu  sync.Mutex
+	updating bool
+
+	// portableMu keeps one portable download at a time.
+	portableMu     sync.Mutex
+	portableActive bool
 
 	// notifier is the native Windows toast used for manual checks started from
 	// the tray. Tests inject a recorder; nil disables it.
@@ -57,6 +75,8 @@ type Daemon struct {
 	// userQuit is set when Quit was requested from the tray or a client, so the
 	// shutdown closes connected TUIs instead of letting them reconnect.
 	userQuit atomic.Bool
+	// updateQuit distinguishes a shutdown caused by installing an update.
+	updateQuit atomic.Bool
 }
 
 // updateCheckState is the outcome of the last release check, shown by the tray
@@ -130,17 +150,26 @@ func Run() int {
 			logger.Printf("autostart: migrated to %s", exePath)
 		}
 	}
+	selfExe, selfErr := os.Executable()
+	if selfErr != nil {
+		logger.Printf("executable: %v", selfErr)
+	}
 	d := &Daemon{
-		logger:   logger,
-		store:    store,
-		engine:   engine.New(engine.SystemClock()),
-		sound:    player,
-		exePath:  exePath,
-		checker:  update.NewChecker(buildinfo.Version),
-		notifier: notify.Show,
-		cfg:      cfg,
-		quitCh:   make(chan struct{}),
-		loopDone: make(chan struct{}),
+		logger:       logger,
+		store:        store,
+		engine:       engine.New(engine.SystemClock()),
+		sound:        player,
+		exePath:      exePath,
+		selfExe:      selfExe,
+		pipe:         pipe,
+		checker:      update.NewChecker(buildinfo.Version),
+		downloader:   update.NewDownloader(buildinfo.Version),
+		updateDir:    updater.UpdateDir,
+		spawnUpdater: updater.Spawn,
+		notifier:     notify.Show,
+		cfg:          cfg,
+		quitCh:       make(chan struct{}),
+		loopDone:     make(chan struct{}),
 	}
 	d.autostart = AutostartEnabled(exePath)
 	if err := d.sound.Prepare(cfg.SoundName, cfg.Volume); err != nil {
@@ -171,7 +200,11 @@ func Run() int {
 	if d.userQuit.Load() {
 		// Tell connected TUIs to exit before the pipe goes away. Otherwise they
 		// see a lost connection, reconnect and launch a new daemon.
-		closeErr = server.CloseWithNotice(protocol.NewDaemonClosing())
+		reason := protocol.CloseReasonQuit
+		if d.updateQuit.Load() {
+			reason = protocol.CloseReasonUpdate
+		}
+		closeErr = server.CloseWithNotice(protocol.NewDaemonClosing(reason))
 	} else {
 		closeErr = server.Close()
 	}
@@ -257,11 +290,17 @@ func (d *Daemon) UpdateCheck() (state, current string) {
 // Update implements ipc.Backend. The handshake carries the cached release so a
 // TUI that connects after the check still sees the notice.
 func (d *Daemon) Update() *protocol.UpdatePayload {
-	latest, url, ok := d.UpdateAvailable()
-	if !ok {
+	d.updateMu.RLock()
+	defer d.updateMu.RUnlock()
+	if !d.updateOK {
 		return nil
 	}
-	return &protocol.UpdatePayload{Latest: latest, URL: url}
+	return &protocol.UpdatePayload{
+		Latest:   d.updateInfo.Version,
+		URL:      d.updateInfo.URL,
+		Setup:    d.updateInfo.CanInstall(),
+		Portable: d.updateInfo.CanDownloadPortable(),
+	}
 }
 
 // OpenUpdate implements tray.Actions.
@@ -314,9 +353,11 @@ func (d *Daemon) checkUpdates(c *ipc.Session, notifyUser bool) {
 	}
 	if c != nil {
 		c.Send(protocol.NewUpdateResult(protocol.UpdateResultMessage{
-			Current: buildinfo.Version,
-			Latest:  info.Version,
-			URL:     info.URL,
+			Current:  buildinfo.Version,
+			Latest:   info.Version,
+			URL:      info.URL,
+			Setup:    info.CanInstall(),
+			Portable: info.CanDownloadPortable(),
 		}))
 	}
 	if notifyUser {
@@ -407,8 +448,10 @@ func (d *Daemon) setUpdate(info update.Info) {
 		info.Version, buildinfo.Version, info.URL)
 	if d.server != nil {
 		d.server.Broadcast(protocol.NewUpdate(protocol.UpdatePayload{
-			Latest: info.Version,
-			URL:    info.URL,
+			Latest:   info.Version,
+			URL:      info.URL,
+			Setup:    info.CanInstall(),
+			Portable: info.CanDownloadPortable(),
 		}))
 	}
 	d.tray.Refresh()
@@ -506,6 +549,10 @@ func (d *Daemon) Command(c *ipc.Session, msg protocol.ClientMessage) {
 		c.Send(protocol.NewState(d.Snapshot()))
 	case protocol.TypeCheckUpdate:
 		go d.checkUpdates(c, false)
+	case protocol.TypeInstallUpdate:
+		go d.installUpdate(c, msg.Force)
+	case protocol.TypeDownloadPortable:
+		go d.downloadPortable(c)
 	case protocol.TypeQuitDaemon:
 		go d.Quit()
 	default:
@@ -514,9 +561,15 @@ func (d *Daemon) Command(c *ipc.Session, msg protocol.ClientMessage) {
 }
 
 func (d *Daemon) startTimer(seconds int, label, presetID string) {
+	d.applyMu.Lock()
+	if d.updating {
+		d.applyMu.Unlock()
+		return
+	}
 	d.sound.Stop()
 	before := d.Snapshot().Status
 	d.engine.Start(time.Duration(seconds)*time.Second, strings.TrimSpace(label), presetID)
+	d.applyMu.Unlock()
 	d.publish(d.Snapshot(), before)
 }
 
@@ -788,6 +841,14 @@ func (d *Daemon) Quit() {
 			d.tray.Quit()
 		}
 	})
+}
+
+// QuitForUpdate closes the daemon after the update helper has been started.
+// The shutdown notice carries the update reason so the TUI knows the app will
+// reopen instead of treating it as a user quit.
+func (d *Daemon) QuitForUpdate() {
+	d.updateQuit.Store(true)
+	d.Quit()
 }
 
 func (d *Daemon) stopLoop() {

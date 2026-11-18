@@ -19,9 +19,17 @@ import (
 	"tuick-tack/internal/tui"
 	"tuick-tack/internal/tui/copy"
 	"tuick-tack/internal/update"
+	"tuick-tack/internal/updater"
 )
 
 func main() {
+	// The update helper is a copy of this executable started by the daemon. It
+	// runs before flag.Parse so its internal flags never reach the user-facing
+	// command line.
+	if len(os.Args) > 1 && os.Args[1] == "--apply-update" {
+		os.Exit(updater.Apply(os.Args[2:]))
+	}
+
 	version := flag.Bool("version", false, "print the version and exit")
 	checkUpdates := flag.Bool("check-updates", false, "check GitHub for a newer release and exit")
 	daemonMode := flag.Bool("daemon", false, "run the background daemon in this process")
@@ -93,6 +101,8 @@ func main() {
 	}
 	if fm, ok := final.(*tui.Model); ok {
 		switch {
+		case fm.Updating():
+			fmt.Println(copy.T(copy.ExitUpdating))
 		case fm.DaemonClosing():
 			fmt.Println(copy.T(copy.ExitDaemonClosing))
 		case fm.HasActiveTimer():

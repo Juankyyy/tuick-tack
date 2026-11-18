@@ -6,11 +6,10 @@ import (
 	"golang.org/x/sys/windows"
 
 	"tuick-tack/internal/buildinfo"
+	"tuick-tack/internal/instance"
 )
 
 const (
-	tuiMutexSuffix = "-tui-mutex"
-
 	// Console host classes: classic conhost and Windows Terminal.
 	consoleWindowClass  = "ConsoleWindowClass"
 	terminalWindowClass = "CASCADIA_HOSTING_WINDOW_CLASS"
@@ -34,32 +33,19 @@ var (
 // TUIInstanceMutexName is the named mutex held by the single TUI instance for
 // a given pipe (user and session).
 func TUIInstanceMutexName(pipe string) string {
-	return objectName(pipe) + tuiMutexSuffix
+	return instance.TUIMutexName(pipe)
 }
 
 // AcquireTUIInstance takes the TUI singleton mutex. already is true when
 // another TUI owns it; release must be called when the TUI exits.
 func AcquireTUIInstance(pipe string) (release func(), already bool, err error) {
-	h, already, err := AcquireInstance(TUIInstanceMutexName(pipe))
-	if err != nil || already {
-		return func() {}, already, err
-	}
-	return func() { _ = windows.CloseHandle(h) }, false, nil
+	return instance.AcquireTUI(pipe)
 }
 
 // TUIRunning reports whether a TUI owns the singleton mutex. It only opens the
 // existing object; it never creates one.
 func TUIRunning(pipe string) bool {
-	name, err := windows.UTF16PtrFromString(TUIInstanceMutexName(pipe))
-	if err != nil {
-		return false
-	}
-	h, err := windows.OpenMutex(windows.SYNCHRONIZE, false, name)
-	if err != nil {
-		return false
-	}
-	_ = windows.CloseHandle(h)
-	return true
+	return instance.TUIRunning(pipe)
 }
 
 // FocusTUI brings the open TUI window to the foreground. It matches the exact

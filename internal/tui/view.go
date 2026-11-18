@@ -297,7 +297,11 @@ func (m *Model) drawContent(c *canvas.Canvas, l viewLayout) {
 	// Secondary hint, quieter than the key line above it and below it on screen.
 	if l.subHintY >= 0 {
 		dim := theme.Lerp(m.pal.BG, m.pal.Muted, 0.5)
-		m.drawCentered(c, l.subHintY, copy.T(copy.UpdateHint), canvas.Fg(dim), l.x, l.w)
+		hint := copy.T(copy.UpdateHint)
+		if m.update != nil {
+			hint = copy.T(copy.UpdateHintNew, m.update.Latest)
+		}
+		m.drawCentered(c, l.subHintY, hint, canvas.Fg(dim), l.x, l.w)
 	}
 
 	if !m.connected {
@@ -981,6 +985,8 @@ func (m *Model) drawModal(c *canvas.Canvas, base rect) {
 		m.drawForm(c, base)
 	case modalSound:
 		m.drawSound(c, base)
+	case modalUpdate:
+		m.drawUpdate(c, base)
 	}
 }
 
@@ -1215,6 +1221,254 @@ func (m *Model) drawSoundStep(c *canvas.Canvas, x, y int, label string, action h
 	c.Set(x+w-1, y, ']', canvas.Fg(m.pal.Muted))
 	c.Text(x+1, y, label, canvas.Style{FG: m.pal.Accent, HasFG: true, Bold: true})
 	m.addHit(x, y, w, 1, action, 0)
+}
+
+// drawUpdate paints the install/download chooser, the countdown warning, the
+// progress view, the portable result and the failure view. It reuses the same
+// overlay, button row and bar language as the timer.
+func (m *Model) drawUpdate(c *canvas.Canvas, base rect) {
+	height := 18
+	switch m.updateStep {
+	case updateStepWarn:
+		height = 12
+	case updateStepProgress:
+		height = 13
+	case updateStepPortableDone:
+		height = 12
+	case updateStepFailed:
+		height = 11
+	}
+	r := m.modalRect(base, 66, height)
+	title := copy.T(copy.UpdateAvailable)
+	switch m.updateStep {
+	case updateStepWarn:
+		title = copy.T(copy.UpdateTimerTitle)
+	case updateStepProgress:
+		if m.updateKind == "portable" {
+			title = copy.T(copy.UpdatePortableTitle)
+		} else {
+			title = copy.T(copy.UpdateInProgress)
+		}
+	case updateStepPortableDone:
+		title = copy.T(copy.UpdatePortableTitle)
+	case updateStepFailed:
+		title = copy.T(copy.UpdateFailed)
+	}
+	m.drawOverlay(c, r, title)
+
+	x, w := r.x+3, r.w-6
+	y := r.y + 3
+	latest := ""
+	if m.update != nil {
+		latest = m.update.Latest
+	}
+
+	switch m.updateStep {
+	case updateStepChoose:
+		m.ensureUpdateType()
+		m.ensureUpdateFocus()
+		m.drawCenteredIn(c, x, y, w, copy.T(copy.UpdateBody, latest), canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
+		m.drawCenteredIn(c, x, y+1, w, copy.T(copy.UpdateCurrent, buildinfo.Version), canvas.Fg(m.pal.Muted))
+		badge := copy.T(copy.UpdatePortableBadge)
+		if m.installInfo.Installed {
+			badge = copy.T(copy.UpdateInstalledBadge, m.installInfo.Dir)
+		}
+		m.drawCenteredIn(c, x, y+3, w, fitText(badge, w), canvas.Fg(m.pal.Accent))
+
+		// Only this block is vertical. The action row below stays horizontal.
+		m.drawCenteredIn(c, x, y+5, w, copy.T(copy.UpdateType), canvas.Fg(m.pal.Muted))
+		currentType := m.currentUpdateType()
+		types := []string{currentType, m.otherUpdateType(currentType)}
+		for i, updateType := range types {
+			m.drawUpdateTypeRow(c, x, y+6+i, w, updateType)
+		}
+
+		switch {
+		case m.updateTypeAvailable(m.updateType) && m.updateType != currentType:
+			m.drawCenteredIn(c, x, y+9, w, copy.T(copy.UpdateOtherBody), canvas.Fg(m.pal.Warn))
+			m.drawCenteredIn(c, x, y+10, w, copy.T(copy.UpdateOtherKeep1), canvas.Fg(m.pal.Muted))
+			m.drawCenteredIn(c, x, y+11, w, copy.T(copy.UpdateOtherKeep2), canvas.Fg(m.pal.Muted))
+		case m.updateTypeAvailable(m.updateType):
+			note := copy.T(copy.UpdateCurrentPortable)
+			if m.updateType == updateTypeSetup {
+				note = copy.T(copy.UpdateCurrentSetup)
+			}
+			m.drawCenteredIn(c, x, y+9, w, note, canvas.Fg(m.pal.Muted))
+		default:
+			m.drawCenteredIn(c, x, y+9, w, copy.T(copy.UpdateNoAssets), canvas.Fg(m.pal.Muted))
+		}
+
+		items := make([]button, 0, 3)
+		if m.updateTypeAvailable(m.updateType) {
+			if m.updateType == updateTypeSetup {
+				items = append(items, button{copy.T(copy.UpdateInstallShort), hitUpdateInstall, false})
+			} else {
+				items = append(items, button{copy.T(copy.UpdateDownloadShort), hitUpdatePortable, false})
+			}
+		}
+		items = append(items,
+			button{copy.T(copy.UpdateReleaseShort), hitUpdateRelease, false},
+			button{copy.T(copy.UpdateLater), hitUpdateLater, false},
+		)
+		by := r.y + r.h - 3
+		m.drawButtons(c, by, r.x+2, r.w-4, items, m.updateFocus)
+		// The arrows move the type and action highlights, but they are not
+		// advertised as shortcuts. "select" stays true for every focused button.
+		hint := "[Enter] select · [Esc] later"
+		if w >= 42 {
+			hint = "[Enter] select · [g] github · [Esc] later"
+		}
+		m.drawCenteredIn(c, x, r.y+r.h-2, w, fitText(hint, w), canvas.Fg(m.pal.Muted))
+
+	case updateStepWarn:
+		m.drawCenteredIn(c, x, y, w, copy.T(copy.UpdateTimerBody), canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
+		m.drawCenteredIn(c, x, y+1, w, copy.T(copy.UpdateTimerWarn, duration.Format(m.remaining())), canvas.Fg(m.pal.Warn))
+		m.drawCenteredIn(c, x, y+3, w, copy.T(copy.UpdateTimerPortable), canvas.Fg(m.pal.Muted))
+		by := r.y + r.h - 3
+		m.drawButtons(c, by, r.x+2, r.w-4, []button{
+			{copy.T(copy.UpdateContinue), hitUpdateContinue, false},
+			{copy.T(copy.UpdateBack), hitUpdateBack, false},
+		}, hitUpdateContinue)
+		m.drawCenteredIn(c, x, r.y+r.h-2, w, "[Enter] continue · [Esc] back", canvas.Fg(m.pal.Muted))
+
+	case updateStepProgress:
+		m.drawCenteredIn(c, x, y, w, latest, canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
+		phase := copy.T(copy.UpdatePreparing)
+		switch m.updatePhase {
+		case "downloading":
+			phase = copy.T(copy.UpdateDownloading)
+		case "verifying":
+			phase = copy.T(copy.UpdateVerifying)
+		case "installing":
+			phase = copy.T(copy.UpdateInstalling)
+		}
+		m.drawCenteredIn(c, x, y+1, w, phase, canvas.Fg(m.pal.Muted))
+		frac := 0.0
+		if m.updateTotal > 0 {
+			frac = float64(m.updateReceived) / float64(m.updateTotal)
+			if frac > 1 {
+				frac = 1
+			}
+			m.drawCenteredIn(c, x, y+2, w, fmt.Sprintf("%d%%", int(frac*100)), canvas.Style{FG: m.pal.Accent, HasFG: true, Bold: true})
+		}
+		m.drawModalBar(c, y+4, x, w, frac)
+		if m.updateTotal > 0 {
+			m.drawCenteredIn(c, x, y+5, w, copy.T(copy.UpdateSize, humanBytes(m.updateReceived), humanBytes(m.updateTotal)), canvas.Fg(m.pal.Muted))
+		}
+		steps := copy.T(copy.UpdateStepsSetup)
+		if m.updateKind == "portable" {
+			steps = copy.T(copy.UpdateStepsPortable)
+		}
+		m.drawCenteredIn(c, x, y+7, w, fitText(steps, w), canvas.Fg(m.pal.Muted))
+		m.drawCenteredIn(c, x, y+8, w, copy.T(copy.UpdateWait), canvas.Fg(m.pal.Muted))
+
+	case updateStepPortableDone:
+		m.drawCenteredIn(c, x, y, w, copy.T(copy.UpdatePortableSaved), canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
+		path := m.updatePath
+		if w < 55 {
+			if i := strings.LastIndexAny(path, `\/`); i >= 0 {
+				path = path[i+1:]
+			}
+		}
+		m.drawCenteredIn(c, x, y+2, w, fitText(path, w), canvas.Fg(m.pal.Accent))
+		m.drawCenteredIn(c, x, y+4, w, copy.T(copy.UpdatePortableDone), canvas.Fg(m.pal.Muted))
+		by := r.y + r.h - 3
+		m.drawButtons(c, by, r.x+2, r.w-4, []button{
+			{copy.T(copy.UpdateOpenFolder), hitUpdateOpenFolder, false},
+			{copy.T(copy.Close), hitUpdateLater, false},
+		}, hitUpdateOpenFolder)
+		m.drawCenteredIn(c, x, r.y+r.h-2, w, "[o] open folder · [Enter] close", canvas.Fg(m.pal.Muted))
+
+	case updateStepFailed:
+		m.drawCenteredIn(c, x, y, w, copy.T(copy.UpdateFailed), canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
+		m.drawCenteredIn(c, x, y+1, w, fitText(m.updateErr, w), canvas.Fg(m.pal.Danger))
+		by := r.y + r.h - 3
+		m.drawButtons(c, by, r.x+2, r.w-4, []button{
+			{copy.T(copy.UpdateRetry), hitUpdateRetry, false},
+			{copy.T(copy.UpdateReleaseShort), hitUpdateRelease, false},
+			{copy.T(copy.Close), hitUpdateLater, false},
+		}, hitUpdateRetry)
+		m.drawCenteredIn(c, x, r.y+r.h-2, w, "[Enter] try again · [g] github · [Esc] close", canvas.Fg(m.pal.Muted))
+	}
+}
+
+// drawUpdateTypeRow paints one row of the vertical Setup/Portable selector.
+// The current copy is the first row; the other copy follows. Only available
+// types can be selected, and the row uses a soft selection instead of the
+// accent fill used by the horizontal action buttons.
+func (m *Model) drawUpdateTypeRow(c *canvas.Canvas, x, y, w int, updateType string) {
+	label := copy.T(copy.UpdateTypePortable)
+	if updateType == updateTypeSetup {
+		label = copy.T(copy.UpdateTypeSetup)
+	}
+	status := m.updateTypeStatus(updateType)
+	available := m.updateTypeAvailable(updateType)
+	selected := available && updateType == m.updateType
+	labelColor := m.pal.Text
+	statusColor := m.pal.Muted
+	if !available {
+		labelColor = theme.Lerp(m.pal.Panel, m.pal.Muted, 0.6)
+		statusColor = labelColor
+	}
+	if selected {
+		background := theme.Lerp(m.pal.Panel, m.pal.Accent, 0.18)
+		c.Fill(x, y, w, 1, canvas.Full(m.pal.Accent, background))
+		c.Set(x, y, '›', canvas.Fg(m.pal.Accent))
+		labelColor = m.pal.Accent
+	}
+	c.Text(x+2, y, label, canvas.Style{FG: labelColor, HasFG: true, Bold: selected})
+	sx := x + w - canvas.Width(status) - 1
+	if sx < x+2 {
+		sx = x + 2
+	}
+	c.Text(sx, y, status, canvas.Fg(statusColor))
+}
+
+func (m *Model) updateTypeStatus(updateType string) string {
+	if !m.updateTypeAvailable(updateType) {
+		return copy.T(copy.UpdateStatusNotInRelease)
+	}
+	if updateType == updateTypeSetup {
+		if m.currentUpdateType() == updateTypeSetup {
+			return copy.T(copy.UpdateStatusInstalled)
+		}
+		return copy.T(copy.UpdateStatusNotInstalled)
+	}
+	if m.currentUpdateType() == updateTypePortable {
+		return copy.T(copy.UpdateStatusInUse)
+	}
+	return copy.T(copy.UpdateStatusNotInUse)
+}
+
+func (m *Model) drawModalBar(c *canvas.Canvas, y, x, w int, frac float64) {
+	if w <= 0 {
+		return
+	}
+	c.Fill(x, y, w, 1, canvas.Bg(theme.Lerp(m.pal.Panel, m.pal.BG, 0.55)))
+	filled := int(float64(w) * frac)
+	if filled > w {
+		filled = w
+	}
+	for i := 0; i < filled; i++ {
+		t := 0.0
+		if w > 1 {
+			t = float64(i) / float64(w-1)
+		}
+		c.Set(x+i, y, '█', canvas.Fg(theme.Lerp(m.pal.Accent, m.pal.Accent2, t)))
+	}
+}
+
+func humanBytes(n int64) string {
+	if n < 0 {
+		n = 0
+	}
+	if n >= 1<<20 {
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	}
+	if n >= 1<<10 {
+		return fmt.Sprintf("%d KB", n/(1<<10))
+	}
+	return fmt.Sprintf("%d B", n)
 }
 
 func (m *Model) drawForm(c *canvas.Canvas, base rect) {

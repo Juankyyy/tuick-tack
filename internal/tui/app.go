@@ -14,6 +14,8 @@ import (
 	"tuick-tack/internal/daemon"
 	"tuick-tack/internal/duration"
 	"tuick-tack/internal/engine"
+	"tuick-tack/internal/explorer"
+	"tuick-tack/internal/install"
 	"tuick-tack/internal/ipc"
 	"tuick-tack/internal/protocol"
 	"tuick-tack/internal/tui/copy"
@@ -32,6 +34,18 @@ const (
 	modalPresets
 	modalPresetForm
 	modalSound
+	modalUpdate
+)
+
+// updateStep is the screen shown inside modalUpdate.
+type updateStep int
+
+const (
+	updateStepChoose updateStep = iota
+	updateStepWarn
+	updateStepProgress
+	updateStepPortableDone
+	updateStepFailed
 )
 
 type formMode int
@@ -83,6 +97,14 @@ const (
 	hitSoundMute
 	hitSoundClose
 	hitUpdate
+	hitUpdateInstall
+	hitUpdatePortable
+	hitUpdateRelease
+	hitUpdateLater
+	hitUpdateContinue
+	hitUpdateBack
+	hitUpdateOpenFolder
+	hitUpdateRetry
 )
 
 // presetFocusList means the preset list owns the keyboard focus; any other
@@ -172,17 +194,34 @@ type Model struct {
 	toast      string
 	toastUntil time.Time
 
-	update  *protocol.UpdatePayload
-	openURL func(string) error
+	update      *protocol.UpdatePayload
+	openURL     func(string) error
+	openPath    func(string) error
+	installInfo install.Info
+
+	updateStep     updateStep
+	updateKind     string
+	updatePhase    string
+	updateReceived int64
+	updateTotal    int64
+	updatePath     string
+	updateErr      string
+	updateType     string
+	updateFocus    hitAction
 
 	checkingUpdate bool
 	hoverUpdate    bool
 	daemonClosing  bool
+	updating       bool
 }
 
-// New creates the TUI model.
+// New creates the TUI model. It reads the per-user uninstall entry so the
+// update dialog can highlight the action that matches this copy.
 func New(pipe string) *Model {
-	return newModel(pipe, time.Now, time.Now().UnixNano())
+	m := newModel(pipe, time.Now, time.Now().UnixNano())
+	info, _ := install.Current()
+	m.installInfo = info
+	return m
 }
 
 func newModel(pipe string, now func() time.Time, seed int64) *Model {
@@ -205,6 +244,7 @@ func newModel(pipe string, now func() time.Time, seed int64) *Model {
 		dust:        fx.NewDust(seed, 80, 24),
 		lastTick:    now(),
 		openURL:     browser.Open,
+		openPath:    explorer.ShowInFolder,
 	}
 }
 
@@ -234,6 +274,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sentMsg:
 		if msg.err != nil {
 			m.checkingUpdate = false
+			if m.modal == modalUpdate && m.updateStep == updateStepProgress {
+				m.updateStep = updateStepFailed
+				m.updateErr = copy.T(copy.UpdateNetwork)
+			}
 			m.showToast(copy.T(copy.DaemonLost))
 		}
 		return m, nil
@@ -326,7 +370,10 @@ func (m *Model) handleServerEvent(msg serverEventMsg) tea.Cmd {
 	case protocol.ConfigMessage:
 		m.applyConfig(ev)
 	case protocol.ErrorMessage:
-		if m.checkingUpdate && ev.Code == protocol.CodeInvalidCommand {
+		if m.modal == modalUpdate && ev.Code == protocol.CodeInvalidCommand {
+			m.updateStep = updateStepFailed
+			m.updateErr = copy.T(copy.UpdateUnavailable)
+		} else if m.checkingUpdate && ev.Code == protocol.CodeInvalidCommand {
 			m.checkingUpdate = false
 			m.showToast(copy.T(copy.ErrorUpdate))
 		} else {
@@ -336,10 +383,13 @@ func (m *Model) handleServerEvent(msg serverEventMsg) tea.Cmd {
 		m.setUpdate(&ev.UpdatePayload)
 	case protocol.UpdateResultMessage:
 		m.handleUpdateResult(ev)
+	case protocol.UpdateProgressMessage:
+		m.handleUpdateProgress(ev)
 	case protocol.DaemonClosingMessage:
-		// The user quit the daemon from the tray. Exit instead of reconnecting:
-		// a reconnect would launch a new daemon.
+		// The user quit the daemon from the tray or an update is closing it.
+		// Exit instead of reconnecting: a reconnect would launch a new daemon.
 		m.daemonClosing = true
+		m.updating = ev.Reason == protocol.CloseReasonUpdate
 		m.connected = false
 		m.connecting = false
 		m.reconnecting = false
@@ -448,7 +498,7 @@ func (m *Model) applyState(st protocol.StateMessage) {
 	if st.Status != string(engine.Finished) {
 		m.celebrating = false
 		m.confetti = nil
-	} else if m.modal != modalNone {
+	} else if m.modal != modalNone && m.modal != modalUpdate {
 		m.modal = modalNone
 		m.form.err = ""
 	}
@@ -467,9 +517,17 @@ func (m *Model) setUpdate(p *protocol.UpdatePayload) {
 	if p == nil || p.URL == "" || !release.IsNewer(buildinfo.Version, p.Latest) {
 		m.update = nil
 		m.hoverUpdate = false
+		if m.modal == modalUpdate {
+			m.modal = modalNone
+		}
 		return
 	}
-	m.update = &protocol.UpdatePayload{Latest: p.Latest, URL: p.URL}
+	m.update = &protocol.UpdatePayload{
+		Latest:   p.Latest,
+		URL:      p.URL,
+		Setup:    p.Setup,
+		Portable: p.Portable,
+	}
 }
 
 // handleUpdateResult finishes a manual check: it updates the notice and gives
@@ -481,12 +539,417 @@ func (m *Model) handleUpdateResult(msg protocol.UpdateResultMessage) {
 		return
 	}
 	if release.IsNewer(buildinfo.Version, msg.Latest) && msg.URL != "" {
-		m.setUpdate(&protocol.UpdatePayload{Latest: msg.Latest, URL: msg.URL})
+		m.setUpdate(&protocol.UpdatePayload{
+			Latest:   msg.Latest,
+			URL:      msg.URL,
+			Setup:    msg.Setup,
+			Portable: msg.Portable,
+		})
 		m.showToast(copy.T(copy.ToastUpdateFound, msg.Latest))
 		return
 	}
-	m.update = nil
+	m.setUpdate(nil)
 	m.showToast(copy.T(copy.ToastUpToDate, msg.Latest))
+}
+
+// openUpdateModal opens the install/download chooser for the cached release.
+func (m *Model) openUpdateModal() {
+	if m.update == nil {
+		return
+	}
+	m.modal = modalUpdate
+	m.updateStep = updateStepChoose
+	m.updateErr = ""
+	m.updatePath = ""
+	m.updateReceived = 0
+	m.updateTotal = 0
+	m.updateType = m.defaultUpdateType()
+	m.updateFocus = m.primaryUpdateAction()
+}
+
+const (
+	updateTypeSetup    = "setup"
+	updateTypePortable = "portable"
+)
+
+// currentUpdateType is the kind of copy that is running. The type chooser
+// shows it first and selects it by default.
+func (m *Model) currentUpdateType() string {
+	if m.installInfo.Installed {
+		return updateTypeSetup
+	}
+	return updateTypePortable
+}
+
+func (m *Model) otherUpdateType(updateType string) string {
+	if updateType == updateTypeSetup {
+		return updateTypePortable
+	}
+	return updateTypeSetup
+}
+
+func (m *Model) updateTypeAvailable(updateType string) bool {
+	if m.update == nil {
+		return false
+	}
+	switch updateType {
+	case updateTypeSetup:
+		return m.update.Setup
+	case updateTypePortable:
+		return m.update.Portable
+	}
+	return false
+}
+
+func (m *Model) defaultUpdateType() string {
+	current := m.currentUpdateType()
+	if m.updateTypeAvailable(current) {
+		return current
+	}
+	other := m.otherUpdateType(current)
+	if m.updateTypeAvailable(other) {
+		return other
+	}
+	return current
+}
+
+func (m *Model) ensureUpdateType() {
+	if m.update == nil {
+		m.updateType = ""
+		return
+	}
+	if m.updateType == "" || !m.updateTypeAvailable(m.updateType) {
+		m.updateType = m.defaultUpdateType()
+	}
+}
+
+// moveUpdateType moves the vertical Type selection. The current copy is always
+// the first row and the other copy the second, so down selects the other and
+// up returns to the current one. The ends do not wrap.
+func (m *Model) moveUpdateType(delta int) {
+	m.ensureUpdateType()
+	current := m.currentUpdateType()
+	other := m.otherUpdateType(current)
+	changed := false
+	switch {
+	case delta > 0:
+		if m.updateType == current && m.updateTypeAvailable(other) {
+			m.updateType = other
+			changed = true
+		}
+	case delta < 0:
+		if m.updateType == other && m.updateTypeAvailable(current) {
+			m.updateType = current
+			changed = true
+		}
+	}
+	if !changed {
+		return
+	}
+	if m.updateFocus == hitUpdateInstall || m.updateFocus == hitUpdatePortable {
+		m.updateFocus = m.primaryUpdateAction()
+		return
+	}
+	m.ensureUpdateFocus()
+}
+
+// toggleUpdateType is the Tab shortcut: it switches between the copy in use
+// and the other one when both assets exist. It is deliberately not advertised
+// in the hint line.
+func (m *Model) toggleUpdateType() {
+	m.ensureUpdateType()
+	current := m.currentUpdateType()
+	other := m.otherUpdateType(current)
+	if !m.updateTypeAvailable(current) || !m.updateTypeAvailable(other) {
+		return
+	}
+	if m.updateType == current {
+		m.updateType = other
+	} else {
+		m.updateType = current
+	}
+	if m.updateFocus == hitUpdateInstall || m.updateFocus == hitUpdatePortable {
+		m.updateFocus = m.primaryUpdateAction()
+		return
+	}
+	m.ensureUpdateFocus()
+}
+
+// updateActions is the horizontal action row for the selected type.
+func (m *Model) updateActions() []hitAction {
+	m.ensureUpdateType()
+	actions := make([]hitAction, 0, 3)
+	if m.updateTypeAvailable(m.updateType) {
+		if m.updateType == updateTypeSetup {
+			actions = append(actions, hitUpdateInstall)
+		} else {
+			actions = append(actions, hitUpdatePortable)
+		}
+	}
+	return append(actions, hitUpdateRelease, hitUpdateLater)
+}
+
+// primaryUpdateAction is the action Enter uses when the chooser opens and the
+// action the highlight starts on.
+func (m *Model) primaryUpdateAction() hitAction {
+	m.ensureUpdateType()
+	if m.updateTypeAvailable(m.updateType) {
+		if m.updateType == updateTypeSetup {
+			return hitUpdateInstall
+		}
+		return hitUpdatePortable
+	}
+	return hitUpdateRelease
+}
+
+// ensureUpdateFocus keeps the highlight inside the actions that are currently
+// visible. It also repairs the focus after a release gains or loses an asset.
+func (m *Model) ensureUpdateFocus() {
+	m.ensureUpdateType()
+	actions := m.updateActions()
+	for _, action := range actions {
+		if action == m.updateFocus {
+			return
+		}
+	}
+	m.updateFocus = m.primaryUpdateAction()
+}
+
+func (m *Model) moveUpdateFocus(delta int) {
+	actions := m.updateActions()
+	if len(actions) == 0 {
+		m.updateFocus = hitNone
+		return
+	}
+	m.ensureUpdateFocus()
+	index := 0
+	for i, action := range actions {
+		if action == m.updateFocus {
+			index = i
+			break
+		}
+	}
+	index = (index + delta) % len(actions)
+	if index < 0 {
+		index += len(actions)
+	}
+	m.updateFocus = actions[index]
+}
+
+func (m *Model) activateUpdateFocus() tea.Cmd {
+	m.ensureUpdateFocus()
+	switch m.updateFocus {
+	case hitUpdateInstall:
+		return m.startInstallUpdate(false)
+	case hitUpdatePortable:
+		return m.startPortableDownload()
+	case hitUpdateRelease:
+		m.openReleasePage()
+		return nil
+	case hitUpdateLater:
+		m.modal = modalNone
+		return nil
+	default:
+		return m.startPrimaryUpdate()
+	}
+}
+
+func (m *Model) handleUpdateKey(key tea.Key) tea.Cmd {
+	text := key.Text
+	switch m.updateStep {
+	case updateStepChoose:
+		switch {
+		case key.Code == tea.KeyEnter:
+			return m.activateUpdateFocus()
+		case key.Code == tea.KeyUp:
+			m.moveUpdateType(-1)
+		case key.Code == tea.KeyDown:
+			m.moveUpdateType(1)
+		case key.Code == tea.KeyTab:
+			m.toggleUpdateType()
+		case key.Code == tea.KeyLeft:
+			m.moveUpdateFocus(-1)
+		case key.Code == tea.KeyRight:
+			m.moveUpdateFocus(1)
+		case text == "g":
+			m.openReleasePage()
+		case key.Code == tea.KeyEscape:
+			m.modal = modalNone
+		}
+	case updateStepWarn:
+		switch {
+		case key.Code == tea.KeyEnter:
+			return m.startInstallUpdate(true)
+		case key.Code == tea.KeyEscape:
+			m.updateStep = updateStepChoose
+		}
+	case updateStepPortableDone:
+		switch {
+		case key.Code == tea.KeyEnter, key.Code == tea.KeyEscape:
+			m.modal = modalNone
+		case text == "o":
+			m.openUpdateFolder()
+		}
+	case updateStepFailed:
+		switch {
+		case key.Code == tea.KeyEnter:
+			m.updateStep = updateStepChoose
+			m.updateErr = ""
+		case text == "g":
+			m.openReleasePage()
+		case key.Code == tea.KeyEscape:
+			m.modal = modalNone
+		}
+	}
+	return nil
+}
+
+func (m *Model) startPrimaryUpdate() tea.Cmd {
+	m.ensureUpdateType()
+	if m.updateTypeAvailable(m.updateType) {
+		if m.updateType == updateTypeSetup {
+			return m.startInstallUpdate(false)
+		}
+		return m.startPortableDownload()
+	}
+	if m.update != nil {
+		m.showToast(copy.T(copy.UpdateNoAssets))
+	}
+	return nil
+}
+
+func (m *Model) startInstallUpdate(force bool) tea.Cmd {
+	if m.update == nil || !m.update.Setup {
+		m.showToast(copy.T(copy.UpdateUnavailable))
+		return nil
+	}
+	m.updateType = updateTypeSetup
+	m.updateFocus = hitUpdateInstall
+	if !force && (m.status() == engine.Running || m.status() == engine.Paused) {
+		m.updateStep = updateStepWarn
+		m.updateErr = ""
+		return nil
+	}
+	if !m.connected || m.client == nil {
+		m.showToast(copy.T(copy.ErrorOffline))
+		return nil
+	}
+	m.updateStep = updateStepProgress
+	m.updateKind = "setup"
+	m.updatePhase = "downloading"
+	m.updateReceived = 0
+	m.updateTotal = 0
+	m.updateErr = ""
+	m.updatePath = ""
+	return m.send(protocol.ClientMessage{Type: protocol.TypeInstallUpdate, Force: force})
+}
+
+func (m *Model) startPortableDownload() tea.Cmd {
+	if m.update == nil || !m.update.Portable {
+		m.showToast(copy.T(copy.UpdateUnavailable))
+		return nil
+	}
+	m.updateType = updateTypePortable
+	m.updateFocus = hitUpdatePortable
+	if !m.connected || m.client == nil {
+		m.showToast(copy.T(copy.ErrorOffline))
+		return nil
+	}
+	m.updateStep = updateStepProgress
+	m.updateKind = "portable"
+	m.updatePhase = "downloading"
+	m.updateReceived = 0
+	m.updateTotal = 0
+	m.updateErr = ""
+	m.updatePath = ""
+	return m.send(protocol.ClientMessage{Type: protocol.TypeDownloadPortable})
+}
+
+func (m *Model) handleUpdateProgress(msg protocol.UpdateProgressMessage) {
+	if m.modal != modalUpdate {
+		if msg.Phase == "done" {
+			m.showToast(copy.T(copy.ToastPortable, versionFromPath(msg.Path)))
+		}
+		return
+	}
+	if msg.Kind != "" {
+		m.updateKind = msg.Kind
+	}
+	m.updatePhase = msg.Phase
+	m.updateReceived = msg.Received
+	m.updateTotal = msg.Total
+	m.updatePath = msg.Path
+	switch msg.Phase {
+	case "failed":
+		if msg.Error == "timer_active" && m.updateKind == "setup" {
+			m.updateStep = updateStepWarn
+			m.updateErr = ""
+			return
+		}
+		m.updateStep = updateStepFailed
+		m.updateErr = updateErrorText(msg.Error)
+	case "done":
+		m.updateStep = updateStepPortableDone
+	default:
+		m.updateStep = updateStepProgress
+	}
+}
+
+func updateErrorText(code string) string {
+	switch code {
+	case "timer_active":
+		return copy.T(copy.UpdateTimerActive)
+	case "busy":
+		return copy.T(copy.UpdateBusy)
+	case "checksum":
+		return copy.T(copy.UpdateChecksum)
+	case "write":
+		return copy.T(copy.UpdateWrite)
+	case "unavailable", "unsupported":
+		return copy.T(copy.UpdateUnavailable)
+	case "setup_failed":
+		return copy.T(copy.UpdateSetupFailed)
+	default:
+		return copy.T(copy.UpdateNetwork)
+	}
+}
+
+func (m *Model) openReleasePage() {
+	if m.update == nil {
+		return
+	}
+	if err := m.openURL(m.update.URL); err != nil {
+		m.showToast(copy.T(copy.ErrorOpenURL))
+	}
+}
+
+func (m *Model) openUpdateFolder() {
+	if m.updatePath == "" {
+		return
+	}
+	if err := m.openPath(m.updatePath); err != nil {
+		m.showToast(copy.T(copy.ErrorOpenFolder))
+	}
+}
+
+func versionFromPath(path string) string {
+	base := path
+	if i := strings.LastIndexAny(base, `\/`); i >= 0 {
+		base = base[i+1:]
+	}
+	base = strings.TrimSuffix(base, ".exe")
+	base = strings.TrimPrefix(base, "tuick-tack-")
+	return base
+}
+
+// updateKey opens the cached update when the styled view has room for a modal;
+// otherwise it asks for a fresh check.
+func (m *Model) updateKey() tea.Cmd {
+	if m.update != nil && !m.compact() {
+		m.openUpdateModal()
+		return nil
+	}
+	return m.checkUpdates()
 }
 
 // checkUpdates asks the daemon for a fresh release check. The daemon owns the
@@ -507,7 +970,9 @@ func (m *Model) startCelebration(short bool) {
 	m.celebrating = true
 	m.celebrationStart = m.now()
 	m.finishedAt = m.now()
-	m.modal = modalNone
+	if m.modal != modalUpdate {
+		m.modal = modalNone
+	}
 	m.form.err = ""
 	m.input = ""
 	m.inputErr = ""
@@ -600,7 +1065,7 @@ func (m *Model) handleIdleKey(key tea.Key) tea.Cmd {
 	case text == "S":
 		return m.toggleSound()
 	case text == "u":
-		return m.checkUpdates()
+		return m.updateKey()
 	case text == "s":
 		if m.acceptsUnit() {
 			m.appendInput("s")
@@ -633,7 +1098,7 @@ func (m *Model) handleTimerKey(key tea.Key) tea.Cmd {
 		m.openSound()
 		return nil
 	case text == "u":
-		return m.checkUpdates()
+		return m.updateKey()
 	}
 	return nil
 }
@@ -656,7 +1121,7 @@ func (m *Model) handleFinishedKey(key tea.Key) tea.Cmd {
 		m.openSound()
 		return nil
 	case text == "u":
-		return m.checkUpdates()
+		return m.updateKey()
 	}
 	return nil
 }
@@ -692,6 +1157,8 @@ func (m *Model) handleModalKey(key tea.Key) tea.Cmd {
 		return m.handleFormKey(key)
 	case modalSound:
 		return m.handleSoundKey(key)
+	case modalUpdate:
+		return m.handleUpdateKey(key)
 	}
 	return nil
 }
@@ -996,11 +1463,28 @@ func (m *Model) performHit(hit hitbox) tea.Cmd {
 	case hitSoundClose:
 		return m.closeSound()
 	case hitUpdate:
-		if m.update != nil {
-			if err := m.openURL(m.update.URL); err != nil {
-				m.showToast(copy.T(copy.ErrorOpenURL))
-			}
+		m.openUpdateModal()
+	case hitUpdateInstall:
+		return m.startInstallUpdate(false)
+	case hitUpdatePortable:
+		return m.startPortableDownload()
+	case hitUpdateRelease:
+		m.openReleasePage()
+	case hitUpdateLater, hitUpdateBack:
+		if m.updateStep == updateStepFailed || m.updateStep == updateStepPortableDone {
+			m.modal = modalNone
+		} else if m.updateStep == updateStepWarn {
+			m.updateStep = updateStepChoose
+		} else {
+			m.modal = modalNone
 		}
+	case hitUpdateContinue:
+		return m.startInstallUpdate(true)
+	case hitUpdateOpenFolder:
+		m.openUpdateFolder()
+	case hitUpdateRetry:
+		m.updateStep = updateStepChoose
+		m.updateErr = ""
 	}
 	return nil
 }
@@ -1396,6 +1880,9 @@ func (m *Model) HasActiveTimer() bool {
 // DaemonClosing reports whether the TUI is exiting because the user quit the
 // daemon from the tray.
 func (m *Model) DaemonClosing() bool { return m.daemonClosing }
+
+// Updating reports whether the daemon closed to install an update.
+func (m *Model) Updating() bool { return m.updating }
 
 func formDuration(seconds int) string {
 	if seconds <= 0 {

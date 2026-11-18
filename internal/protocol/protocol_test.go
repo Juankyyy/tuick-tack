@@ -27,6 +27,8 @@ func TestClientRoundTrip(t *testing.T) {
 		{Type: TypePreviewSound},
 		{Type: TypeStopSound},
 		{Type: TypeCheckUpdate},
+		{Type: TypeInstallUpdate, Force: true},
+		{Type: TypeDownloadPortable},
 		{Type: TypePause},
 	}
 	for _, want := range msgs {
@@ -41,7 +43,7 @@ func TestClientRoundTrip(t *testing.T) {
 		if got.Type != want.Type || got.Seconds != want.Seconds ||
 			got.Label != want.Label || got.ID != want.ID || got.Name != want.Name ||
 			got.SoundName != want.SoundName ||
-			got.DeltaSeconds != want.DeltaSeconds {
+			got.DeltaSeconds != want.DeltaSeconds || got.Force != want.Force {
 			t.Fatalf("round trip %s -> %+v", data, got)
 		}
 		if want.Enabled != nil && (got.Enabled == nil || *got.Enabled != *want.Enabled) {
@@ -189,8 +191,50 @@ func TestDaemonClosingRoundTrip(t *testing.T) {
 		t.Fatalf("DecodeServer: %v", err)
 	}
 	m, ok := back.(DaemonClosingMessage)
-	if !ok || m.Type != TypeDaemonClosing {
+	if !ok || m.Type != TypeDaemonClosing || m.Reason != CloseReasonQuit {
 		t.Fatalf("unexpected daemon closing message: %#v", back)
+	}
+
+	data, _ = json.Marshal(NewDaemonClosing(CloseReasonUpdate))
+	back, err = DecodeServer(data)
+	if err != nil {
+		t.Fatalf("DecodeServer update: %v", err)
+	}
+	m, ok = back.(DaemonClosingMessage)
+	if !ok || m.Reason != CloseReasonUpdate {
+		t.Fatalf("unexpected update closing message: %#v", back)
+	}
+}
+
+func TestUpdateProgressRoundTrip(t *testing.T) {
+	msg := NewUpdateProgress(UpdateProgressMessage{
+		Kind:     "portable",
+		Phase:    "done",
+		Received: 42,
+		Total:    100,
+		Path:     `C:\Users\A\Downloads\tuick-tack-v9.exe`,
+	})
+	data, _ := json.Marshal(msg)
+	back, err := DecodeServer(data)
+	if err != nil {
+		t.Fatalf("DecodeServer: %v", err)
+	}
+	pm, ok := back.(UpdateProgressMessage)
+	if !ok || pm.Type != TypeUpdateProgress || pm.Kind != msg.Kind ||
+		pm.Phase != msg.Phase || pm.Received != 42 || pm.Total != 100 || pm.Path != msg.Path {
+		t.Fatalf("unexpected progress: %#v", back)
+	}
+}
+
+func TestUpdatePayloadCapabilities(t *testing.T) {
+	payload := UpdatePayload{Latest: "v9", URL: "https://example.test", Setup: true, Portable: true}
+	data, _ := json.Marshal(payload)
+	var back UpdatePayload
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if !back.Setup || !back.Portable {
+		t.Fatalf("payload = %+v", back)
 	}
 }
 
@@ -251,6 +295,8 @@ func TestValidate(t *testing.T) {
 		{"preview sound", ClientMessage{Type: TypePreviewSound}, ""},
 		{"stop sound", ClientMessage{Type: TypeStopSound}, ""},
 		{"check update", ClientMessage{Type: TypeCheckUpdate}, ""},
+		{"install update", ClientMessage{Type: TypeInstallUpdate}, ""},
+		{"download portable", ClientMessage{Type: TypeDownloadPortable}, ""},
 		{"get state", ClientMessage{Type: TypeGetState}, ""},
 		{"quit", ClientMessage{Type: TypeQuitDaemon}, ""},
 		{"empty", ClientMessage{}, CodeInvalidMessage},

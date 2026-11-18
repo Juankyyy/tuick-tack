@@ -26,10 +26,24 @@ const (
 	// RetryInterval is the shorter delay used after a failed check.
 	RetryInterval = 6 * time.Hour
 
+	// AssetSetup and AssetPortable are the stable release asset names. The
+	// updater finds them by exact name so the release tag stays free-form.
+	AssetSetup     = "tuick-tack-setup.exe"
+	AssetPortable  = "tuick-tack.exe"
+	AssetChecksums = "SHA256SUMS.txt"
+
 	// requestTimeout bounds one request. The daemon also cancels the request
 	// when it exits.
 	requestTimeout = 15 * time.Second
 )
+
+// Asset is one downloadable file attached to a release.
+type Asset struct {
+	Name   string
+	URL    string
+	Size   int64
+	Digest string // GitHub's "sha256:<hex>" digest, when present.
+}
 
 // Info describes the latest published release.
 type Info struct {
@@ -37,6 +51,61 @@ type Info struct {
 	Version string
 	// URL is the GitHub release page.
 	URL string
+
+	// The setup installer and the portable executable are optional: an older
+	// release may not publish them under the stable names. The UI disables the
+	// matching action when the asset or its checksum is missing.
+	SetupURL       string
+	SetupDigest    string
+	SetupSize      int64
+	PortableURL    string
+	PortableDigest string
+	PortableSize   int64
+	ChecksumsURL   string
+}
+
+// SetupAsset returns the installer asset when the release publishes it.
+func (i Info) SetupAsset() (Asset, bool) {
+	return i.asset(AssetSetup, i.SetupURL, i.SetupDigest, i.SetupSize)
+}
+
+// PortableAsset returns the portable executable asset when published.
+func (i Info) PortableAsset() (Asset, bool) {
+	return i.asset(AssetPortable, i.PortableURL, i.PortableDigest, i.PortableSize)
+}
+
+// ChecksumsAsset returns SHA256SUMS.txt when published.
+func (i Info) ChecksumsAsset() (Asset, bool) {
+	if i.ChecksumsURL == "" {
+		return Asset{}, false
+	}
+	return Asset{Name: AssetChecksums, URL: i.ChecksumsURL}, true
+}
+
+// CanInstall reports whether the setup asset can be downloaded and verified.
+func (i Info) CanInstall() bool {
+	asset, ok := i.SetupAsset()
+	if !ok {
+		return false
+	}
+	return hasSHA256(asset.Digest) || i.ChecksumsURL != ""
+}
+
+// CanDownloadPortable reports whether the portable executable can be
+// downloaded and verified.
+func (i Info) CanDownloadPortable() bool {
+	asset, ok := i.PortableAsset()
+	if !ok {
+		return false
+	}
+	return hasSHA256(asset.Digest) || i.ChecksumsURL != ""
+}
+
+func (i Info) asset(name, url, digest string, size int64) (Asset, bool) {
+	if url == "" {
+		return Asset{}, false
+	}
+	return Asset{Name: name, URL: url, Size: size, Digest: digest}, true
 }
 
 // Checker fetches the latest release. The zero value is not usable; build one
@@ -93,6 +162,12 @@ func (c Checker) Latest(ctx context.Context) (Info, error) {
 	var payload struct {
 		TagName string `json:"tag_name"`
 		HTMLURL string `json:"html_url"`
+		Assets  []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+			Size               int64  `json:"size"`
+			Digest             string `json:"digest"`
+		} `json:"assets"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&payload); err != nil {
 		return Info{}, fmt.Errorf("update: decode release: %w", err)
@@ -105,7 +180,41 @@ func (c Checker) Latest(ctx context.Context) (Info, error) {
 	if !strings.HasPrefix(url, "https://") {
 		return Info{}, errors.New("update: release has no https URL")
 	}
-	return Info{Version: tag, URL: url}, nil
+	info := Info{Version: tag, URL: url}
+	for _, a := range payload.Assets {
+		name := strings.TrimSpace(a.Name)
+		assetURL := strings.TrimSpace(a.BrowserDownloadURL)
+		if name == "" || !strings.HasPrefix(assetURL, "https://") {
+			continue
+		}
+		switch name {
+		case AssetSetup:
+			info.SetupURL, info.SetupSize, info.SetupDigest = assetURL, a.Size, strings.TrimSpace(a.Digest)
+		case AssetPortable:
+			info.PortableURL, info.PortableSize, info.PortableDigest = assetURL, a.Size, strings.TrimSpace(a.Digest)
+		case AssetChecksums:
+			info.ChecksumsURL = assetURL
+		}
+	}
+	return info, nil
+}
+
+// hasSHA256 reports whether a GitHub asset digest is a usable SHA-256 value.
+func hasSHA256(digest string) bool {
+	const prefix = "sha256:"
+	if !strings.HasPrefix(digest, prefix) {
+		return false
+	}
+	hex := strings.TrimSpace(digest[len(prefix):])
+	if len(hex) != 64 {
+		return false
+	}
+	for _, r := range hex {
+		if !(r >= '0' && r <= '9') && !(r >= 'a' && r <= 'f') && !(r >= 'A' && r <= 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 // Delay returns how long to wait before the next check.
