@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -35,6 +36,11 @@ const (
 	// requestTimeout bounds one request. The daemon also cancels the request
 	// when it exits.
 	requestTimeout = 15 * time.Second
+
+	// maxNotesBytes bounds the release body kept in memory and sent over the
+	// pipe. Release notes are a few kilobytes; the cap only stops a
+	// pathological body from bloating the handshake.
+	maxNotesBytes = 16 << 10
 )
 
 // Asset is one downloadable file attached to a release.
@@ -51,6 +57,10 @@ type Info struct {
 	Version string
 	// URL is the GitHub release page.
 	URL string
+	// Notes is the release body as published, trimmed and capped at
+	// maxNotesBytes. The daemon never interprets it; the TUI keeps its
+	// "What's new" section for the update dialog.
+	Notes string
 
 	// The setup installer and the portable executable are optional: an older
 	// release may not publish them under the stable names. The UI disables the
@@ -162,6 +172,7 @@ func (c Checker) Latest(ctx context.Context) (Info, error) {
 	var payload struct {
 		TagName string `json:"tag_name"`
 		HTMLURL string `json:"html_url"`
+		Body    string `json:"body"`
 		Assets  []struct {
 			Name               string `json:"name"`
 			BrowserDownloadURL string `json:"browser_download_url"`
@@ -180,7 +191,7 @@ func (c Checker) Latest(ctx context.Context) (Info, error) {
 	if !strings.HasPrefix(url, "https://") {
 		return Info{}, errors.New("update: release has no https URL")
 	}
-	info := Info{Version: tag, URL: url}
+	info := Info{Version: tag, URL: url, Notes: cleanNotes(payload.Body)}
 	for _, a := range payload.Assets {
 		name := strings.TrimSpace(a.Name)
 		assetURL := strings.TrimSpace(a.BrowserDownloadURL)
@@ -197,6 +208,22 @@ func (c Checker) Latest(ctx context.Context) (Info, error) {
 		}
 	}
 	return info, nil
+}
+
+// cleanNotes normalizes a release body and bounds it so one pathological body
+// cannot bloat the handshake or the pipe. The cut respects UTF-8 boundaries.
+func cleanNotes(body string) string {
+	body = strings.ReplaceAll(body, "\r\n", "\n")
+	body = strings.ReplaceAll(body, "\r", "\n")
+	body = strings.TrimSpace(body)
+	if len(body) <= maxNotesBytes {
+		return body
+	}
+	cut := maxNotesBytes
+	for cut > 0 && !utf8.RuneStart(body[cut]) {
+		cut--
+	}
+	return strings.TrimSpace(body[:cut])
 }
 
 // hasSHA256 reports whether a GitHub asset digest is a usable SHA-256 value.

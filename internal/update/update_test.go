@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestCompare(t *testing.T) {
@@ -56,6 +57,7 @@ func TestCheckerLatest(t *testing.T) {
 		_, _ = w.Write([]byte(`{
 			"tag_name": "v0.2.0",
 			"html_url": "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0",
+			"body": "## What's new in v0.2.0\r\n\r\n- Faster\r\n",
 			"draft": false
 		}`))
 	}))
@@ -68,6 +70,12 @@ func TestCheckerLatest(t *testing.T) {
 	}
 	if info.Version != "v0.2.0" || info.URL != "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0" {
 		t.Fatalf("info = %+v", info)
+	}
+	if !strings.Contains(info.Notes, "What's new") || !strings.Contains(info.Notes, "- Faster") {
+		t.Fatalf("notes = %q", info.Notes)
+	}
+	if strings.Contains(info.Notes, "\r") {
+		t.Fatalf("notes kept CRLF: %q", info.Notes)
 	}
 	if !strings.HasPrefix(gotUA, "tuick-tack/") {
 		t.Fatalf("User-Agent = %q", gotUA)
@@ -169,5 +177,38 @@ func TestCheckerTimeout(t *testing.T) {
 func TestCheckerMissingURL(t *testing.T) {
 	if _, err := (Checker{}).Latest(context.Background()); err == nil {
 		t.Fatal("expected an error for an empty URL")
+	}
+}
+
+func TestCleanNotes(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"trim", "  hello  ", "hello"},
+		{"crlf", "a\r\nb\rc", "a\nb\nc"},
+		{"empty", " \r\n ", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := cleanNotes(tt.in); got != tt.want {
+				t.Fatalf("cleanNotes(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCleanNotesCapsAtRuneBoundary(t *testing.T) {
+	body := "a" + strings.Repeat("á", maxNotesBytes)
+	got := cleanNotes(body)
+	if len(got) > maxNotesBytes {
+		t.Fatalf("notes length = %d, want <= %d", len(got), maxNotesBytes)
+	}
+	if !utf8.ValidString(got) {
+		t.Fatal("the capped notes are not valid UTF-8")
+	}
+	if len(got) < maxNotesBytes-2 {
+		t.Fatalf("the cap cut too much: %d bytes", len(got))
 	}
 }

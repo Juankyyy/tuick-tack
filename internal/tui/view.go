@@ -17,6 +17,7 @@ import (
 	"tuick-tack/internal/tui/bigfont"
 	"tuick-tack/internal/tui/canvas"
 	"tuick-tack/internal/tui/copy"
+	"tuick-tack/internal/tui/notes"
 	"tuick-tack/internal/tui/theme"
 )
 
@@ -1286,6 +1287,9 @@ func (m *Model) drawUpdateTransition(c *canvas.Canvas, x, y, w int, animate bool
 // overlay, button row and bar language as the timer.
 func (m *Model) drawUpdate(c *canvas.Canvas, base rect) {
 	height := 18
+	if m.updateStep == updateStepChoose {
+		height = m.updateChooserHeight()
+	}
 	switch m.updateStep {
 	case updateStepWarn:
 		height = 12
@@ -1321,34 +1325,20 @@ func (m *Model) drawUpdate(c *canvas.Canvas, base rect) {
 	case updateStepChoose:
 		m.ensureUpdateType()
 		m.ensureUpdateFocus()
-		m.drawUpdateTransition(c, x, y+1, w, false)
+		layout := m.updateChooserLayout()
+		m.drawUpdateTransition(c, x, y, w, false)
 		badge := copy.T(copy.UpdatePortableBadge)
 		if m.installInfo.Installed {
 			badge = copy.T(copy.UpdateInstalledBadge, m.installInfo.Dir)
 		}
-		m.drawCenteredIn(c, x, y+3, w, fitText(badge, w), canvas.Fg(m.pal.Accent))
+		m.drawCenteredIn(c, x, y+1, w, fitText(badge, w), canvas.Fg(m.pal.Accent))
 
-		// Only this block is vertical. The action row below stays horizontal.
-		m.drawCenteredIn(c, x, y+5, w, copy.T(copy.UpdateType), canvas.Fg(m.pal.Muted))
-		currentType := m.currentUpdateType()
-		types := []string{currentType, m.otherUpdateType(currentType)}
-		for i, updateType := range types {
-			m.drawUpdateTypeRow(c, x, y+6+i, w, updateType)
-		}
-
-		switch {
-		case m.updateTypeAvailable(m.updateType) && m.updateType != currentType:
-			m.drawCenteredIn(c, x, y+9, w, copy.T(copy.UpdateOtherBody), canvas.Fg(m.pal.Warn))
-			m.drawCenteredIn(c, x, y+10, w, copy.T(copy.UpdateOtherKeep1), canvas.Fg(m.pal.Muted))
-			m.drawCenteredIn(c, x, y+11, w, copy.T(copy.UpdateOtherKeep2), canvas.Fg(m.pal.Muted))
-		case m.updateTypeAvailable(m.updateType):
-			note := copy.T(copy.UpdateCurrentPortable)
-			if m.updateType == updateTypeSetup {
-				note = copy.T(copy.UpdateCurrentSetup)
-			}
-			m.drawCenteredIn(c, x, y+9, w, note, canvas.Fg(m.pal.Muted))
-		default:
-			m.drawCenteredIn(c, x, y+9, w, copy.T(copy.UpdateNoAssets), canvas.Fg(m.pal.Muted))
+		// Type chips stay horizontal when they fit; at narrow widths they
+		// stack. The notes pane takes the rows that are left above the buttons.
+		m.drawUpdateTypes(c, x, layout.typeY, w, layout.typeRows)
+		m.drawUpdateTypeNote(c, x, layout.noteY, w, layout.noteRows)
+		if layout.hasNotes {
+			m.drawUpdateNotesPanel(c, x, layout)
 		}
 
 		items := make([]button, 0, 3)
@@ -1365,13 +1355,7 @@ func (m *Model) drawUpdate(c *canvas.Canvas, base rect) {
 		)
 		by := r.y + r.h - 3
 		m.drawButtons(c, by, r.x+2, r.w-4, items, m.updateFocus)
-		// The arrows move the type and action highlights, but they are not
-		// advertised as shortcuts. "select" stays true for every focused button.
-		hint := "[Enter] select · [Esc] later"
-		if w >= 42 {
-			hint = "[Enter] select · [g] github · [Esc] later"
-		}
-		m.drawCenteredIn(c, x, r.y+r.h-2, w, fitText(hint, w), canvas.Fg(m.pal.Muted))
+		m.drawCenteredIn(c, x, r.y+r.h-2, w, m.updateChooserHint(layout), canvas.Fg(m.pal.Muted))
 
 	case updateStepWarn:
 		m.drawCenteredIn(c, x, y, w, copy.T(copy.UpdateTimerBody), canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
@@ -1382,7 +1366,7 @@ func (m *Model) drawUpdate(c *canvas.Canvas, base rect) {
 			{copy.T(copy.UpdateContinue), hitUpdateContinue, false},
 			{copy.T(copy.UpdateBack), hitUpdateBack, false},
 		}, hitUpdateContinue)
-		m.drawCenteredIn(c, x, r.y+r.h-2, w, "[Enter] continue · [Esc] back", canvas.Fg(m.pal.Muted))
+		m.drawCenteredIn(c, x, r.y+r.h-2, w, copy.T(copy.UpdateHintWarn), canvas.Fg(m.pal.Muted))
 
 	case updateStepProgress:
 		m.drawUpdateTransition(c, x, y, w, true)
@@ -1430,7 +1414,7 @@ func (m *Model) drawUpdate(c *canvas.Canvas, base rect) {
 			{copy.T(copy.UpdateOpenFolder), hitUpdateOpenFolder, false},
 			{copy.T(copy.Close), hitUpdateLater, false},
 		}, hitUpdateOpenFolder)
-		m.drawCenteredIn(c, x, r.y+r.h-2, w, "[o] open folder · [Enter] close", canvas.Fg(m.pal.Muted))
+		m.drawCenteredIn(c, x, r.y+r.h-2, w, copy.T(copy.UpdateHintPortable), canvas.Fg(m.pal.Muted))
 
 	case updateStepFailed:
 		m.drawCenteredIn(c, x, y, w, copy.T(copy.UpdateFailed), canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
@@ -1441,11 +1425,68 @@ func (m *Model) drawUpdate(c *canvas.Canvas, base rect) {
 			{copy.T(copy.UpdateReleaseShort), hitUpdateRelease, false},
 			{copy.T(copy.Close), hitUpdateLater, false},
 		}, hitUpdateRetry)
-		m.drawCenteredIn(c, x, r.y+r.h-2, w, "[Enter] try again · [g] github · [Esc] close", canvas.Fg(m.pal.Muted))
+		m.drawCenteredIn(c, x, r.y+r.h-2, w, copy.T(copy.UpdateHintFailed), canvas.Fg(m.pal.Muted))
 	}
 }
 
-// drawUpdateTypeRow paints one row of the vertical Setup/Portable selector.
+// drawUpdateTypes paints the Setup/Portable chips: one centered row when both
+// fit, and the stacked full-width rows used before the notes pane existed when
+// they do not. The selection follows m.updateType, not the copy in use.
+func (m *Model) drawUpdateTypes(c *canvas.Canvas, x, y, w, rows int) {
+	current := m.currentUpdateType()
+	other := m.otherUpdateType(current)
+	if rows == 1 {
+		type chip struct {
+			kind      string
+			label     string
+			status    string
+			text      string
+			available bool
+			selected  bool
+		}
+		chips := []chip{{kind: current}, {kind: other}}
+		for i := range chips {
+			chips[i].label = copy.T(copy.UpdateTypePortable)
+			if chips[i].kind == updateTypeSetup {
+				chips[i].label = copy.T(copy.UpdateTypeSetup)
+			}
+			chips[i].status = m.updateTypeStatus(chips[i].kind)
+			chips[i].available = m.updateTypeAvailable(chips[i].kind)
+			chips[i].selected = chips[i].available && chips[i].kind == m.updateType
+			chips[i].text = chips[i].label + " · " + chips[i].status
+			if chips[i].selected {
+				chips[i].text = "› " + chips[i].text
+			}
+		}
+		total := canvas.Width(chips[0].text) + 4 + canvas.Width(chips[1].text)
+		sx := x + (w-total)/2
+		if sx < x {
+			sx = x
+		}
+		for _, chip := range chips {
+			if chip.selected {
+				c.Fill(sx, y, canvas.Width(chip.text), 1, canvas.Full(m.pal.Accent, theme.Lerp(m.pal.Panel, m.pal.Accent, 0.18)))
+				c.Text(sx, y, chip.text, canvas.Style{FG: m.pal.Accent, HasFG: true, Bold: true})
+			} else {
+				labelStyle := canvas.Fg(m.pal.Text)
+				statusStyle := canvas.Fg(m.pal.Muted)
+				if !chip.available {
+					labelStyle = canvas.Fg(theme.Lerp(m.pal.Panel, m.pal.Muted, 0.6))
+					statusStyle = labelStyle
+				}
+				c.Text(sx, y, chip.label, labelStyle)
+				c.Text(sx+canvas.Width(chip.label), y, " · ", statusStyle)
+				c.Text(sx+canvas.Width(chip.label)+3, y, chip.status, statusStyle)
+			}
+			sx += canvas.Width(chip.text) + 4
+		}
+		return
+	}
+	m.drawUpdateTypeRow(c, x, y, w, current)
+	m.drawUpdateTypeRow(c, x, y+1, w, other)
+}
+
+// drawUpdateTypeRow paints one row of the stacked Setup/Portable selector.
 // The current copy is the first row; the other copy follows. Only available
 // types can be selected, and the row uses a soft selection instead of the
 // accent fill used by the horizontal action buttons.
@@ -1475,6 +1516,94 @@ func (m *Model) drawUpdateTypeRow(c *canvas.Canvas, x, y, w int, updateType stri
 		sx = x + 2
 	}
 	c.Text(sx, y, status, canvas.Fg(statusColor))
+}
+
+// drawUpdateTypeNote paints the one-line explanation under the type chips.
+// rows is the height the layout reserved for it; long copy wraps to at most
+// three centered lines.
+func (m *Model) drawUpdateTypeNote(c *canvas.Canvas, x, y, w, rows int) {
+	lines := m.updateTypeNoteLines(w)
+	if len(lines) > rows {
+		lines = lines[:rows]
+	}
+	_, warn := m.updateTypeNoteText()
+	style := canvas.Fg(m.pal.Muted)
+	if warn {
+		style = canvas.Fg(m.pal.Warn)
+	}
+	for i, line := range lines {
+		m.drawCenteredIn(c, x, y+i, w, line, style)
+	}
+}
+
+// drawUpdateNotesPanel paints the release notes well, its scrollbar and the
+// header that names the target version.
+func (m *Model) drawUpdateNotesPanel(c *canvas.Canvas, x int, layout updateChooserLayout) {
+	if m.update == nil || layout.bodyH <= 0 {
+		return
+	}
+	title := copy.T(copy.UpdateNotesTitle, m.update.Latest)
+	c.Text(x, layout.headerY, fitText(title, layout.innerW),
+		canvas.Style{FG: m.pal.Accent, HasFG: true, Bold: true})
+	well := theme.Lerp(m.pal.Panel, m.pal.BG, 0.55)
+	c.Fill(x, layout.bodyTop, layout.innerW, layout.bodyH, canvas.Bg(well))
+	textX := x + 1
+	for row := 0; row < layout.bodyH; row++ {
+		idx := m.notesScroll + row
+		if idx >= len(m.updateNotes) {
+			break
+		}
+		line := m.updateNotes[idx]
+		if line.Text == "" {
+			continue
+		}
+		y := layout.bodyTop + row
+		switch line.Kind {
+		case notes.Heading:
+			c.Text(textX, y, line.Text, canvas.Style{FG: m.pal.Accent, HasFG: true, Bold: true})
+		case notes.Quote:
+			c.Text(textX, y, line.Text, canvas.Fg(m.pal.Muted))
+		case notes.Bullet:
+			if strings.HasPrefix(line.Text, notes.BulletMarker) {
+				c.Set(textX, y, '·', canvas.Fg(m.pal.Accent))
+				c.Text(textX+2, y, strings.TrimPrefix(line.Text, notes.BulletMarker), canvas.Fg(m.pal.Text))
+			} else {
+				c.Text(textX, y, line.Text, canvas.Fg(m.pal.Text))
+			}
+		default:
+			c.Text(textX, y, line.Text, canvas.Fg(m.pal.Text))
+		}
+	}
+	m.drawUpdateNotesBar(c, x, layout)
+}
+
+// drawUpdateNotesBar paints the vertical scrollbar at the right edge of the
+// well. The thumb is proportional and stays at least one cell tall.
+func (m *Model) drawUpdateNotesBar(c *canvas.Canvas, x int, layout updateChooserLayout) {
+	total := len(m.updateNotes)
+	if layout.bodyH <= 0 || total <= layout.bodyH {
+		return
+	}
+	barX := x + layout.innerW - 2
+	track := canvas.Fg(theme.Lerp(m.pal.Panel, m.pal.Border, 0.9))
+	for row := 0; row < layout.bodyH; row++ {
+		c.Set(barX, layout.bodyTop+row, '│', track)
+	}
+	thumb := layout.bodyH * layout.bodyH / total
+	if thumb < 1 {
+		thumb = 1
+	}
+	if thumb > layout.bodyH {
+		thumb = layout.bodyH
+	}
+	max := total - layout.bodyH
+	pos := 0
+	if max > 0 {
+		pos = m.notesScroll * (layout.bodyH - thumb) / max
+	}
+	for i := 0; i < thumb; i++ {
+		c.Set(barX, layout.bodyTop+pos+i, '█', canvas.Fg(m.pal.Accent))
+	}
 }
 
 func (m *Model) updateTypeStatus(updateType string) string {

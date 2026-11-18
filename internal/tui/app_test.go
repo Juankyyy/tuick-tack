@@ -237,7 +237,7 @@ func TestUpdateChooserRenders(t *testing.T) {
 		m.openUpdateModal()
 		plain := assertFrame(t, m, size[0], size[1])
 		for _, want := range []string{
-			transition, "Installed", "Type",
+			transition, "Installed",
 			"Setup", "Portable", "Not in use", "install", "github", "later",
 		} {
 			if !strings.Contains(plain, want) {
@@ -253,8 +253,8 @@ func TestUpdateChooserRenders(t *testing.T) {
 	if !strings.Contains(plain, "Portable · tuick-tack.exe") {
 		t.Fatalf("portable badge missing:\n%s", plain)
 	}
-	if !strings.Contains(plain, "[Enter] select · [g] github · [Esc] later") {
-		t.Fatalf("portable hint should use the focused select wording:\n%s", plain)
+	if !strings.Contains(plain, "[Enter] select · [Tab] type · [g] github · [Esc] later") {
+		t.Fatalf("portable hint should advertise Tab and use the select wording:\n%s", plain)
 	}
 	if strings.Contains(plain, "[←") || strings.Contains(plain, "[→") {
 		t.Fatalf("the arrow keys must not be advertised in the hint:\n%s", plain)
@@ -286,9 +286,7 @@ func TestUpdateTypeSelection(t *testing.T) {
 	}
 	plain := assertFrame(t, m, 80, 24)
 	for _, want := range []string{
-		"This is not the copy you use.",
-		"Your settings, presets and sounds",
-		"and theme will carry over.",
+		copy.T(copy.UpdateOtherShort),
 		"download",
 	} {
 		if !strings.Contains(plain, want) {
@@ -305,7 +303,7 @@ func TestUpdateTypeSelection(t *testing.T) {
 		t.Fatalf("up should return to Setup/install, type=%q focus=%v", m.updateType, m.updateFocus)
 	}
 	plain = assertFrame(t, m, 80, 24)
-	if strings.Contains(plain, "This is not the copy you use.") {
+	if strings.Contains(plain, copy.T(copy.UpdateOtherShort)) {
 		t.Fatalf("current-copy view should not show the other-copy warning:\n%s", plain)
 	}
 
@@ -334,11 +332,11 @@ func TestUpdateTypeTab(t *testing.T) {
 		t.Fatalf("Tab should select Portable/download, type=%q focus=%v", m.updateType, m.updateFocus)
 	}
 	plain := assertFrame(t, m, 80, 24)
-	if !strings.Contains(plain, "This is not the copy you use.") {
+	if !strings.Contains(plain, copy.T(copy.UpdateOtherShort)) {
 		t.Fatalf("Tab should show the other-copy warning:\n%s", plain)
 	}
-	if strings.Contains(plain, "[Tab]") {
-		t.Fatalf("Tab must stay out of the shortcut hints:\n%s", plain)
+	if !strings.Contains(plain, copy.T(copy.UpdateHintTab)) {
+		t.Fatalf("Tab should be advertised when both copies exist:\n%s", plain)
 	}
 
 	press(m, tea.KeyTab, "")
@@ -347,7 +345,7 @@ func TestUpdateTypeTab(t *testing.T) {
 	}
 
 	// A missing setup asset is not selectable; the portable copy is the only
-	// available type and the dialog explains why Tab/up/down do nothing.
+	// available type and the hint must not advertise Tab.
 	m, _ = testModel(80, 24)
 	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: "https://example.test/release", Portable: true})
 	m.openUpdateModal()
@@ -358,6 +356,9 @@ func TestUpdateTypeTab(t *testing.T) {
 	plain = assertFrame(t, m, 80, 24)
 	if !strings.Contains(plain, "Not available") {
 		t.Fatalf("unavailable type status missing:\n%s", plain)
+	}
+	if strings.Contains(plain, copy.T(copy.UpdateHintTab)) {
+		t.Fatalf("Tab must not be advertised when only one copy exists:\n%s", plain)
 	}
 }
 

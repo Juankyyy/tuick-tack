@@ -300,6 +300,7 @@ func (d *Daemon) Update() *protocol.UpdatePayload {
 		URL:      d.updateInfo.URL,
 		Setup:    d.updateInfo.CanInstall(),
 		Portable: d.updateInfo.CanDownloadPortable(),
+		Notes:    d.updateInfo.Notes,
 	}
 }
 
@@ -358,6 +359,7 @@ func (d *Daemon) checkUpdates(c *ipc.Session, notifyUser bool) {
 			URL:      info.URL,
 			Setup:    info.CanInstall(),
 			Portable: info.CanDownloadPortable(),
+			Notes:    info.Notes,
 		}))
 	}
 	if notifyUser {
@@ -452,6 +454,7 @@ func (d *Daemon) setUpdate(info update.Info) {
 			URL:      info.URL,
 			Setup:    info.CanInstall(),
 			Portable: info.CanDownloadPortable(),
+			Notes:    info.Notes,
 		}))
 	}
 	d.tray.Refresh()

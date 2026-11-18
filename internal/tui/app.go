@@ -20,6 +20,7 @@ import (
 	"tuick-tack/internal/protocol"
 	"tuick-tack/internal/tui/copy"
 	"tuick-tack/internal/tui/fx"
+	"tuick-tack/internal/tui/notes"
 	"tuick-tack/internal/tui/theme"
 	release "tuick-tack/internal/update"
 )
@@ -209,6 +210,10 @@ type Model struct {
 	updateType     string
 	updateFocus    hitAction
 
+	updateNotes    []notes.Line
+	updateNotesKey string
+	notesScroll    int
+
 	checkingUpdate bool
 	hoverUpdate    bool
 	daemonClosing  bool
@@ -285,6 +290,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleKey(msg)
 	case tea.MouseClickMsg:
 		return m, m.handleMouse(msg)
+	case tea.MouseWheelMsg:
+		m.handleMouseWheel(msg)
+		return m, nil
 	case tea.MouseMotionMsg:
 		m.handleMouseMotion(msg)
 		return m, nil
@@ -517,6 +525,7 @@ func (m *Model) setUpdate(p *protocol.UpdatePayload) {
 	if p == nil || p.URL == "" || !release.IsNewer(buildinfo.Version, p.Latest) {
 		m.update = nil
 		m.hoverUpdate = false
+		m.resetUpdateNotes()
 		if m.modal == modalUpdate {
 			m.modal = modalNone
 		}
@@ -527,7 +536,17 @@ func (m *Model) setUpdate(p *protocol.UpdatePayload) {
 		URL:      p.URL,
 		Setup:    p.Setup,
 		Portable: p.Portable,
+		Notes:    p.Notes,
 	}
+	m.resetUpdateNotes()
+}
+
+// resetUpdateNotes drops the rendered pane and its scroll position when the
+// announced release changes.
+func (m *Model) resetUpdateNotes() {
+	m.updateNotes = nil
+	m.updateNotesKey = ""
+	m.notesScroll = 0
 }
 
 // handleUpdateResult finishes a manual check: it updates the notice and gives
@@ -544,6 +563,7 @@ func (m *Model) handleUpdateResult(msg protocol.UpdateResultMessage) {
 			URL:      msg.URL,
 			Setup:    msg.Setup,
 			Portable: msg.Portable,
+			Notes:    msg.Notes,
 		})
 		m.showToast(copy.T(copy.ToastUpdateFound, msg.Latest))
 		return
@@ -563,6 +583,7 @@ func (m *Model) openUpdateModal() {
 	m.updatePath = ""
 	m.updateReceived = 0
 	m.updateTotal = 0
+	m.notesScroll = 0
 	m.updateType = m.defaultUpdateType()
 	m.updateFocus = m.primaryUpdateAction()
 }
@@ -623,9 +644,9 @@ func (m *Model) ensureUpdateType() {
 	}
 }
 
-// moveUpdateType moves the vertical Type selection. The current copy is always
-// the first row and the other copy the second, so down selects the other and
-// up returns to the current one. The ends do not wrap.
+// moveUpdateType moves the Type selection. The current copy is always the
+// first row and the other copy the second, so down selects the other and up
+// returns to the current one. The ends do not wrap.
 func (m *Model) moveUpdateType(delta int) {
 	m.ensureUpdateType()
 	current := m.currentUpdateType()
@@ -654,8 +675,8 @@ func (m *Model) moveUpdateType(delta int) {
 }
 
 // toggleUpdateType is the Tab shortcut: it switches between the copy in use
-// and the other one when both assets exist. It is deliberately not advertised
-// in the hint line.
+// and the other one when both assets exist. The chooser hint advertises it at
+// widths that can hold the label.
 func (m *Model) toggleUpdateType() {
 	m.ensureUpdateType()
 	current := m.currentUpdateType()
@@ -771,6 +792,18 @@ func (m *Model) handleUpdateKey(key tea.Key) tea.Cmd {
 			m.moveUpdateFocus(-1)
 		case key.Code == tea.KeyRight:
 			m.moveUpdateFocus(1)
+		case key.Code == tea.KeyPgUp:
+			if page := m.updateNotesPage(); page > 0 {
+				m.scrollUpdateNotes(-maxInt(1, page-1))
+			}
+		case key.Code == tea.KeyPgDown:
+			if page := m.updateNotesPage(); page > 0 {
+				m.scrollUpdateNotes(maxInt(1, page-1))
+			}
+		case key.Code == tea.KeyHome:
+			m.notesScroll = 0
+		case key.Code == tea.KeyEnd:
+			m.notesScroll = m.updateNotesMaxScroll()
 		case text == "g":
 			m.openReleasePage()
 		case key.Code == tea.KeyEscape:
@@ -1372,6 +1405,20 @@ func (m *Model) handleMouseMotion(msg tea.MouseMotionMsg) {
 		break
 	}
 	m.hoverUpdate = hover
+}
+
+// handleMouseWheel scrolls the release notes while the chooser is open. It is
+// the pointer equivalent of PgUp/PgDn; the type and action focus are untouched.
+func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) {
+	if m.compact() || m.modal != modalUpdate || m.updateStep != updateStepChoose {
+		return
+	}
+	switch msg.Button {
+	case tea.MouseWheelUp:
+		m.scrollUpdateNotes(-3)
+	case tea.MouseWheelDown:
+		m.scrollUpdateNotes(3)
+	}
 }
 
 func (m *Model) performHit(hit hitbox) tea.Cmd {

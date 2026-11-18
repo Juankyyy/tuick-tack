@@ -68,10 +68,12 @@ func TestHeaderCopyExists(t *testing.T) {
 func TestUpdateCopyExists(t *testing.T) {
 	for _, key := range []Key{
 		UpdateAvailable, UpdateShort, UpdateArrow, UpdateChecking, UpdateHint, ErrorOpenURL, ErrorUpdate,
-		UpdateFromTo, UpdateType, UpdateTypeSetup, UpdateTypePortable,
+		UpdateFromTo, UpdateTypeSetup, UpdateTypePortable,
 		UpdateStatusInstalled, UpdateStatusNotInstalled, UpdateStatusInUse, UpdateStatusNotInUse,
-		UpdateStatusNotInRelease, UpdateOtherBody, UpdateOtherKeep1, UpdateOtherKeep2,
+		UpdateStatusNotInRelease, UpdateOtherShort,
 		UpdateCurrentSetup, UpdateCurrentPortable, UpdateInstallShort,
+		UpdateNotesTitle, UpdateHintSelect, UpdateHintTab, UpdateHintNotes, UpdateHintGithub,
+		UpdateHintLater, UpdateHintWarn, UpdateHintPortable, UpdateHintFailed,
 		ToastUpdateFound, ToastUpToDate,
 		NotifyFoundTitle, NotifyFoundBody, NotifyUpToDateTitle, NotifyUpToDateBody,
 		NotifyFailedTitle, NotifyFailedBody,

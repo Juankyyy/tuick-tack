@@ -137,6 +137,7 @@ func TestHandshakeAndBroadcast(t *testing.T) {
 	b.upd = &protocol.UpdatePayload{
 		Latest: "v0.2.0",
 		URL:    "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0",
+		Notes:  "## What's new\n- Faster\n",
 	}
 	b.mu.Unlock()
 
@@ -147,7 +148,8 @@ func TestHandshakeAndBroadcast(t *testing.T) {
 			h.AppVersion != "dev" || len(h.Config.Presets) != 3 {
 			t.Fatalf("unexpected hello: %+v", h)
 		}
-		if h.Update == nil || h.Update.Latest != "v0.2.0" || h.Update.URL != b.upd.URL {
+		if h.Update == nil || h.Update.Latest != "v0.2.0" || h.Update.URL != b.upd.URL ||
+			h.Update.Notes != b.upd.Notes {
 			t.Fatalf("hello does not carry the update: %+v", h)
 		}
 	}
@@ -189,13 +191,14 @@ func TestHandshakeAndBroadcast(t *testing.T) {
 		}
 	}
 
-	b.srv.Broadcast(protocol.NewUpdate(protocol.UpdatePayload{Latest: "v0.2.0", URL: b.upd.URL}))
+	b.srv.Broadcast(protocol.NewUpdate(protocol.UpdatePayload{Latest: "v0.2.0", URL: b.upd.URL, Notes: b.upd.Notes}))
 	for _, c := range []*ipc.Client{c1, c2} {
 		msg := readUntil(t, c, "update broadcast", func(m protocol.ServerMessage) bool {
 			_, ok := m.(protocol.UpdateMessage)
 			return ok
 		})
-		if um := msg.(protocol.UpdateMessage); um.Latest != "v0.2.0" || um.URL != b.upd.URL {
+		if um := msg.(protocol.UpdateMessage); um.Latest != "v0.2.0" || um.URL != b.upd.URL ||
+			um.Notes != b.upd.Notes {
 			t.Fatalf("update = %+v", um)
 		}
 	}

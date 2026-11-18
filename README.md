@@ -55,7 +55,7 @@ countdown, the sound and the tray icon keep running.
 | **Single instance** | Running the executable again focuses the open TUI instead of opening a second one. |
 | **Installer** | Per-user install in `Documents\tuick-tack`, Start Menu shortcut, uninstaller; no admin. |
 | **Portable** | One executable, no installer, no admin, no cgo. |
-| **In-app updates** | Check with `u`; install with the setup or download the portable `.exe`. |
+| **In-app updates** | Check with `u`; read what's new, then install with the setup or download the portable `.exe`. |
 | **Version in the header** | The running TUI version follows the wordmark in a quiet tone. |
 
 ## Controls
@@ -70,6 +70,7 @@ countdown, the sound and the tray icon keep running.
 | Sound panel | `↑` `↓` select the sound; `←` `→` volume ±5%; `Space` preview; `m` mute; `Esc` close |
 | Presets panel | `↑` `↓` move; `Tab` actions; `←` `→` choose an action; `Enter` start or run; `a` add; `e` edit; `d` delete; `r` restore defaults; `Esc` close |
 | Form | `Tab` next field; `Enter` save; `Esc` cancel |
+| Update dialog | `↑` `↓` or `Tab` switch setup/portable; `←` `→` actions; `PgUp` `PgDn` scroll the release notes; `Enter` run; `g` GitHub; `Esc` later |
 
 In the app, key hints use the `[key] action` format, for example `[Space] pause`.
 
@@ -156,9 +157,14 @@ download the portable `.exe`. The tray menu gets `Update available: vX.Y.Z`, whi
 release page.
 
 The dialog shows the copy you are using first, selected and marked `Installed` (setup) or
-`In use` (portable). Use `↑`/`↓` to switch to the other type; if you choose it, the dialog warns
-that it is not the copy you use and that your settings, presets, sounds and theme carry over.
-The horizontal action row stays below: `install` or `download`, `github` and `later`.
+`In use` (portable). Use `↑`/`↓` or `Tab` to switch to the other type; if you choose it, the
+dialog warns that it is not the copy you use and that your settings carry over. The horizontal
+action row stays below: `install` or `download`, `github` and `later`.
+
+When the release publishes notes, the dialog also opens a `What's new in vX` panel above the
+type row: the first eight lines at 80×24 and sixteen at 120×40, with a scrollbar. Read the rest
+with `PgUp`/`PgDn`, `Home`/`End` or the mouse wheel; `Tab` keeps switching the copy without
+losing the scroll position. Releases without notes keep the shorter dialog.
 
 - **Install update:** downloads `tuick-tack-setup.exe`, verifies it and runs the same
   per-user installer silently. The app closes, updates the copy in `Documents\tuick-tack`

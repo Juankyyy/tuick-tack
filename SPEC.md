@@ -131,7 +131,7 @@ Campos de estado:
 - Errores: `{ "type": "error", "code": "...", "message": "..." }`.
 - La TUI reintenta la conexión cada 1 s si se cae; muestra banner de desconexión y deshabilita comandos.
 - `daemon_closing` es la excepción: la TUI sale sin reintentar y sin lanzar un daemon nuevo, porque el cierre lo pidió el usuario desde la bandeja.
-- Los mensajes de servidor desconocidos se decodifican como `IgnoredMessage` y se ignoran, para que un mensaje aditivo no rompa un cliente viejo. Por eso `update`, `update_progress` y `daemon_closing` no suben `Protocol`. `install_update` y `download_portable` son comandos nuevos: un daemon viejo responde `invalid_command`, que la TUI muestra como actualización no disponible.
+- Los mensajes de servidor desconocidos se decodifican como `IgnoredMessage` y se ignoran, para que un mensaje aditivo no rompa un cliente viejo. Por eso `update`, `update_progress` y `daemon_closing` no suben `Protocol`. El campo `notes` (cuerpo de la release, recortado a 16 KiB) es aditivo dentro de `update` y `update_result`: un daemon viejo no lo envía y una TUI vieja lo ignora. `install_update` y `download_portable` son comandos nuevos: un daemon viejo responde `invalid_command`, que la TUI muestra como actualización no disponible.
 
 Cliente → daemon:
 
@@ -163,11 +163,13 @@ Daemon → cliente:
 | `hello` | `protocol`, `app_version`, `config`, `update?` |
 | `state` | snapshot del §6 |
 | `config` | `presets`, `theme`, `sound`, `sound_name`, `volume` |
-| `update` | `latest`, `url`, `setup?`, `portable?` |
-| `update_result` | `current`, `latest?`, `url?`, `setup?`, `portable?`, `error?` |
+| `update` | `latest`, `url`, `setup?`, `portable?`, `notes?` |
+| `update_result` | `current`, `latest?`, `url?`, `setup?`, `portable?`, `notes?`, `error?` |
 | `update_progress` | `kind` (`setup`/`portable`), `phase`, `received?`, `total?`, `path?`, `error?` |
 | `daemon_closing` | `reason?` (`quit`/`update`; la TUI sale sin reintentar) |
 | `error` | `code`, `message` |
+
+`notes` es el `body` de la release (Markdown UTF-8) recortado a 16 KiB. No es estado de la app: la TUI extrae su sección `What's new`, la limpia y la pinta en el diálogo; el daemon solo lo cachea y lo transporta.
 
 Validación: duración 1..86400 s; etiqueta 1..32 caracteres; máximo 16 presets; tema válido; sonido válido (`chime`, `marimba`, `digital`, `deep`); volumen 0..100. Comando inválido → error, sin cambiar estado.
 
@@ -217,7 +219,7 @@ Rutas (por usuario, sin admin):
 - **Desconectado:** banner “Daemon disconnected — retrying…” y comandos deshabilitados.
 - **Actualización disponible:** a la derecha de la marca y su versión, en la fila de la cabecera, `[Update available →]` en degradado pastel animado (arcoíris de 0,8 de vuelta a S 0,52 / L 0,68, negrita; la fase avanza ~0,1 vuelta/s con el tick de 10 Hz). Es clicable y abre el diálogo de actualización; al pasar el ratón por encima se pinta un fondo suave en toda la etiqueta. La flecha `→` es la pista estática de que abre algo. Si el estado no deja sitio, cae a `[Update →]`; si tampoco entra, no se dibuja. En `mono` usa un degradado de grises sin animación. El modo compacto añade una línea de texto sin click.
 - **Buscar actualizaciones:** `u` en la pantalla principal pide una comprobación manual al daemon. Si ya hay una release conocida, `u` abre el diálogo en vez de volver a comprobar. Mientras comprueba, la línea de estado dice `Checking for updates…`; al terminar muestra un toast interno: `vX available`, `Up to date (latest vX)` o `Update check failed`. `u` funciona también en el modo compacto, pero allí no se dibuja el diálogo; la instalación requiere una ventana de al menos 48×22. La comprobación iniciada desde la bandeja muestra un toast nativo de Windows (ver §12).
-- **Diálogo de actualización:** modal `Update available` con la transición `vActual → vNueva` en el tono apagado del texto secundario (estática en el diálogo de elección; en progreso un brillo suave la recorre), una etiqueta `Installed · <carpeta>` o `Portable · tuick-tack.exe`, un bloque vertical `Type` con la copia en uso primero y seleccionada (`Installed` o `In use`) y la otra debajo (`Not installed` o `Not in use`; `Not available` si falta el asset). `↑`/`↓` y `Tab` cambian el tipo (Tab no se anuncia en el hint); `←`/`→` mueven el foco entre la fila horizontal `install`/`download`, `github` y `later`; `Enter` ejecuta. Si la release no trae el otro tipo, su fila muestra `Not available` y no se puede seleccionar. Al elegir la otra copia, el aviso `This is not the copy you use.` y `Your settings, presets and sounds / and theme will carry over.` aparece entre el bloque y los botones; no hay pantalla de confirmación aparte. `g` abre GitHub, `Esc` cierra y el hint usa `[Enter] select`; `d`/`i` ya no existen. Las flechas no se anuncian como atajo. Mientras se instala, el modal pasa a progreso (`Downloading…`, `Verifying…`, `Installing…`) con barra, porcentaje y pasos `Download · Verify · Install · Reopen`. Si hay un countdown corriendo o pausado, aparece `Countdown active` con el tiempo que se perderá y `[Enter] continue` / `[Esc] back`; el daemon exige el `force` de esa segunda confirmación. El resultado del portable muestra la ruta en Descargas, `[o] open folder` y `[Enter] close`; un fallo muestra `Update failed` con `[Enter] try again`, `[g] github` y `[Esc] close`.
+- **Diálogo de actualización:** modal `Update available` con la transición `vActual → vNueva` en el tono apagado del texto secundario (estática en el diálogo de elección; en progreso un brillo suave la recorre), una etiqueta `Installed · <carpeta>` o `Portable · tuick-tack.exe` y los dos tipos en una fila compacta: la copia en uso primera y seleccionada (`› Setup · Installed` o `› Portable · In use`) y la otra al lado (`Portable · Not in use`, `Not installed` o `Not available` si falta el asset). A 44 columnas los dos chips se apilan. `↑`/`↓` y `Tab` cambian de copia cuando la release trae ambos assets; el hint anuncia `[Tab] type` cuando cabe. `←`/`→` mueven el foco entre la fila horizontal `install`/`download`, `github` y `later`; `Enter` ejecuta. Si el otro tipo falta, su fila muestra `Not available` y no se puede seleccionar. Al elegir la otra copia aparece una sola línea en ámbar, `This is not the copy you use; settings carry over.` (dos líneas por debajo de 50 columnas); no hay confirmación aparte. Si la release trae notas utilizables, el modal crece a 22 filas a 80×24 y a 30 filas a 120×40 y añade un panel `What's new in vNueva` con cabecera de sección en acento, viñetas, 8/16 líneas visibles y barra de scroll; `PgUp`/`PgDn`, `Home`/`End` y la rueda desplazan las notas sin cambiar la copia ni las acciones. Sin notas el diálogo vuelve a 18 filas y no reserva el panel. El hint completo es `[Enter] select · [Tab] type · [PgUp/Dn] notes · [Esc] later`; si no cabe, se quitan por este orden `[g] github`, las notas y `[Tab]` (`g` sigue abriendo GitHub y el botón `github` está a la vista). `g` abre GitHub, `Esc` cierra; `d`/`i` ya no existen y las flechas no se anuncian como atajo. Mientras se instala, el modal pasa a progreso (`Downloading…`, `Verifying…`, `Installing…`) con barra, porcentaje y pasos `Download · Verify · Install · Reopen`. Si hay un countdown corriendo o pausado, aparece `Countdown active` con el tiempo que se perderá y `[Enter] continue` / `[Esc] back`; el daemon exige el `force` de esa segunda confirmación. El resultado del portable muestra la ruta en Descargas, `[o] open folder` y `[Enter] close`; un fallo muestra `Update failed` con `[Enter] try again`, `[g] github` y `[Esc] close`.
 
 ### Layout
 
@@ -244,6 +246,7 @@ Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pa
 | Finished | `Enter`/`Esc` cierran; `r` repiten; `v` sonido; `u` busca actualizaciones |
 | Sonido | `↑/↓` sonido; `←/→` volumen ±5; `Space` preview; `m` mute; `Esc`/`Enter` cerrar |
 | Gestor | `↑/↓` mover; `Tab` acciones; `←/→` elegir acción; `Enter` iniciar (lista) o ejecutar (acción); `a` añadir; `e` editar; `d` borrar; `r` defaults; `Esc` cerrar; en formulario `Tab` campo, `Enter` guardar, `Esc` cancelar |
+| Actualización | `↑/↓` o `Tab` tipo; `←/→` acción; `PgUp`/`PgDn` notas; `Home`/`End` principio/final; rueda notas; `Enter` ejecutar; `g` GitHub; `Esc` cerrar |
 
 ### Parser de duraciones
 
@@ -374,7 +377,8 @@ Quit
 - Solo builds de release: `buildinfo.Version == "dev"` no comprueba automáticamente; la comprobación manual sí funciona en `dev`, pero `install_update` y `download_portable` se rechazan en builds `dev` porque el ejecutable es temporal. `tuick-tack --check-updates` hace una pasada y la imprime.
 - Comparación semver propia (`internal/update`): acepta `v`, ignora metadata de build, pre-release antes que release; `dev` ordena antes que cualquier versión.
 - La release expone los assets estables `tuick-tack-setup.exe`, `tuick-tack.exe` y `SHA256SUMS.txt`; `internal/update` los localiza por nombre y calcula el SHA-256 con el `digest` del asset o con el fichero de checksums. Si faltan, la acción correspondiente queda deshabilitada y solo se ofrece la página de la release.
-- El resultado se cachea en memoria (con los assets), viaja en el `hello` y se emite como `update` cuando aparece. La TUI lo revalida contra su propia versión.
+- El resultado se cachea en memoria (con los assets y el `body` de la release), viaja en el `hello` y se emite como `update` cuando aparece. La TUI lo revalida contra su propia versión.
+- **Notas de la release:** `internal/update` lee `body` del JSON, normaliza los saltos de línea y lo recorta a 16 KiB por límite de rune. La TUI muestra la sección entre el primer `##` que menciona `What's new` y el siguiente `##`; si no existe, cae al body completo. El renderizado (`internal/tui/notes`) quita Markdown, HTML, entidades, ANSI, emojis y cualquier runa que no sea de una celda, y envuelve a 56/34 columnas con sangría colgante.
 - **Instalar update:** el daemon descarga el setup en `%LOCALAPPDATA%\tuick-tack\updates`, verifica el SHA-256 y exige `force` si hay un countdown corriendo o pausado. Después copia el ejecutable actual a un helper temporal, lo arranca oculto y cierra el daemon con `daemon_closing{reason:"update"}`. El helper espera a que el daemon y la TUI liberen sus mutex, ejecuta el setup con `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS`, busca la copia instalada (entrada de desinstalación de Inno) y reabre la TUI. Si el setup falla, relanza la copia anterior y muestra un toast.
 - **Descargar portable:** el daemon descarga `tuick-tack.exe`, verifica el SHA-256 y lo guarda como `tuick-tack-vX.Y.Z.exe` en la carpeta Downloads del usuario (`FOLDERID_Downloads`). No reinicia ni cierra nada; la TUI muestra la ruta y ofrece abrirla en Explorer.
 - Privacidad: una petición HTTPS anónima por comprobación, `User-Agent: tuick-tack/<versión>`, sin telemetría propia. Las descargas solo ocurren tras una confirmación explícita.
@@ -420,6 +424,7 @@ Quit
 - `internal/tui/canvas`: rejilla de celdas `{ch rune; fg, bg color.RGBA; bold bool}` con `Set`, `Text`, `Box`, `Fill`, `Gradient`, `Blit`, `Center`, `Dim` (scrim de modales) y `Render() string` (ANSI SGR 24-bit, reset por fila, sin runas anchas).
 - `internal/tui/bigfont`: fuente 7×5 para `0-9 : T I E M P O ¡ !`; dibuja con gradiente por fila y sombra.
 - `internal/tui/theme`: paletas y utilidades de mezcla/lerp.
+- `internal/tui/notes`: extrae la sección `What's new` del body de la release, quita Markdown/HTML/ANSI/emoji y envuelve el texto a celdas; el resultado lo pinta el diálogo de actualización con scroll.
 - `internal/tui/fx`: polvo ambiental y sistema de partículas del confeti.
 - `View()` de Bubble Tea devuelve `tea.NewView(canvas.Render())`; alt screen y mouse se declaran según la API v2.
 - Se redibuja solo cuando hay cambios o tick: 10 Hz normal, 30 fps en celebración, 10 Hz para el polvo.
@@ -453,6 +458,7 @@ internal/
     app.go                    # Bubble Tea model/update
     view.go                   # pantallas y layout
     copy/                     # todo el copy de la UI
+    notes/                    # sección What's new -> líneas de una celda
     canvas/
     bigfont/
     theme/
@@ -514,15 +520,16 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - `engine`: reloj falso; start/pause/resume/adjust/finish una vez/replace/restart; `finish_seq`.
 - `protocol`: round-trip JSON, versión, errores, comandos de sonido y volumen, `update`, `check_update`/`update_result`, `install_update`/`download_portable`, `update_progress`, `daemon_closing` con motivo y tolerancia a tipos desconocidos.
 - `ipc`: pipe de test con nombre único, handshake con `update`, start/pause/stop, broadcast, múltiples clientes, reconexión y aviso final entregado antes de cerrar el pipe.
-- `update`: comparación semver y pre-releases, GET contra `httptest` (200/404/403/JSON roto/timeout), `User-Agent`, assets estables/digest, descarga TLS con progreso, SHA-256 correcto e incorrecto, checksums y rechazo de URLs no HTTPS.
+- `update`: comparación semver y pre-releases, GET contra `httptest` (200/404/403/JSON roto/timeout), `User-Agent`, assets estables/digest, `body`/notas con normalización de CRLF y recorte a 16 KiB en límite de rune, descarga TLS con progreso, SHA-256 correcto e incorrecto, checksums y rechazo de URLs no HTTPS.
 - `install`: nombre visible, `InstallLocation`/`DisplayIcon`/`UninstallString`, comparación de rutas.
 - `updater`: copia del helper a un directorio temporal; el lanzamiento real del setup se prueba a mano.
 - `notify`: construcción del `Notification` (AUMID, título, cuerpo, URL de activación, duración) y validación; el COM real se prueba a mano.
 - `browser`: solo `https`, rechazo de `http`, `file` y `javascript`.
 - `canvas`/`bigfont`: dimensiones, clipping, ancho de runas, gradiente.
 - `fx`: RNG con semilla, física, caducidad, sin NaN, límites.
-- `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único; parseo y migración del valor de autostart; catálogo de sonidos, escalado PCM y caché; caché de la release y comprobación manual (up to date / available / failed) contra `httptest`; notificación inyectada solo para la bandeja; `Quit` idempotente y marcado como cierre pedido por el usuario; payload con capacidades setup/portable; rechazos de instalación (`unavailable`, `busy`, `unsupported`, `timer_active`) y descarga+spawn con un `spawnUpdater` inyectado.
-- `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; modal de sonido; aviso de actualización (degradado animado con `animTime`, flecha, fallback corto, hover, click y modo compacto); `u` abre el diálogo si hay release o comprueba si no; diálogo en 48×22/80×24/120×40 con bloque vertical de tipo (copia en uso primero, estados `Installed`/`Not installed`/`In use`/`Not in use`/`Not available`), selección con `↑`/`↓` y `Tab`, fila horizontal de acciones con `←`/`→`, aviso de la otra copia con settings, aviso de countdown, progreso, resultado portable y fallo; `Enter`/`g`/`Esc`; aviso secundario `[u] update to vX`; celebración una vez por `finish_seq`; cierre por `daemon_closing` (quit/update) sin reconexión.
+- `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único; parseo y migración del valor de autostart; catálogo de sonidos, escalado PCM y caché; caché de la release (incluidas las notas) y comprobación manual (up to date / available / failed) contra `httptest`; notificación inyectada solo para la bandeja; `Quit` idempotente y marcado como cierre pedido por el usuario; payload con capacidades setup/portable y notas; rechazos de instalación (`unavailable`, `busy`, `unsupported`, `timer_active`) y descarga+spawn con un `spawnUpdater` inyectado.
+- `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; modal de sonido; aviso de actualización (degradado animado con `animTime`, flecha, fallback corto, hover, click y modo compacto); `u` abre el diálogo si hay release o comprueba si no; diálogo en 48×22/80×24/120×40 con chips de tipo en una fila (copia en uso primero, estados `Installed`/`Not installed`/`In use`/`Not in use`/`Not available`; apilados a 44 columnas), selección con `↑`/`↓` y `Tab`, fila horizontal de acciones con `←`/`→`, aviso de la otra copia en una línea, aviso de countdown, progreso, resultado portable y fallo; panel de notas con `What's new`, scroll por `PgUp`/`PgDn`/`Home`/`End`/rueda, barra de scroll, hint dinámico (`[Tab] type`, `[PgUp/Dn] notes`, `[g] github` según ancho y assets) y vuelta a 18 filas sin notas; `Enter`/`g`/`Esc`; aviso secundario `[u] update to vX`; celebración una vez por `finish_seq`; cierre por `daemon_closing` (quit/update) sin reconexión.
+- `notes`: extracción de `What's new` (incluida la apóstrofe tipográfica) y fallback al body completo; tablas, enlaces, imágenes, énfasis, code fences, blockquotes y callouts; limpieza de ANSI, controles, emojis, CJK, bidi y entidades; wrapping con sangría colgante, palabras largas y anchos 20/36/56, todo de una celda.
 - Comandos: `go test ./...`, `go vet ./...`, `gofmt -l .`.
 
 ### Manual
@@ -543,10 +550,11 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 14. Actualizar por encima de una instalación existente: se conserva el autostart y la config; la versión de Aplicaciones cambia. El setup silencioso no abre el asistente ni lanza la app por su cuenta.
 15. Compilar con `-Version v0.3.0 -Installer`, salir antes del daemon de la bandeja y abrir: aparece `[Update available]` junto a la marca, el ítem en la bandeja y el click abre el diálogo. `--check-updates` imprime el resultado. Sin red, arranca normal y no avisa de errores.
 16. Con una release real, pulsar `u`: la línea de estado muestra `Checking for updates…`, luego un toast interno (`vX available`, `Up to date…` o `Update check failed`) y el ítem de la bandeja refleja el mismo resultado. Repetirlo desde **Check for updates** de la bandeja: además debe salir un toast nativo de Windows; el de una release nueva abre la página al pulsar el cuerpo. La `u` debe verse atenuada debajo de los atajos, con una fila en blanco en medio, a 80×24.
-17. Diálogo de actualización en la copia portable: la fila `Portable` sale arriba como `In use` y seleccionada; `↓` elige `Setup` (`Not installed`), aparece el aviso de la otra copia y la fila horizontal pasa a `install`. `Enter` en `download` guarda `tuick-tack-vX.Y.Z.exe` en Descargas, muestra la ruta y `[o] open folder`; el timer sigue corriendo y la app no se cierra. En la copia instalada ocurre al revés: `Setup` arriba como `Installed`, `Portable` como `Not in use`; `Enter` en `install` descarga el setup, pide confirmación si hay countdown, cierra la app, ejecuta el setup en silencio y reabre la TUI. Probar también un fallo de red y un checksum incorrecto: la versión vieja sigue.
+17. Diálogo de actualización en la copia portable: el chip `Portable` sale primero como `In use` y seleccionado; `Tab` (o `↓`) elige `Setup` (`Not installed`), aparece la línea ámbar `This is not the copy you use; settings carry over.` y la fila horizontal pasa a `install`. Si la release trae notas, el panel `What's new in vNueva` aparece con 8 líneas visibles a 80×24 y 16 a 120×40; `PgUp`/`PgDn`, `Home`/`End` y la rueda recorren las notas, la barra de scroll avanza y `Tab` sigue cambiando de copia sin perder la posición. Sin notas, el diálogo vuelve a 18 filas. `Enter` en `download` guarda `tuick-tack-vX.Y.Z.exe` en Descargas, muestra la ruta y `[o] open folder`; el timer sigue corriendo y la app no se cierra. En la copia instalada ocurre al revés: `Setup` primero como `Installed`, `Portable` como `Not in use`; `Enter` en `install` descarga el setup, pide confirmación si hay countdown, cierra la app, ejecuta el setup en silencio y reabre la TUI. Probar también un fallo de red y un checksum incorrecto: la versión vieja sigue.
 18. Desactivar las notificaciones de Tuick-Tack o activar Focus Assist: la comprobación sigue y el estado de la bandeja cambia, aunque el toast no se vea.
-19. Con la TUI abierta (con y sin timer, y con un modal abierto), pulsar **Quit** en la bandeja: la TUI sale, el icono desaparece y no reaparece un daemon. `q` sigue cerrando solo la TUI.
-20. Actualizar con un countdown corriendo: la TUI pide confirmación, el timer se pierde si se continúa y la app vuelve con el nuevo binario; la config se conserva.
+19. Abrir el diálogo de actualización a 48×22: los chips de tipo se apilan, el panel de notas muestra menos líneas y el hint cae a la forma corta; comprobar que no hay runas anchas, solapes ni texto de control con una release que tenga emojis, enlaces y tablas. Repetir con una release sin sección `What's new`: debe caer al body completo, y con una sin `body`: el diálogo vuelve a 18 filas.
+20. Con la TUI abierta (con y sin timer, y con un modal abierto), pulsar **Quit** en la bandeja: la TUI sale, el icono desaparece y no reaparece un daemon. `q` sigue cerrando solo la TUI.
+21. Actualizar con un countdown corriendo: la TUI pide confirmación, el timer se pierde si se continúa y la app vuelve con el nuevo binario; la config se conserva.
 
 ### Criterios de aceptación (v1)
 
@@ -642,11 +650,11 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 
 // daemon → cliente
 {"type":"hello","protocol":1,"app_version":"v0.2.0","config":{...},
- "update":{"latest":"v0.3.0","url":"https://github.com/Juankyyy/tuick-tack/releases/tag/v0.3.0","setup":true,"portable":true}}
+ "update":{"latest":"v0.3.0","url":"https://github.com/Juankyyy/tuick-tack/releases/tag/v0.3.0","setup":true,"portable":true,"notes":"## What's new in v0.3.0\n..."}}
 {"type":"update","latest":"v0.3.0",
- "url":"https://github.com/Juankyyy/tuick-tack/releases/tag/v0.3.0","setup":true,"portable":true}
+ "url":"https://github.com/Juankyyy/tuick-tack/releases/tag/v0.3.0","setup":true,"portable":true,"notes":"## What's new in v0.3.0\n..."}
 {"type":"update_result","current":"v0.2.0","latest":"v0.3.0",
- "url":"https://github.com/Juankyyy/tuick-tack/releases/tag/v0.3.0","setup":true,"portable":true}
+ "url":"https://github.com/Juankyyy/tuick-tack/releases/tag/v0.3.0","setup":true,"portable":true,"notes":"## What's new in v0.3.0\n..."}
 {"type":"update_progress","kind":"setup","phase":"downloading","received":1048576,"total":5596614}
 {"type":"update_progress","kind":"portable","phase":"done","path":"C:\\Users\\A\\Downloads\\tuick-tack-v0.3.0.exe"}
 {"type":"daemon_closing","reason":"update"}

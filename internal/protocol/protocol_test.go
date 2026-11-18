@@ -92,7 +92,7 @@ func TestStateWithoutDeadline(t *testing.T) {
 func TestHelloAndConfigRoundTrip(t *testing.T) {
 	c := config.Default()
 	c.Theme = config.ThemeMono
-	upd := &UpdatePayload{Latest: "v0.2.0", URL: "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0"}
+	upd := &UpdatePayload{Latest: "v0.2.0", URL: "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0", Notes: "## What's new\n\n- Faster\n"}
 	hello := NewHello("dev", c, upd)
 	data, _ := json.Marshal(hello)
 	back, err := DecodeServer(data)
@@ -103,7 +103,7 @@ func TestHelloAndConfigRoundTrip(t *testing.T) {
 	if !ok || h.Protocol != Version || h.Config.Theme != config.ThemeMono ||
 		len(h.Config.Presets) != 3 || h.Config.SoundName != c.SoundName ||
 		h.Config.Volume != c.Volume || h.Update == nil || h.Update.Latest != "v0.2.0" ||
-		h.Update.URL != upd.URL {
+		h.Update.URL != upd.URL || h.Update.Notes != upd.Notes {
 		t.Fatalf("unexpected hello: %#v", back)
 	}
 
@@ -121,14 +121,14 @@ func TestHelloAndConfigRoundTrip(t *testing.T) {
 }
 
 func TestUpdateRoundTrip(t *testing.T) {
-	upd := UpdatePayload{Latest: "v0.2.0", URL: "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0"}
+	upd := UpdatePayload{Latest: "v0.2.0", URL: "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0", Notes: "## What's new\n- Faster\n"}
 	data, _ := json.Marshal(NewUpdate(upd))
 	back, err := DecodeServer(data)
 	if err != nil {
 		t.Fatalf("DecodeServer: %v", err)
 	}
 	um, ok := back.(UpdateMessage)
-	if !ok || um.Type != TypeUpdate || um.Latest != upd.Latest || um.URL != upd.URL {
+	if !ok || um.Type != TypeUpdate || um.Latest != upd.Latest || um.URL != upd.URL || um.Notes != upd.Notes {
 		t.Fatalf("unexpected update: %#v", back)
 	}
 
@@ -147,6 +147,7 @@ func TestUpdateResultRoundTrip(t *testing.T) {
 		Current: "v0.1.2",
 		Latest:  "v0.2.0",
 		URL:     "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0",
+		Notes:   "## What's new\n- Faster\n",
 	})
 	data, _ := json.Marshal(res)
 	back, err := DecodeServer(data)
@@ -155,7 +156,7 @@ func TestUpdateResultRoundTrip(t *testing.T) {
 	}
 	rm, ok := back.(UpdateResultMessage)
 	if !ok || rm.Type != TypeUpdateResult || rm.Current != res.Current ||
-		rm.Latest != res.Latest || rm.URL != res.URL || rm.Error != "" {
+		rm.Latest != res.Latest || rm.URL != res.URL || rm.Notes != res.Notes || rm.Error != "" {
 		t.Fatalf("unexpected result: %#v", back)
 	}
 
@@ -227,13 +228,13 @@ func TestUpdateProgressRoundTrip(t *testing.T) {
 }
 
 func TestUpdatePayloadCapabilities(t *testing.T) {
-	payload := UpdatePayload{Latest: "v9", URL: "https://example.test", Setup: true, Portable: true}
+	payload := UpdatePayload{Latest: "v9", URL: "https://example.test", Setup: true, Portable: true, Notes: "notes"}
 	data, _ := json.Marshal(payload)
 	var back UpdatePayload
 	if err := json.Unmarshal(data, &back); err != nil {
 		t.Fatal(err)
 	}
-	if !back.Setup || !back.Portable {
+	if !back.Setup || !back.Portable || back.Notes != payload.Notes {
 		t.Fatalf("payload = %+v", back)
 	}
 }

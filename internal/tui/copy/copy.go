@@ -42,7 +42,6 @@ const (
 	UpdateHintNew    = Key("hint.update.new")
 
 	UpdateFromTo             = Key("update.fromto")
-	UpdateType               = Key("update.type")
 	UpdateTypeSetup          = Key("update.type.setup")
 	UpdateTypePortable       = Key("update.type.portable")
 	UpdateStatusInstalled    = Key("update.status.installed")
@@ -50,9 +49,7 @@ const (
 	UpdateStatusInUse        = Key("update.status.inuse")
 	UpdateStatusNotInUse     = Key("update.status.notinuse")
 	UpdateStatusNotInRelease = Key("update.status.notinrelease")
-	UpdateOtherBody          = Key("update.other.body")
-	UpdateOtherKeep1         = Key("update.other.keep1")
-	UpdateOtherKeep2         = Key("update.other.keep2")
+	UpdateOtherShort         = Key("update.other.short")
 	UpdateCurrentSetup       = Key("update.current.setup")
 	UpdateCurrentPortable    = Key("update.current.portable")
 	UpdateInstallShort       = Key("update.install.short")
@@ -100,6 +97,15 @@ const (
 	UpdateWait               = Key("update.wait")
 	UpdateStepsSetup         = Key("update.steps.setup")
 	UpdateStepsPortable      = Key("update.steps.portable")
+	UpdateNotesTitle         = Key("update.notes.title")
+	UpdateHintSelect         = Key("update.hint.select")
+	UpdateHintTab            = Key("update.hint.tab")
+	UpdateHintNotes          = Key("update.hint.notes")
+	UpdateHintGithub         = Key("update.hint.github")
+	UpdateHintLater          = Key("update.hint.later")
+	UpdateHintWarn           = Key("update.hint.warn")
+	UpdateHintPortable       = Key("update.hint.portable")
+	UpdateHintFailed         = Key("update.hint.failed")
 
 	NotifyFoundTitle    = Key("notify.found.title")
 	NotifyFoundBody     = Key("notify.found.body")
@@ -292,7 +298,6 @@ var texts = map[Key]string{
 	UpdateHintNew:    "[u] update to %s",
 
 	UpdateFromTo:             "%s → %s",
-	UpdateType:               "Type",
 	UpdateTypeSetup:          "Setup",
 	UpdateTypePortable:       "Portable",
 	UpdateStatusInstalled:    "Installed",
@@ -300,9 +305,7 @@ var texts = map[Key]string{
 	UpdateStatusInUse:        "In use",
 	UpdateStatusNotInUse:     "Not in use",
 	UpdateStatusNotInRelease: "Not available",
-	UpdateOtherBody:          "This is not the copy you use.",
-	UpdateOtherKeep1:         "Your settings, presets and sounds",
-	UpdateOtherKeep2:         "and theme will carry over.",
+	UpdateOtherShort:         "This is not the copy you use; settings carry over.",
 	UpdateCurrentSetup:       "Updates this copy.",
 	UpdateCurrentPortable:    "Saves the new .exe to Downloads.",
 	UpdateInstallShort:       "install",
@@ -350,6 +353,15 @@ var texts = map[Key]string{
 	UpdateWait:               "This may take a moment.",
 	UpdateStepsSetup:         "Download · Verify · Install · Reopen",
 	UpdateStepsPortable:      "Download · Verify · Done",
+	UpdateNotesTitle:         "What's new in %s",
+	UpdateHintSelect:         "[Enter] select",
+	UpdateHintTab:            "[Tab] type",
+	UpdateHintNotes:          "[PgUp/Dn] notes",
+	UpdateHintGithub:         "[g] github",
+	UpdateHintLater:          "[Esc] later",
+	UpdateHintWarn:           "[Enter] continue · [Esc] back",
+	UpdateHintPortable:       "[o] open folder · [Enter] close",
+	UpdateHintFailed:         "[Enter] try again · [g] github · [Esc] close",
 	NotifyFoundTitle:         "Update available",
 	NotifyFoundBody:          "Version %s is available. Click to open the release page.",
 	NotifyUpToDateTitle:      "You're up to date",
@@ -412,7 +424,7 @@ var texts = map[Key]string{
 	HelpTimer:  "[Space] pause/resume · [Esc] cancel · [+/-] adjust 1 min",
 	HelpModal:  "[p] presets · [t] theme · [v] sound · [?] help · [q] quit",
 	HelpClose:  "[Esc] or [Enter] to close",
-	HelpUpdate: "updates: [u] check for a new release",
+	HelpUpdate: "updates: [u] check · dialog: [Tab] type · [PgUp/Dn] notes",
 
 	PresetsTitle:      "Presets",
 	PresetsEmpty:      "No presets yet. Press [a] to add one.",

@@ -55,7 +55,7 @@ internal/
   browser/              ShellExecuteW for https links
   notify/               native Windows toasts (WinRT, AUMID)
   tray/                 systray menu, icons, tooltip
-  tui/                  Bubble Tea model/view, canvas, bigfont, theme, fx
+  tui/                  Bubble Tea model/view, canvas, bigfont, theme, fx, copy, notes
 installer/              Inno Setup script and branded wizard images
 assets/                 sounds/*.wav, icon.ico, icons/, banner.txt, banner-compact.txt, banner.png, screenshot.png
 tools/                  gen-sounds, gen-icons, gen-banner, gen-installer
@@ -130,6 +130,10 @@ La fuente funcional es `SPEC.md`; este documento manda en el proceso.
   (patch por defecto si no se indica versión); adjuntar los dos `.exe` y `SHA256SUMS.txt`.
   Notas en inglés, manuales, con el formato de las releases anteriores e indicando que
   quien venga de una versión sin actualizador debe instalar esta una vez.
+- **Notas en la app**: el diálogo de actualización muestra la sección `## What's new` del
+  `body` de la release, desde ese encabezado hasta el siguiente `##`; mantenerla al
+  principio de cada release. Si falta, la app cae al body completo. `internal/update`
+  recorta el body a 16 KiB y lo envía como `notes` (campo aditivo; no sube `Protocol`).
 - **Procedimiento**: verificar `dev` (diff `main..dev`, `go vet`, `go test`, `go build`),
   actualizar `winres/winres.json` (FileVersion/ProductVersion) y regenerar el `.syso`,
   actualizar docs, merge/push a `main`, tag, compilar desde `main` con `-Installer`,

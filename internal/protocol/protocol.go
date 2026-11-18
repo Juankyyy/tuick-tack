@@ -134,12 +134,15 @@ func (HelloMessage) isServerMessage() {}
 
 // UpdatePayload is the latest release the daemon knows about. It is carried by
 // the handshake and by the update broadcast. Setup and Portable say which
-// download actions the release supports.
+// download actions the release supports. Notes is the release body (Markdown)
+// trimmed to a display-sized cap; it is additive, so an older client ignores it
+// and an older daemon simply omits it.
 type UpdatePayload struct {
 	Latest   string `json:"latest"`
 	URL      string `json:"url"`
 	Setup    bool   `json:"setup,omitempty"`
 	Portable bool   `json:"portable,omitempty"`
+	Notes    string `json:"notes,omitempty"`
 }
 
 // UpdateMessage announces a newer release. The TUI and the tray turn it into a
@@ -160,6 +163,7 @@ type UpdateResultMessage struct {
 	URL      string `json:"url,omitempty"`
 	Setup    bool   `json:"setup,omitempty"`
 	Portable bool   `json:"portable,omitempty"`
+	Notes    string `json:"notes,omitempty"`
 	Error    string `json:"error,omitempty"`
 }
 

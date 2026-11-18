@@ -29,6 +29,7 @@ func TestUpdateCache(t *testing.T) {
 	info := update.Info{
 		Version: "v0.2.0",
 		URL:     "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0",
+		Notes:   "## What's new\n\n- Faster\n",
 	}
 	d.setUpdate(info)
 
@@ -37,7 +38,7 @@ func TestUpdateCache(t *testing.T) {
 		t.Fatalf("UpdateAvailable = %q, %q, %v", latest, url, ok)
 	}
 	p := d.Update()
-	if p == nil || p.Latest != info.Version || p.URL != info.URL {
+	if p == nil || p.Latest != info.Version || p.URL != info.URL || p.Notes != info.Notes {
 		t.Fatalf("Update = %+v", p)
 	}
 
@@ -57,8 +58,9 @@ func TestManualUpdateCheck(t *testing.T) {
 	defer func() { buildinfo.Version = oldVersion }()
 
 	tag := "v1.0.0"
+	body := "## What's new in " + tag + "\n\n- Faster\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = fmt.Fprintf(w, `{"tag_name":%q,"html_url":"https://example.test/releases/tag/%s"}`, tag, tag)
+		_, _ = fmt.Fprintf(w, `{"tag_name":%q,"html_url":"https://example.test/releases/tag/%s","body":%q}`, tag, tag, body)
 	}))
 	defer srv.Close()
 
@@ -82,6 +84,9 @@ func TestManualUpdateCheck(t *testing.T) {
 	}
 	if latest, _, ok := d.UpdateAvailable(); !ok || latest != tag {
 		t.Fatalf("UpdateAvailable = %q, %v", latest, ok)
+	}
+	if p := d.Update(); p == nil || p.Notes != strings.TrimSpace(body) {
+		t.Fatalf("Update notes = %+v, want %q", p, body)
 	}
 
 	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
