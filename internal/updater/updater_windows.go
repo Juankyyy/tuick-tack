@@ -157,20 +157,14 @@ func updateDir() (string, error) {
 }
 
 func runSetup(logger *log.Logger, setupPath string) error {
-	cache, err := os.UserCacheDir()
-	if err == nil {
+	logPath := ""
+	if cache, err := os.UserCacheDir(); err == nil {
 		logs := filepath.Join(cache, "tuick-tack", "logs")
-		_ = os.MkdirAll(logs, 0o700)
+		if err := os.MkdirAll(logs, 0o700); err == nil {
+			logPath = filepath.Join(logs, "setup.log")
+		}
 	}
-	args := []string{
-		"/VERYSILENT",
-		"/SUPPRESSMSGBOXES",
-		"/NORESTART",
-		"/CLOSEAPPLICATIONS",
-	}
-	if err == nil {
-		args = append(args, `/LOG="`+filepath.Join(cache, "tuick-tack", "logs", "setup.log")+`"`)
-	}
+	args := setupArgs(logPath)
 	cmd := exec.Command(setupPath, args...)
 	cmd.Dir = filepath.Dir(setupPath)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
@@ -179,6 +173,24 @@ func runSetup(logger *log.Logger, setupPath string) error {
 		return err
 	}
 	return nil
+}
+
+// setupArgs builds the silent setup arguments. The log path is passed as
+// /LOG=<path> without manual quotes: exec.Command already quotes the argument
+// when it contains spaces, while literal quotes make Inno Setup reject the
+// path and exit before it creates the log. That was the silent update failure
+// in v0.2.1 and v0.2.2.
+func setupArgs(logPath string) []string {
+	args := []string{
+		"/VERYSILENT",
+		"/SUPPRESSMSGBOXES",
+		"/NORESTART",
+		"/CLOSEAPPLICATIONS",
+	}
+	if logPath != "" {
+		args = append(args, "/LOG="+logPath)
+	}
+	return args
 }
 
 // installedExecutable returns the copy the installer registered, falling back
