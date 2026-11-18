@@ -1010,6 +1010,8 @@ func (m *Model) drawModal(c *canvas.Canvas, base rect) {
 		m.drawSound(c, base)
 	case modalUpdate:
 		m.drawUpdate(c, base)
+	case modalStats:
+		m.drawStats(c, base)
 	}
 }
 
@@ -1032,7 +1034,7 @@ func (m *Model) drawOverlay(c *canvas.Canvas, r rect, title string) {
 }
 
 func (m *Model) drawHelp(c *canvas.Canvas, base rect) {
-	r := m.modalRect(base, 70, 16)
+	r := m.modalRect(base, 70, 17)
 	m.drawOverlay(c, r, copy.T(copy.HelpTitle))
 	lines := []struct {
 		text string
@@ -1047,6 +1049,7 @@ func (m *Model) drawHelp(c *canvas.Canvas, base rect) {
 		{copy.T(copy.HelpFormats), m.pal.Muted},
 		{copy.T(copy.HelpFinished), m.pal.Muted},
 		{copy.T(copy.HelpUpdate), m.pal.Muted},
+		{copy.T(copy.HelpQuit), m.pal.Muted},
 	}
 	y := r.y + 3
 	for _, line := range lines {

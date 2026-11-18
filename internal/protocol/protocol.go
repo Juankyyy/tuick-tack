@@ -71,6 +71,13 @@ const (
 	// that the daemon is shutting down on purpose, so they exit instead of
 	// reconnecting and launching a new daemon.
 	TypeDaemonClosing = "daemon_closing"
+
+	// TypeGetStats asks for the aggregated session history. It is additive: an
+	// older daemon answers invalid_command and the TUI closes the tab again.
+	TypeGetStats = "get_stats"
+	// TypeStats is the reply to get_stats and is sent only to the client that
+	// asked, like update_result.
+	TypeStats = "stats"
 )
 
 // Reasons carried by TypeDaemonClosing.
@@ -213,6 +220,96 @@ type DaemonClosingMessage struct {
 
 func (DaemonClosingMessage) isServerMessage() {}
 
+// StatsMessage answers get_stats with the daemon's aggregated history. The
+// payload is precomputed so the TUI only has to draw it.
+type StatsMessage struct {
+	Type  string       `json:"type"`
+	Stats StatsPayload `json:"stats"`
+}
+
+func (StatsMessage) isServerMessage() {}
+
+// StatsPayload is the whole Statistics tab in one message (~8 KiB).
+type StatsPayload struct {
+	// Daily covers the last 180 local days, oldest first.
+	Daily []StatsDay `json:"daily"`
+	// Hourly has 24 buckets by local start hour.
+	Hourly []StatsBucket `json:"hourly"`
+	// Weekday has 7 buckets, Monday first.
+	Weekday []StatsBucket `json:"weekday"`
+	// Labels are the most used labels by total focus time.
+	Labels []StatsLabel `json:"labels"`
+	// Records are the all-time highlights.
+	Records StatsRecords `json:"records"`
+	// Recent holds the newest sessions, newest first.
+	Recent []StatsEvent `json:"recent"`
+	// Totals are the precomputed range summaries.
+	Totals StatsTotals `json:"totals"`
+	// Retained is how many records the store kept.
+	Retained int `json:"retained"`
+}
+
+// StatsDay is one local calendar day of focus time.
+type StatsDay struct {
+	Date string `json:"date"`
+	MS   int64  `json:"ms"`
+	N    int    `json:"n"`
+}
+
+// StatsBucket aggregates time and session count for an hour or weekday.
+type StatsBucket struct {
+	MS int64 `json:"ms"`
+	N  int   `json:"n"`
+}
+
+// StatsLabel groups the sessions that shared a label.
+type StatsLabel struct {
+	Label     string `json:"label"`
+	MS        int64  `json:"ms"`
+	N         int    `json:"n"`
+	Completed int    `json:"completed"`
+	Stopped   int    `json:"stopped"`
+}
+
+// StatsEvent is one session in the recent list.
+type StatsEvent struct {
+	StartedMS int64  `json:"started_ms"`
+	PlannedMS int64  `json:"planned_ms"`
+	ElapsedMS int64  `json:"elapsed_ms"`
+	Label     string `json:"label"`
+	Outcome   string `json:"outcome"`
+}
+
+// StatsTotals holds one summary per selectable range.
+type StatsTotals struct {
+	All StatsRange `json:"all"`
+	D7  StatsRange `json:"d7"`
+	D30 StatsRange `json:"d30"`
+	D90 StatsRange `json:"d90"`
+}
+
+// StatsRange is a session summary for a time window. MS sums the real elapsed
+// time, so sessions that were stopped early still count what they focused.
+type StatsRange struct {
+	Sessions  int   `json:"sessions"`
+	Completed int   `json:"completed"`
+	Stopped   int   `json:"stopped"`
+	Replaced  int   `json:"replaced"`
+	MS        int64 `json:"ms"`
+}
+
+// StatsRecords are the all-time highlights shown in the overview.
+type StatsRecords struct {
+	StreakDays     int    `json:"streak_days"`
+	BestStreakDays int    `json:"best_streak_days"`
+	LongestMS      int64  `json:"longest_ms"`
+	LongestLabel   string `json:"longest_label,omitempty"`
+	// BusiestWeekday is Monday=0..Sunday=6, or -1 with no sessions.
+	BusiestWeekday int `json:"busiest_weekday"`
+	// BusiestHour is 0..23, or -1 with no sessions.
+	BusiestHour int `json:"busiest_hour"`
+}
+
 // IgnoredMessage is returned by DecodeServer for a message type this build does
 // not know. Additive server messages must not break older clients.
 type IgnoredMessage struct{}
@@ -294,6 +391,11 @@ func NewDaemonClosing(reason ...string) DaemonClosingMessage {
 func NewUpdateProgress(m UpdateProgressMessage) UpdateProgressMessage {
 	m.Type = TypeUpdateProgress
 	return m
+}
+
+// NewStats builds the reply to get_stats.
+func NewStats(p StatsPayload) StatsMessage {
+	return StatsMessage{Type: TypeStats, Stats: p}
 }
 
 // NewState converts an engine snapshot to the wire shape.
@@ -402,6 +504,12 @@ func DecodeServer(data []byte) (ServerMessage, error) {
 			return nil, err
 		}
 		return m, nil
+	case TypeStats:
+		var m StatsMessage
+		if err := json.Unmarshal(data, &m); err != nil {
+			return nil, err
+		}
+		return m, nil
 	default:
 		return IgnoredMessage{}, nil
 	}
@@ -432,7 +540,7 @@ func (m ClientMessage) Validate() *ErrorMessage {
 		}
 		return nil
 	case TypePause, TypeResume, TypeStop, TypeDismiss, TypeRestart,
-		TypePresetsRestoreDefault, TypeGetState, TypeQuitDaemon,
+		TypePresetsRestoreDefault, TypeGetState, TypeGetStats, TypeQuitDaemon,
 		TypePreviewSound, TypeStopSound, TypeCheckUpdate,
 		TypeInstallUpdate, TypeDownloadPortable:
 		return nil

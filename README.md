@@ -49,6 +49,7 @@ countdown, the sound and the tray icon keep running.
 | **Full control** | Pause, resume, add or subtract a minute, and repeat. |
 | **Always running** | The daemon owns the timer, so closing the TUI never stops a countdown. |
 | **Tray menu** | Start a preset, pause, stop, change the sound or volume, and open the TUI. |
+| **Statistics** | `s` opens a full-screen view with focus per day, a 26-week heatmap, time by hour and weekday, per-preset totals and the latest sessions. |
 | **At zero** | The selected sound at the chosen volume, an alert tray icon and full-screen confetti. |
 | **Sound pack** | Chime, Marimba, Digital and Deep; 0–100% volume in 5% steps, with preview and mute. |
 | **Three themes** | Midnight, Ember and Mono. |
@@ -64,10 +65,11 @@ countdown, the sound and the tray icon keep running.
 | Context | Keys |
 |---|---|
 | Idle | Digits, `:`, `h`, `m`, `s` type a duration; `Backspace` deletes; `Enter` starts |
-| Idle | `←` `→` select a preset; `p` presets; `t` theme; `v` sound settings; `s` mute; `u` check/install update; `?` help; `q` close |
-| Running | `Space` pause; `Esc` confirm cancel; `+` / `-` ±1 min; `v` sound settings; `?` help; `q` close |
-| Paused | `Space` resume; `Esc` confirm cancel; `+` / `-` ±1 min; `v` sound settings; `?` help |
-| Finished | `r` repeat; `v` sound settings; `Enter` / `Esc` close the celebration |
+| Idle | `←` `→` select a preset; `p` presets; `t` theme; `v` sound settings; `m` mute; `s` statistics; `u` check/install update; `?` help; `q` close |
+| Running | `Space` pause; `Esc` confirm cancel; `+` / `-` ±1 min; `v` sound settings; `m` mute; `s` statistics; `?` help; `q` close |
+| Paused | `Space` resume; `Esc` confirm cancel; `+` / `-` ±1 min; `v` sound settings; `m` mute; `s` statistics; `?` help |
+| Finished | `r` repeat; `v` sound settings; `m` mute; `s` statistics; `Enter` / `Esc` close the celebration |
+| Statistics | `←` `→` or `Tab` switch section; `1`–`4` jump; `t` range (7/30/90 days or all time); `↑` `↓` `PgUp` `PgDn` `Home` `End` or the wheel scroll; `Esc` or `s` close |
 | Sound panel | `↑` `↓` select the sound; `←` `→` volume ±5%; `Space` preview; `m` mute; `Esc` close |
 | Presets panel | `↑` `↓` move; `Tab` actions; `←` `→` choose an action; `Enter` start or run; `a` add; `e` edit; `d` delete; `r` restore defaults; `Esc` close |
 | Form | `Tab` next field; `Enter` save; `Esc` cancel |
@@ -78,8 +80,9 @@ In the app, key hints use the `[key] action` format, for example `[Space] pause`
 Duration formats: `25` = 25 minutes · `12:30` = 12 min 30 s · `90s` · `1h30m` · `1:02:03`.
 The accepted range is one second to 24 hours.
 
-> In idle, `s` adds a seconds unit when the input already contains a number (`90s`);
-> `Shift+S`, or `s` on an empty input, toggles sound. `v` opens the sound panel from any screen.
+> In idle, `s` and `m` add a unit when the input already contains a number (`90s`, `25m`);
+> on an empty (or otherwise incomplete) input, `s` opens Statistics and `m` toggles the sound.
+> `v` opens the sound panel from any screen.
 
 ## Tray
 
@@ -108,6 +111,7 @@ countdown; persistence is future work.
 ## Configuration
 
 - **Presets, theme and sound settings:** `%APPDATA%\tuick-tack\config.json`
+- **Session history for the Statistics tab:** `%APPDATA%\tuick-tack\history.jsonl`
 - **Logs and sound cache:** `%LOCALAPPDATA%\tuick-tack\` (`sounds\`, `logs\`, `updates\`)
 - **Installed copy:** `Documents\tuick-tack` when you use the installer; the uninstaller lives
   in the same folder and in Windows Settings. Uninstalling keeps your config and logs.
@@ -143,6 +147,13 @@ size stays unset until you resize the TUI.
 The remembered size is columns by rows. It is restored when the TUI starts, including in
 Windows Terminal; terminals that do not support the resize sequence keep their own size.
 Position and the maximized state are not stored.
+
+The daemon appends one line per finished countdown to `history.jsonl` (local time, planned and
+real elapsed time, label and outcome: completed, stopped or replaced). It keeps the newest 2000
+records and trims the file atomically; an unreadable file is backed up as
+`history.bad-<timestamp>.jsonl` and the history starts empty. The Statistics tab reads a
+precomputed summary over the pipe, so the TUI never parses the history. Nothing leaves the
+machine and there is no telemetry.
 
 ### CLI flags
 
@@ -226,10 +237,12 @@ Feedback and safety:
   setup path starts a short-lived helper and the portable path writes the `.exe` to Downloads.
 - On finish the daemon increments `finish_seq` once, plays the selected sound at the
   configured volume and updates the tray; the TUI celebrates when it sees the new sequence.
+- The daemon also records finished sessions and aggregates them for `get_stats`; the
+  Statistics tab is a view over that summary and adds no timer truth of its own.
 
 ```text
 cmd/tuick-tack        single entrypoint: TUI, daemon (--daemon) and update helper
-internal/             engine, IPC, config, daemon, tray, TUI, update, install metadata
+internal/             engine, IPC, config, daemon, tray, TUI, stats, update, install metadata
 installer/            Inno Setup script and branded wizard images
 assets/               sounds, icons, banner and README screenshot
 tools/                sound, icon, banner and installer-image generators

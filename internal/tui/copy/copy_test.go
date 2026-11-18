@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"tuick-tack/internal/config"
+	"tuick-tack/internal/tui/canvas"
 )
 
 func TestSoundLabelCoversConfig(t *testing.T) {
@@ -105,14 +106,55 @@ func TestKeyHintsUseBracketFormat(t *testing.T) {
 		CompactIdle, CompactRunning, CompactPaused, CompactFinished, CompactStopHint,
 		FinishedMeta, PausedMeta,
 		HelpIdle, HelpTimer, HelpModal, HelpSound, HelpFinished, HelpClose, HelpPresets,
-		HelpUpdate, UpdateHint,
+		HelpUpdate, HelpQuit, UpdateHint,
 		SoundHint, SoundActionHint,
 		PresetFormHint, PresetsEmpty, PresetsHint, PresetsActionHint,
+		StatsHint, StatsHintShort,
 	}
 	for _, key := range keys {
 		text := T(key)
 		if !strings.Contains(text, "[") || !strings.Contains(text, "]") {
 			t.Errorf("key hint %q does not use [key] labels: %q", key, text)
 		}
+	}
+}
+
+func TestStatsCopyExists(t *testing.T) {
+	keys := []Key{
+		StatsTitle, StatsOverview, StatsActivity, StatsPresets, StatsRecent,
+		StatsRange7, StatsRange30, StatsRange90, StatsRangeAll,
+		StatsLoading, StatsUnavailable,
+		StatsFocused, StatsSessions, StatsCompleted, StatsVsPrev,
+		StatsStreak, StatsBestStreak, StatsLongest, StatsBusiest,
+		StatsFocusPerDay, StatsMax, StatsHeatLess, StatsHeatMore,
+		StatsByHour, StatsByWeekday, StatsInsight, StatsWeeks,
+		StatsPresetsHead, StatsRuns, StatsMostUsed, StatsAvgSession,
+		StatsWhen, StatsPlanned, StatsLabel, StatsOutcome,
+		StatsDone, StatsStopped, StatsReplaced,
+		StatsToday, StatsYesterday, StatsShowing,
+		StatsEmptyTitle, StatsEmptyBody, StatsHint, StatsHintShort,
+		WeekdayMon, WeekdayTue, WeekdayWed, WeekdayThu, WeekdayFri, WeekdaySat, WeekdaySun,
+	}
+	for _, key := range keys {
+		if T(key) == "" || T(key) == string(key) {
+			t.Errorf("stats copy key %q has no text", key)
+		}
+		for _, r := range T(key) {
+			if !canvas.SingleCell(r) {
+				t.Errorf("stats copy %q contains a non-single-cell rune %q", key, r)
+			}
+		}
+	}
+	if got := T(StatsStreak, 4); got != "4-day streak" {
+		t.Errorf("StatsStreak = %q", got)
+	}
+	if got := WeekdayShort(0); got != "Mon" {
+		t.Errorf("WeekdayShort(0) = %q", got)
+	}
+	if got := WeekdayShort(6); got != "Sun" {
+		t.Errorf("WeekdayShort(6) = %q", got)
+	}
+	if got := WeekdayShort(9); got != "" {
+		t.Errorf("WeekdayShort(9) = %q, want empty", got)
 	}
 }

@@ -31,6 +31,7 @@ func TestClientRoundTrip(t *testing.T) {
 		{Type: TypeInstallUpdate, Force: true},
 		{Type: TypeDownloadPortable},
 		{Type: TypePause},
+		{Type: TypeGetStats},
 	}
 	for _, want := range msgs {
 		data, err := json.Marshal(want)
@@ -339,5 +340,50 @@ func TestValidate(t *testing.T) {
 				t.Fatalf("Validate() = %+v, want code %q", err, tt.code)
 			}
 		})
+	}
+}
+
+func TestStatsRoundTrip(t *testing.T) {
+	payload := StatsPayload{
+		Daily:   []StatsDay{{Date: "2026-11-18", MS: 1500000, N: 2}},
+		Hourly:  []StatsBucket{{MS: 600000, N: 1}},
+		Weekday: []StatsBucket{{MS: 900000, N: 2}},
+		Labels:  []StatsLabel{{Label: "Focus", MS: 1200000, N: 1, Completed: 1}},
+		Records: StatsRecords{
+			StreakDays: 4, BestStreakDays: 12, LongestMS: 3000000,
+			LongestLabel: "Focus", BusiestWeekday: 1, BusiestHour: 14,
+		},
+		Recent: []StatsEvent{{
+			StartedMS: 1762839120000, PlannedMS: 300000,
+			ElapsedMS: 120000, Label: "5 min", Outcome: "stopped",
+		}},
+		Totals: StatsTotals{
+			All: StatsRange{Sessions: 9, Completed: 7, Stopped: 1, Replaced: 1, MS: 9300000},
+			D7:  StatsRange{Sessions: 2, Completed: 1, MS: 1500000},
+		},
+		Retained: 9,
+	}
+	m := NewStats(payload)
+	if m.Type != TypeStats {
+		t.Fatalf("type = %q, want %q", m.Type, TypeStats)
+	}
+	data, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeServer(data)
+	if err != nil {
+		t.Fatalf("DecodeServer: %v", err)
+	}
+	back, ok := decoded.(StatsMessage)
+	if !ok {
+		t.Fatalf("decoded %T, want StatsMessage", decoded)
+	}
+	if back.Stats.Retained != 9 || len(back.Stats.Daily) != 1 ||
+		back.Stats.Records.BusiestHour != 14 || back.Stats.Recent[0].Outcome != "stopped" {
+		t.Fatalf("round trip lost data: %+v", back.Stats)
+	}
+	if err := (ClientMessage{Type: TypeGetStats}).Validate(); err != nil {
+		t.Fatalf("get_stats rejected: %+v", err)
 	}
 }

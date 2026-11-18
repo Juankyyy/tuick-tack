@@ -20,6 +20,7 @@ import (
 	"tuick-tack/internal/ipc"
 	"tuick-tack/internal/notify"
 	"tuick-tack/internal/protocol"
+	"tuick-tack/internal/stats"
 	"tuick-tack/internal/tray"
 	"tuick-tack/internal/tui/copy"
 	"tuick-tack/internal/update"
@@ -62,6 +63,17 @@ type Daemon struct {
 	// notifier is the native Windows toast used for manual checks started from
 	// the tray. Tests inject a recorder; nil disables it.
 	notifier func(title, message, launch string) error
+
+	// stats is the local session history. The daemon is its only writer; the
+	// TUI asks for a precomputed summary with get_stats.
+	stats *stats.Store
+	// now and loc are the history clocks; production leaves them nil so the
+	// system clock and local time are used. Tests inject both.
+	now func() time.Time
+	loc *time.Location
+
+	trackMu sync.Mutex
+	track   runTrack
 
 	updateMu    sync.RWMutex
 	updateInfo  update.Info
@@ -172,6 +184,17 @@ func Run() int {
 		loopDone:     make(chan struct{}),
 	}
 	d.autostart = AutostartEnabled(exePath)
+	if statsPath, err := stats.DefaultPath(); err != nil {
+		logger.Printf("stats path: %v", err)
+	} else {
+		store := stats.NewStore(statsPath)
+		if skipped, err := store.Load(); err != nil {
+			logger.Printf("stats: %v", err)
+		} else if skipped > 0 {
+			logger.Printf("stats: skipped %d invalid records", skipped)
+		}
+		d.stats = store
+	}
 	if err := d.sound.Prepare(cfg.SoundName, cfg.Volume); err != nil {
 		logger.Printf("prepare sound: %v", err)
 	}
@@ -491,35 +514,48 @@ func (d *Daemon) Command(c *ipc.Session, msg protocol.ClientMessage) {
 	case protocol.TypePause:
 		before := d.Snapshot().Status
 		if d.engine.Pause() {
-			d.publish(d.Snapshot(), before)
+			st := d.Snapshot()
+			if st.Status == engine.Paused {
+				d.pauseRun(d.timestamp())
+			}
+			d.publish(st, before)
 		}
 	case protocol.TypeResume:
 		before := d.Snapshot().Status
 		if d.engine.Resume() {
-			d.publish(d.Snapshot(), before)
+			st := d.Snapshot()
+			if st.Status == engine.Running {
+				d.resumeRun(d.timestamp())
+			}
+			d.publish(st, before)
 		}
 	case protocol.TypeStop:
-		d.sound.Stop()
-		d.engine.Stop()
-		d.server.BroadcastState(d.Snapshot())
-		d.tray.Refresh()
+		d.stopTimer()
 	case protocol.TypeDismiss:
 		d.sound.Stop()
 		if d.engine.Dismiss() {
+			d.clearRun()
 			d.server.BroadcastState(d.Snapshot())
 			d.tray.Refresh()
 		}
 	case protocol.TypeRestart:
 		d.sound.Stop()
-		before := d.Snapshot().Status
+		st := d.Snapshot()
+		if st.Status == engine.Running || st.Status == engine.Paused {
+			d.endRun(st, stats.Replaced, d.timestamp())
+		}
 		if d.engine.Restart() {
-			d.publish(d.Snapshot(), before)
+			next := d.Snapshot()
+			d.beginRun(d.timestamp(), next.Duration, next.Label, next.PresetID)
+			d.publish(next, st.Status)
 		} else {
 			c.Send(protocol.NewError(protocol.CodeInvalidCommand, "nothing to repeat"))
 		}
 	case protocol.TypeAdjust:
 		before := d.Snapshot().Status
-		if d.engine.Adjust(time.Duration(msg.DeltaSeconds) * time.Second) {
+		delta := time.Duration(msg.DeltaSeconds) * time.Second
+		if d.engine.Adjust(delta) {
+			d.adjustRun(delta)
 			d.publish(d.Snapshot(), before)
 		}
 	case protocol.TypePresetAdd:
@@ -552,6 +588,12 @@ func (d *Daemon) Command(c *ipc.Session, msg protocol.ClientMessage) {
 		d.sound.Stop()
 	case protocol.TypeGetState:
 		c.Send(protocol.NewState(d.Snapshot()))
+	case protocol.TypeGetStats:
+		if d.stats == nil {
+			c.Send(protocol.NewError(protocol.CodeInternal, "statistics unavailable"))
+			break
+		}
+		c.Send(protocol.NewStats(d.statsPayload()))
 	case protocol.TypeCheckUpdate:
 		go d.checkUpdates(c, false)
 	case protocol.TypeInstallUpdate:
@@ -572,21 +614,50 @@ func (d *Daemon) startTimer(seconds int, label, presetID string) {
 		return
 	}
 	d.sound.Stop()
-	before := d.Snapshot().Status
+	now := d.timestamp()
+	prev := d.Snapshot()
+	if prev.Status == engine.Running || prev.Status == engine.Paused {
+		d.endRun(prev, stats.Replaced, now)
+	}
 	d.engine.Start(time.Duration(seconds)*time.Second, strings.TrimSpace(label), presetID)
+	d.beginRun(now, time.Duration(seconds)*time.Second, label, presetID)
 	d.applyMu.Unlock()
-	d.publish(d.Snapshot(), before)
+	d.publish(d.Snapshot(), prev.Status)
+}
+
+// stopTimer cancels the active countdown and records it as stopped. The tray
+// and the stop command share it.
+func (d *Daemon) stopTimer() {
+	st := d.Snapshot()
+	d.sound.Stop()
+	d.engine.Stop()
+	if st.Status == engine.Running || st.Status == engine.Paused {
+		d.endRun(st, stats.Stopped, d.timestamp())
+	} else {
+		d.clearRun()
+	}
+	if d.server != nil {
+		d.server.BroadcastState(d.Snapshot())
+	}
+	if d.tray != nil {
+		d.tray.Refresh()
+	}
 }
 
 func (d *Daemon) publish(st engine.State, before engine.Status) {
 	if st.Status == engine.Finished && before != engine.Finished {
 		d.onFinish(st)
 	}
-	d.server.BroadcastState(st)
-	d.tray.Refresh()
+	if d.server != nil {
+		d.server.BroadcastState(st)
+	}
+	if d.tray != nil {
+		d.tray.Refresh()
+	}
 }
 
 func (d *Daemon) onFinish(st engine.State) {
+	d.endRun(st, stats.Completed, d.timestamp())
 	d.stopSound()
 	cfg := d.Config()
 	if cfg.Sound && cfg.Volume > 0 {
@@ -805,21 +876,26 @@ func (d *Daemon) TogglePause() {
 	switch before {
 	case engine.Running:
 		if d.engine.Pause() {
-			d.publish(d.Snapshot(), before)
+			st := d.Snapshot()
+			if st.Status == engine.Paused {
+				d.pauseRun(d.timestamp())
+			}
+			d.publish(st, before)
 		}
 	case engine.Paused:
 		if d.engine.Resume() {
-			d.publish(d.Snapshot(), before)
+			st := d.Snapshot()
+			if st.Status == engine.Running {
+				d.resumeRun(d.timestamp())
+			}
+			d.publish(st, before)
 		}
 	}
 }
 
 // Stop implements tray.Actions.
 func (d *Daemon) Stop() {
-	d.sound.Stop()
-	d.engine.Stop()
-	d.server.BroadcastState(d.Snapshot())
-	d.tray.Refresh()
+	d.stopTimer()
 }
 
 // ToggleSound implements tray.Actions.

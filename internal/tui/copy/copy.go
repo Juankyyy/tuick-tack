@@ -132,6 +132,60 @@ const (
 	HelpSound        = Key("help.sound")
 	HelpPresets      = Key("help.presets")
 
+	StatsTitle       = Key("stats.title")
+	StatsOverview    = Key("stats.overview")
+	StatsActivity    = Key("stats.activity")
+	StatsPresets     = Key("stats.presets")
+	StatsRecent      = Key("stats.recent")
+	StatsRange7      = Key("stats.range.7")
+	StatsRange30     = Key("stats.range.30")
+	StatsRange90     = Key("stats.range.90")
+	StatsRangeAll    = Key("stats.range.all")
+	StatsLoading     = Key("stats.loading")
+	StatsUnavailable = Key("stats.unavailable")
+	StatsFocused     = Key("stats.focused")
+	StatsSessions    = Key("stats.sessions")
+	StatsCompleted   = Key("stats.completed")
+	StatsVsPrev      = Key("stats.vs.prev")
+	StatsStreak      = Key("stats.streak")
+	StatsBestStreak  = Key("stats.best.streak")
+	StatsLongest     = Key("stats.longest")
+	StatsBusiest     = Key("stats.busiest")
+	StatsFocusPerDay = Key("stats.focus.day")
+	StatsMax         = Key("stats.max")
+	StatsHeatLess    = Key("stats.heat.less")
+	StatsHeatMore    = Key("stats.heat.more")
+	StatsByHour      = Key("stats.by.hour")
+	StatsByWeekday   = Key("stats.by.weekday")
+	StatsInsight     = Key("stats.insight")
+	StatsWeeks       = Key("stats.weeks")
+	StatsPresetsHead = Key("stats.presets.header")
+	StatsRuns        = Key("stats.runs")
+	StatsMostUsed    = Key("stats.most.used")
+	StatsAvgSession  = Key("stats.avg")
+	StatsWhen        = Key("stats.when")
+	StatsPlanned     = Key("stats.planned")
+	StatsLabel       = Key("stats.label")
+	StatsOutcome     = Key("stats.outcome")
+	StatsDone        = Key("stats.done")
+	StatsStopped     = Key("stats.stopped")
+	StatsReplaced    = Key("stats.replaced")
+	StatsToday       = Key("stats.today")
+	StatsYesterday   = Key("stats.yesterday")
+	StatsShowing     = Key("stats.showing")
+	StatsEmptyTitle  = Key("stats.empty.title")
+	StatsEmptyBody   = Key("stats.empty.body")
+	StatsHint        = Key("stats.hint")
+	StatsHintShort   = Key("stats.hint.short")
+
+	WeekdayMon = Key("weekday.mon")
+	WeekdayTue = Key("weekday.tue")
+	WeekdayWed = Key("weekday.wed")
+	WeekdayThu = Key("weekday.thu")
+	WeekdayFri = Key("weekday.fri")
+	WeekdaySat = Key("weekday.sat")
+	WeekdaySun = Key("weekday.sun")
+
 	SoundTitle      = Key("sound.title")
 	SoundOn         = Key("sound.on")
 	SoundOff        = Key("sound.off")
@@ -169,6 +223,7 @@ const (
 	HelpTimer  = Key("help.timer")
 	HelpModal  = Key("help.modal")
 	HelpClose  = Key("help.close")
+	HelpQuit   = Key("help.quit")
 	HelpUpdate = Key("help.update")
 
 	PresetsTitle      = Key("presets.title")
@@ -369,10 +424,10 @@ var texts = map[Key]string{
 	NotifyFailedTitle:        "Update check failed",
 	NotifyFailedBody:         "Could not reach GitHub. Try again later.",
 
-	ControlsIdle:     "[p] presets · [t] theme · [v] sound · [s] mute · [?] help · [q] quit",
-	ControlsRunning:  "[Space] pause · [Esc] cancel · [+/-] 1 min · [v] sound · [q] quit",
-	ControlsPaused:   "[Space] resume · [Esc] cancel · [+/-] 1 min · [v] sound · [q] quit",
-	ControlsFinished: "[v] sound · [?] help · [q] quit",
+	ControlsIdle:     "[p] presets · [t] theme · [v] sound · [s] stats · [?] help · [q] quit",
+	ControlsRunning:  "[Space] pause · [Esc] cancel · [+/-] 1 min · [v] sound · [s] stats",
+	ControlsPaused:   "[Space] resume · [Esc] cancel · [+/-] 1 min · [v] sound · [s] stats",
+	ControlsFinished: "[v] sound · [s] stats · [?] help · [q] quit",
 	CompactIdle:      "[Enter] start · [←→] preset · [q] quit",
 	CompactRunning:   "[Space] pause · [Esc] cancel · [q] quit",
 	CompactPaused:    "[Space] resume · [Esc] cancel · [q] quit",
@@ -384,8 +439,62 @@ var texts = map[Key]string{
 	CloseHint:        "enter close",
 	HelpFormats:      "25 min · 12:30 · 90s · 1h30m",
 	HelpFinished:     "finished: [r] repeat · [Enter] close",
-	HelpSound:        "sound: [v] settings · [s] mute · [Space] preview",
+	HelpSound:        "sound: [v] settings · [m] mute · [Space] preview",
 	HelpPresets:      "presets: [a] add · [e] edit · [d] delete · [r] defaults",
+
+	StatsTitle:       "Statistics",
+	StatsOverview:    "overview",
+	StatsActivity:    "activity",
+	StatsPresets:     "presets",
+	StatsRecent:      "recent",
+	StatsRange7:      "7 days",
+	StatsRange30:     "30 days",
+	StatsRange90:     "90 days",
+	StatsRangeAll:    "all time",
+	StatsLoading:     "Loading…",
+	StatsUnavailable: "Statistics are not available",
+	StatsFocused:     "focused",
+	StatsSessions:    "sessions",
+	StatsCompleted:   "completed",
+	StatsVsPrev:      "vs prev %s",
+	StatsStreak:      "%d-day streak",
+	StatsBestStreak:  "best %d days",
+	StatsLongest:     "longest %s",
+	StatsBusiest:     "busiest %s %02d:00",
+	StatsFocusPerDay: "focus per day",
+	StatsMax:         "max %s",
+	StatsHeatLess:    "less",
+	StatsHeatMore:    "more",
+	StatsByHour:      "by hour",
+	StatsByWeekday:   "by weekday",
+	StatsInsight:     "you start most timers on %s around %02d:00",
+	StatsWeeks:       "%d weeks",
+	StatsPresetsHead: "presets by total focus",
+	StatsRuns:        "runs",
+	StatsMostUsed:    "most used: %s",
+	StatsAvgSession:  "avg session %s",
+	StatsWhen:        "when",
+	StatsPlanned:     "planned",
+	StatsLabel:       "label",
+	StatsOutcome:     "outcome",
+	StatsDone:        "✓ completed",
+	StatsStopped:     "· stopped at %s",
+	StatsReplaced:    "· replaced at %s",
+	StatsToday:       "today %s",
+	StatsYesterday:   "yest %s",
+	StatsShowing:     "showing %d of %d sessions",
+	StatsEmptyTitle:  "No sessions yet",
+	StatsEmptyBody:   "Finish or stop a countdown and it lands here.",
+	StatsHint:        "[←/→] section · [t] range · [↑/↓] scroll · [Esc] close",
+	StatsHintShort:   "[←/→] section · [Esc] close",
+
+	WeekdayMon: "Mon",
+	WeekdayTue: "Tue",
+	WeekdayWed: "Wed",
+	WeekdayThu: "Thu",
+	WeekdayFri: "Fri",
+	WeekdaySat: "Sat",
+	WeekdaySun: "Sun",
 
 	SoundTitle:      "Sound",
 	SoundOn:         "Sound on",
@@ -422,8 +531,9 @@ var texts = map[Key]string{
 	HelpTitle:  "Help",
 	HelpIdle:   "type a duration · [Enter] start · [←→] select preset",
 	HelpTimer:  "[Space] pause/resume · [Esc] cancel · [+/-] adjust 1 min",
-	HelpModal:  "[p] presets · [t] theme · [v] sound · [?] help · [q] quit",
+	HelpModal:  "[p] presets · [t] theme · [v] sound · [s] stats",
 	HelpClose:  "[Esc] or [Enter] to close",
+	HelpQuit:   "[q] closes the TUI; the tray keeps running",
 	HelpUpdate: "updates: [u] check · dialog: [Tab] type · [PgUp/Dn] notes",
 
 	PresetsTitle:      "Presets",
@@ -538,6 +648,28 @@ func SoundLabel(id string) string {
 		return T(SoundDeep)
 	default:
 		return id
+	}
+}
+
+// WeekdayShort returns the short weekday name for Monday=0..Sunday=6.
+func WeekdayShort(index int) string {
+	switch index {
+	case 0:
+		return T(WeekdayMon)
+	case 1:
+		return T(WeekdayTue)
+	case 2:
+		return T(WeekdayWed)
+	case 3:
+		return T(WeekdayThu)
+	case 4:
+		return T(WeekdayFri)
+	case 5:
+		return T(WeekdaySat)
+	case 6:
+		return T(WeekdaySun)
+	default:
+		return ""
 	}
 }
 

@@ -36,6 +36,7 @@ const (
 	modalPresetForm
 	modalSound
 	modalUpdate
+	modalStats
 )
 
 // updateStep is the screen shown inside modalUpdate.
@@ -106,6 +107,7 @@ const (
 	hitUpdateBack
 	hitUpdateOpenFolder
 	hitUpdateRetry
+	hitStatsTab
 )
 
 // presetFocusList means the preset list owns the keyboard focus; any other
@@ -234,6 +236,15 @@ type Model struct {
 	hoverUpdate    bool
 	daemonClosing  bool
 	updating       bool
+
+	// Statistics tab. The daemon sends the aggregate on demand and the TUI
+	// caches it; statsTab, statsRange and statsScroll are the view state.
+	statsData    *protocol.StatsPayload
+	statsLoaded  bool
+	statsLoading bool
+	statsTab     int
+	statsRange   int
+	statsScroll  int
 }
 
 // New creates the TUI model. It reads the per-user uninstall entry so the
@@ -371,10 +382,16 @@ func (m *Model) handleConnected(msg connectedMsg) tea.Cmd {
 	m.checkingUpdate = false
 	m.applyConfig(protocol.ConfigMessage{ConfigPayload: msg.hello.Config})
 	m.setUpdate(msg.hello.Update)
+	cmds := []tea.Cmd{readCmd(m.client)}
 	if cmd := m.noteHelloWindow(msg.hello.Window); cmd != nil {
-		return tea.Batch(readCmd(m.client), cmd)
+		cmds = append(cmds, cmd)
 	}
-	return readCmd(m.client)
+	if m.modal == modalStats {
+		if cmd := m.requestStats(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) handleServerEvent(msg serverEventMsg) tea.Cmd {
@@ -395,19 +412,35 @@ func (m *Model) handleServerEvent(msg serverEventMsg) tea.Cmd {
 	}
 	switch ev := msg.msg.(type) {
 	case protocol.StateMessage:
+		prev := m.state
+		hadState := m.hasState
 		m.applyState(ev)
+		if m.modal == modalStats && hadState && statsChanged(prev, ev) {
+			return tea.Batch(readCmd(m.client), m.requestStats())
+		}
 	case protocol.ConfigMessage:
 		m.applyConfig(ev)
 	case protocol.ErrorMessage:
-		if m.modal == modalUpdate && ev.Code == protocol.CodeInvalidCommand {
+		switch {
+		case m.modal == modalStats:
+			m.modal = modalNone
+			m.statsLoading = false
+			m.showToast(copy.T(copy.StatsUnavailable))
+		case m.modal == modalUpdate && ev.Code == protocol.CodeInvalidCommand:
 			m.updateStep = updateStepFailed
 			m.updateErr = copy.T(copy.UpdateUnavailable)
-		} else if m.checkingUpdate && ev.Code == protocol.CodeInvalidCommand {
+		case m.checkingUpdate && ev.Code == protocol.CodeInvalidCommand:
 			m.checkingUpdate = false
 			m.showToast(copy.T(copy.ErrorUpdate))
-		} else {
+		default:
 			m.showToast(ev.Message)
 		}
+	case protocol.StatsMessage:
+		payload := ev.Stats
+		m.statsData = &payload
+		m.statsLoaded = true
+		m.statsLoading = false
+		m.clampStatsScroll()
 	case protocol.UpdateMessage:
 		m.setUpdate(&ev.UpdatePayload)
 	case protocol.UpdateResultMessage:
@@ -1059,7 +1092,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 		switch text {
-		case "p", "v", "?":
+		case "p", "v", "s", "?":
 			return nil
 		}
 	} else {
@@ -1116,8 +1149,6 @@ func (m *Model) handleIdleKey(key tea.Key) tea.Cmd {
 		return nil
 	case text == "t":
 		return m.cycleTheme()
-	case text == "S":
-		return m.toggleSound()
 	case text == "u":
 		return m.updateKey()
 	case text == "s":
@@ -1125,8 +1156,14 @@ func (m *Model) handleIdleKey(key tea.Key) tea.Cmd {
 			m.appendInput("s")
 			return nil
 		}
+		return m.openStats()
+	case text == "m":
+		if m.acceptsUnit() {
+			m.appendInput("m")
+			return nil
+		}
 		return m.toggleSound()
-	case isDigitText(text) || text == ":" || text == "h" || text == "m" || text == "s":
+	case isDigitText(text) || text == ":" || text == "h":
 		m.appendInput(text)
 		return nil
 	}
@@ -1151,6 +1188,10 @@ func (m *Model) handleTimerKey(key tea.Key) tea.Cmd {
 	case text == "v":
 		m.openSound()
 		return nil
+	case text == "s":
+		return m.openStats()
+	case text == "m":
+		return m.toggleSound()
 	case text == "u":
 		return m.updateKey()
 	}
@@ -1174,6 +1215,10 @@ func (m *Model) handleFinishedKey(key tea.Key) tea.Cmd {
 	case text == "v":
 		m.openSound()
 		return nil
+	case text == "s":
+		return m.openStats()
+	case text == "m":
+		return m.toggleSound()
 	case text == "u":
 		return m.updateKey()
 	}
@@ -1213,6 +1258,8 @@ func (m *Model) handleModalKey(key tea.Key) tea.Cmd {
 		return m.handleSoundKey(key)
 	case modalUpdate:
 		return m.handleUpdateKey(key)
+	case modalStats:
+		return m.handleStatsKey(key)
 	}
 	return nil
 }
@@ -1428,10 +1475,22 @@ func (m *Model) handleMouseMotion(msg tea.MouseMotionMsg) {
 	m.hoverUpdate = hover
 }
 
-// handleMouseWheel scrolls the release notes while the chooser is open. It is
-// the pointer equivalent of PgUp/PgDn; the type and action focus are untouched.
+// handleMouseWheel scrolls the release notes while the chooser is open, or the
+// Statistics section it is showing. It is the pointer equivalent of PgUp/PgDn.
 func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) {
-	if m.compact() || m.modal != modalUpdate || m.updateStep != updateStepChoose {
+	if m.compact() {
+		return
+	}
+	if m.modal == modalStats {
+		switch msg.Button {
+		case tea.MouseWheelUp:
+			m.scrollStats(-3)
+		case tea.MouseWheelDown:
+			m.scrollStats(3)
+		}
+		return
+	}
+	if m.modal != modalUpdate || m.updateStep != updateStepChoose {
 		return
 	}
 	switch msg.Button {
@@ -1553,6 +1612,8 @@ func (m *Model) performHit(hit hitbox) tea.Cmd {
 	case hitUpdateRetry:
 		m.updateStep = updateStepChoose
 		m.updateErr = ""
+	case hitStatsTab:
+		m.setStatsTab(hit.index)
 	}
 	return nil
 }
