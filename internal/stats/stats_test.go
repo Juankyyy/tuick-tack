@@ -124,6 +124,20 @@ func TestStoreBacksUpUnreadableHistory(t *testing.T) {
 	if backups != 1 {
 		t.Fatalf("backups = %d, want 1", backups)
 	}
+	if data, err := os.ReadFile(path); err != nil || len(data) != 0 {
+		t.Fatalf("history after backup = %d bytes, %v; want an empty file", len(data), err)
+	}
+
+	fresh := rec(at(testNow(testLocation()), 0, 9, 0), time.Minute, time.Minute, "Focus", Completed)
+	if err := s.Add(fresh); err != nil {
+		t.Fatalf("Add after backup: %v", err)
+	}
+	reloaded := NewStore(path)
+	skipped, err := reloaded.Load()
+	if err != nil || skipped != 0 || reloaded.Len() != 1 {
+		t.Fatalf("reload after backup = skipped %d, err %v, len %d; want 0, nil, 1",
+			skipped, err, reloaded.Len())
+	}
 }
 
 func TestLoadTrimsToCap(t *testing.T) {

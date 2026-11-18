@@ -142,6 +142,11 @@ func (s *Store) Load() (skipped int, err error) {
 		if err := s.backup(data); err != nil {
 			return skipped, fmt.Errorf("stats: backup history: %w", err)
 		}
+		// Empty the live file too. Otherwise every future append would mix with
+		// the damaged lines and every start would skip them again.
+		if err := s.rewriteLocked(); err != nil {
+			return skipped, fmt.Errorf("stats: reset history: %w", err)
+		}
 		return skipped, fmt.Errorf("stats: history had %d unreadable records; starting empty", nonEmpty)
 	}
 	if len(s.records) > Cap {
