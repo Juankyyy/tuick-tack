@@ -40,6 +40,13 @@ func TestValidate(t *testing.T) {
 		{"bad sound", func(c *Config) { c.SoundName = "airhorn" }, false},
 		{"low volume", func(c *Config) { c.Volume = -1 }, false},
 		{"high volume", func(c *Config) { c.Volume = 101 }, false},
+		{"window size", func(c *Config) { c.WindowWidth, c.WindowHeight = 140, 45 }, true},
+		{"window width only", func(c *Config) { c.WindowWidth = 140 }, false},
+		{"negative window", func(c *Config) { c.WindowWidth, c.WindowHeight = -1, 45 }, false},
+		{"small window", func(c *Config) { c.WindowWidth, c.WindowHeight = 1, 1 }, true},
+		{"huge window", func(c *Config) {
+			c.WindowWidth, c.WindowHeight = MaxWindowCols+1, 45
+		}, false},
 		{"too many", func(c *Config) {
 			for i := 0; i < MaxPresets+1; i++ {
 				c.Presets = append(c.Presets, Preset{ID: NewPresetID(), Label: "x", Seconds: 1})
@@ -122,9 +129,41 @@ func TestLoadMigratesV1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"version": 2`) ||
+	if !strings.Contains(string(data), `"version": 3`) ||
 		!strings.Contains(string(data), `"sound_name": "digital"`) {
-		t.Fatalf("migrated file not written as v2: %s", data)
+		t.Fatalf("migrated file not written as v3: %s", data)
+	}
+}
+
+func TestLoadMigratesV2(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	v2 := `{
+  "version": 2,
+  "theme": "mono",
+  "sound": false,
+  "sound_name": "marimba",
+  "volume": 35,
+  "presets": [
+    { "id": "p5", "label": "5 min", "seconds": 300 }
+  ]
+}`
+	if err := os.WriteFile(path, []byte(v2), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := NewStore(path).Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Version != Version {
+		t.Fatalf("version = %d, want %d", c.Version, Version)
+	}
+	if c.SoundName != SoundMarimba || c.Volume != 35 || c.Sound ||
+		c.Theme != ThemeMono || len(c.Presets) != 1 {
+		t.Fatalf("v2 migration lost settings: %+v", c)
+	}
+	if c.WindowWidth != 0 || c.WindowHeight != 0 {
+		t.Fatalf("window size should start unset: %+v", c)
 	}
 }
 
@@ -136,6 +175,8 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	c.Sound = false
 	c.SoundName = SoundMarimba
 	c.Volume = 35
+	c.WindowWidth = 140
+	c.WindowHeight = 45
 	c.Presets = append(c.Presets, NewPreset("Focus", 1500))
 	if err := store.Save(c); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -148,7 +189,8 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	if got.Theme != ThemeEmber || got.Sound || len(got.Presets) != 4 ||
-		got.SoundName != SoundMarimba || got.Volume != 35 {
+		got.SoundName != SoundMarimba || got.Volume != 35 ||
+		got.WindowWidth != 140 || got.WindowHeight != 45 {
 		t.Fatalf("round trip mismatch: %+v", got)
 	}
 	entries, err := os.ReadDir(filepath.Dir(path))

@@ -3,6 +3,8 @@ package daemon
 import (
 	"bytes"
 	"encoding/binary"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"testing"
@@ -164,6 +166,39 @@ func TestAcquireInstance(t *testing.T) {
 	}
 	if second != 0 {
 		t.Fatalf("second handle = %v, want 0", second)
+	}
+}
+
+func TestSetWindowSizePersists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	store := config.NewStore(path)
+	cfg := config.Default()
+	if err := store.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	d := &Daemon{
+		logger: log.New(io.Discard, "", 0),
+		store:  store,
+		cfg:    cfg,
+	}
+
+	d.setWindowSize(140, 45)
+	if got := d.Config(); got.WindowWidth != 140 || got.WindowHeight != 45 {
+		t.Fatalf("window size not set: %+v", got)
+	}
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.WindowWidth != 140 || loaded.WindowHeight != 45 {
+		t.Fatalf("window size not persisted: %+v", loaded)
+	}
+
+	// Out-of-range values are ignored instead of corrupting the config.
+	d.setWindowSize(0, 45)
+	d.setWindowSize(config.MaxWindowCols+1, 45)
+	if got := d.Config(); got.WindowWidth != 140 || got.WindowHeight != 45 {
+		t.Fatalf("invalid size changed the config: %+v", got)
 	}
 }
 

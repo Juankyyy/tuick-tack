@@ -1,5 +1,5 @@
 // Package config owns the persisted preferences: presets, theme, sound
-// selection and volume.
+// selection, volume and the TUI window size.
 //
 // The daemon is the only writer. Load falls back to defaults when the file is
 // missing, and backs up an unreadable or invalid file before doing the same.
@@ -18,7 +18,7 @@ import (
 
 const (
 	// Version is the schema version understood by this build.
-	Version = 2
+	Version = 3
 	// MaxPresets is the maximum number of stored presets.
 	MaxPresets = 16
 	// MinSeconds and MaxSeconds bound a preset or countdown.
@@ -57,6 +57,15 @@ const (
 // Themes lists the supported themes in cycle order.
 var Themes = []string{ThemeMidnight, ThemeEmber, ThemeMono}
 
+// Window size bounds. A stored width and height of zero means the TUI has not
+// recorded a preference yet.
+const (
+	MinWindowCols = 1
+	MaxWindowCols = 1000
+	MinWindowRows = 1
+	MaxWindowRows = 1000
+)
+
 // Preset is a named duration. IDs are stable across restarts.
 type Preset struct {
 	ID      string `json:"id"`
@@ -66,12 +75,14 @@ type Preset struct {
 
 // Config is the on-disk configuration.
 type Config struct {
-	Version   int      `json:"version"`
-	Theme     string   `json:"theme"`
-	Sound     bool     `json:"sound"`
-	SoundName string   `json:"sound_name"`
-	Volume    int      `json:"volume"`
-	Presets   []Preset `json:"presets"`
+	Version      int      `json:"version"`
+	Theme        string   `json:"theme"`
+	Sound        bool     `json:"sound"`
+	SoundName    string   `json:"sound_name"`
+	Volume       int      `json:"volume"`
+	WindowWidth  int      `json:"window_width,omitempty"`
+	WindowHeight int      `json:"window_height,omitempty"`
+	Presets      []Preset `json:"presets"`
 }
 
 // Default returns a fresh default configuration.
@@ -120,6 +131,16 @@ func ValidSeconds(n int) bool {
 	return n >= MinSeconds && n <= MaxSeconds
 }
 
+// ValidWindowSize reports whether w by h is a size the TUI can store. Both
+// zero means the preference is still unset.
+func ValidWindowSize(w, h int) bool {
+	if w == 0 && h == 0 {
+		return true
+	}
+	return w >= MinWindowCols && w <= MaxWindowCols &&
+		h >= MinWindowRows && h <= MaxWindowRows
+}
+
 // ValidLabel validates a user-facing label: 1..32 printable runes, trimmed by
 // the caller or here for convenience.
 func ValidLabel(label string) bool {
@@ -151,15 +172,18 @@ func ValidPresetID(id string) bool {
 }
 
 // Migrate upgrades a decoded configuration to the current schema. Version 1
-// had no sound selection or volume, so both take the v2 defaults. It returns
-// the migrated config and whether anything changed.
+// had no sound selection or volume, so both take the v2 defaults. Version 3
+// adds the optional window size, which stays unset (zero) until the TUI
+// records one. It returns the migrated config and whether anything changed.
 func Migrate(c Config) (Config, bool) {
 	if c.Version >= Version {
 		return c, false
 	}
+	if c.Version < 2 {
+		c.SoundName = DefaultSound
+		c.Volume = DefaultVolume
+	}
 	c.Version = Version
-	c.SoundName = DefaultSound
-	c.Volume = DefaultVolume
 	return c, true
 }
 
@@ -176,6 +200,9 @@ func Validate(c Config) error {
 	}
 	if !ValidVolume(c.Volume) {
 		return fmt.Errorf("volume %d is outside %d..%d", c.Volume, MinVolume, MaxVolume)
+	}
+	if !ValidWindowSize(c.WindowWidth, c.WindowHeight) {
+		return fmt.Errorf("invalid window size %dx%d", c.WindowWidth, c.WindowHeight)
 	}
 	if len(c.Presets) > MaxPresets {
 		return fmt.Errorf("too many presets: %d (max %d)", len(c.Presets), MaxPresets)

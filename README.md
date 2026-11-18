@@ -27,8 +27,8 @@ Presets, free-form durations, a sound pack with volume, and full-screen confetti
 - **Portable:** run `tuick-tack.exe` directly. A single file, no installer and no
   dependencies.
 
-Both copies share `%APPDATA%\tuick-tack\config.json`, so presets, theme, sound and volume
-are the same if you switch between them. If an older Tuick-Tack is running, quit it from the
+Both copies share `%APPDATA%\tuick-tack\config.json`, so presets, theme, sound, volume
+and the remembered window size are the same if you switch between them. If an older Tuick-Tack is running, quit it from the
 tray before running the setup for the first time. Windows 10 or 11, 64-bit. The build is
 unsigned, so SmartScreen may warn on first launch. Check the download against `SHA256SUMS.txt`:
 
@@ -52,6 +52,7 @@ countdown, the sound and the tray icon keep running.
 | **At zero** | The selected sound at the chosen volume, an alert tray icon and full-screen confetti. |
 | **Sound pack** | Chime, Marimba, Digital and Deep; 0–100% volume in 5% steps, with preview and mute. |
 | **Three themes** | Midnight, Ember and Mono. |
+| **Remembers the window size** | Resize the terminal and the next TUI opens with the same columns and rows. |
 | **Single instance** | Running the executable again focuses the open TUI instead of opening a second one. |
 | **Installer** | Per-user install in `Documents\tuick-tack`, Start Menu shortcut, uninstaller; no admin. |
 | **Portable** | One executable, no installer, no admin, no cgo. |
@@ -119,11 +120,13 @@ countdown; persistence is future work.
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "theme": "midnight",
   "sound": true,
   "sound_name": "digital",
   "volume": 80,
+  "window_width": 140,
+  "window_height": 45,
   "presets": [
     { "id": "p5",  "label": "5 min",  "seconds": 300 },
     { "id": "p10", "label": "10 min", "seconds": 600 },
@@ -134,7 +137,12 @@ countdown; persistence is future work.
 
 The daemon is the only writer and writes atomically. A corrupt config is backed up as
 `config.bad-<timestamp>.json` and replaced with defaults. A version 1 config is migrated to
-version 2 on first load with Digital at 80%.
+version 3 with Digital at 80%; a version 2 config keeps its sound and volume. The window
+size stays unset until you resize the TUI.
+
+The remembered size is columns by rows. It is restored when the TUI starts, including in
+Windows Terminal; terminals that do not support the resize sequence keep their own size.
+Position and the maximized state are not stored.
 
 ### CLI flags
 

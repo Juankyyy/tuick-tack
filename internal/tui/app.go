@@ -171,6 +171,22 @@ type Model struct {
 	width, height int
 	hits          []hitbox
 
+	// Terminal size preference: sizeKnown is set by the first WindowSizeMsg,
+	// windowSupported by a daemon that advertises window in the hello. The size
+	// is applied once per TUI session; later resizes are persisted after
+	// windowSaveDelay, and again on a clean exit.
+	sizeKnown            bool
+	windowConnected      bool
+	windowSupported      bool
+	windowArmed          bool
+	windowApplyPending   bool
+	windowDirty          bool
+	windowChangedOffline bool
+	windowSavedW         int
+	windowSavedH         int
+	applyWindow          func(w, h int)
+	sendWindow           func(w, h int) error
+
 	input    string
 	inputErr string
 	selected int
@@ -226,6 +242,7 @@ func New(pipe string) *Model {
 	m := newModel(pipe, time.Now, time.Now().UnixNano())
 	info, _ := install.Current()
 	m.installInfo = info
+	m.applyWindow = resizeTerminal
 	return m
 }
 
@@ -236,7 +253,7 @@ func newModel(pipe string, now func() time.Time, seed int64) *Model {
 	pal := theme.Get("midnight")
 	cfg := config.Default()
 	cfg.Theme = "midnight"
-	return &Model{
+	m := &Model{
 		pipe:        pipe,
 		now:         now,
 		seed:        seed,
@@ -250,7 +267,10 @@ func newModel(pipe string, now func() time.Time, seed int64) *Model {
 		lastTick:    now(),
 		openURL:     browser.Open,
 		openPath:    explorer.ShowInFolder,
+		applyWindow: func(int, int) {},
 	}
+	m.sendWindow = m.sendWindowSize
+	return m
 }
 
 // Init starts the connection and the render tick.
@@ -262,13 +282,11 @@ func (m *Model) Init() tea.Cmd {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
-		if m.dust != nil {
-			m.dust.Resize(msg.Width, msg.Height)
-		}
-		if m.confetti != nil {
-			m.confetti.Resize(msg.Width, msg.Height)
-		}
+		return m, m.handleWindowSize(msg.Width, msg.Height)
+	case windowSaveMsg:
+		return m, m.handleWindowSave(msg)
+	case windowSavedMsg:
+		m.handleWindowSaved(msg)
 		return m, nil
 	case tickMsg:
 		return m, m.handleTick()
@@ -353,6 +371,9 @@ func (m *Model) handleConnected(msg connectedMsg) tea.Cmd {
 	m.checkingUpdate = false
 	m.applyConfig(protocol.ConfigMessage{ConfigPayload: msg.hello.Config})
 	m.setUpdate(msg.hello.Update)
+	if cmd := m.noteHelloWindow(msg.hello.Window); cmd != nil {
+		return tea.Batch(readCmd(m.client), cmd)
+	}
 	return readCmd(m.client)
 }
 
@@ -1902,9 +1923,13 @@ func (m *Model) viewSize() (int, int) {
 }
 
 // Close releases the pipe connection. Called after the Bubble Tea program
-// exits so the daemon keeps running.
+// exits so the daemon keeps running. A pending window size is sent first so a
+// resize followed by a quick quit is not lost.
 func (m *Model) Close() {
 	if m.client != nil {
+		if m.connected {
+			m.flushWindowSize()
+		}
 		_ = m.client.Close()
 		m.client = nil
 	}

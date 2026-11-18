@@ -47,6 +47,11 @@ const (
 	TypeStopSound    = "stop_sound"
 	TypeCheckUpdate  = "check_update"
 
+	// TypeSetWindowSize records the TUI's preferred terminal size in cells. It
+	// is additive: the hello's window object announces support, and a TUI that
+	// does not see it never sends the command, so an older daemon is safe.
+	TypeSetWindowSize = "set_window_size"
+
 	// TypeInstallUpdate downloads the release installer and runs it after the
 	// daemon and the TUI exit. Force is required when a countdown is active.
 	TypeInstallUpdate = "install_update"
@@ -83,6 +88,7 @@ const (
 	CodeInvalidTheme        = "invalid_theme"
 	CodeInvalidSound        = "invalid_sound"
 	CodeInvalidVolume       = "invalid_volume"
+	CodeInvalidWindowSize   = "invalid_window_size"
 	CodePresetLimit         = "preset_limit"
 	CodePresetNotFound      = "preset_not_found"
 	CodeUnsupportedProtocol = "unsupported_protocol"
@@ -104,6 +110,8 @@ type ClientMessage struct {
 	SoundName    string `json:"sound_name,omitempty"`
 	Volume       *int   `json:"volume,omitempty"`
 	Enabled      *bool  `json:"enabled,omitempty"`
+	Width        int    `json:"width,omitempty"`
+	Height       int    `json:"height,omitempty"`
 	Force        bool   `json:"force,omitempty"`
 }
 
@@ -123,14 +131,24 @@ type ServerMessage interface {
 
 // HelloMessage is the server's handshake reply.
 type HelloMessage struct {
-	Type       string         `json:"type"`
-	Protocol   int            `json:"protocol"`
-	AppVersion string         `json:"app_version"`
-	Config     ConfigPayload  `json:"config"`
-	Update     *UpdatePayload `json:"update,omitempty"`
+	Type       string             `json:"type"`
+	Protocol   int                `json:"protocol"`
+	AppVersion string             `json:"app_version"`
+	Config     ConfigPayload      `json:"config"`
+	Update     *UpdatePayload     `json:"update,omitempty"`
+	Window     *WindowSizePayload `json:"window,omitempty"`
 }
 
 func (HelloMessage) isServerMessage() {}
+
+// WindowSizePayload is the TUI's preferred terminal size in character cells.
+// A hello from this build always carries it (zeros when no preference is
+// stored), so its presence also tells the TUI that set_window_size is
+// supported. Older daemons omit it and older TUIs ignore it.
+type WindowSizePayload struct {
+	Width  int `json:"width"`
+	Height int `json:"height"`
+}
 
 // UpdatePayload is the latest release the daemon knows about. It is carried by
 // the handshake and by the update broadcast. Setup and Portable say which
@@ -239,6 +257,10 @@ func NewHello(appVersion string, c config.Config, upd *UpdatePayload) HelloMessa
 		Protocol:   Version,
 		AppVersion: appVersion,
 		Config:     NewConfigPayload(c),
+		Window: &WindowSizePayload{
+			Width:  c.WindowWidth,
+			Height: c.WindowHeight,
+		},
 	}
 	if upd != nil {
 		payload := *upd
@@ -465,6 +487,15 @@ func (m ClientMessage) Validate() *ErrorMessage {
 		if !config.ValidVolume(*m.Volume) {
 			return invalid(CodeInvalidVolume,
 				fmt.Sprintf("volume must be between %d and %d", config.MinVolume, config.MaxVolume))
+		}
+		return nil
+	case TypeSetWindowSize:
+		if m.Width < config.MinWindowCols || m.Width > config.MaxWindowCols ||
+			m.Height < config.MinWindowRows || m.Height > config.MaxWindowRows {
+			return invalid(CodeInvalidWindowSize,
+				fmt.Sprintf("window size must be %d..%d by %d..%d",
+					config.MinWindowCols, config.MaxWindowCols,
+					config.MinWindowRows, config.MaxWindowRows))
 		}
 		return nil
 	case "":

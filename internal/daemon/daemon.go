@@ -544,6 +544,8 @@ func (d *Daemon) Command(c *ipc.Session, msg protocol.ClientMessage) {
 		if msg.Volume != nil {
 			d.setVolume(c, *msg.Volume)
 		}
+	case protocol.TypeSetWindowSize:
+		d.setWindowSize(msg.Width, msg.Height)
 	case protocol.TypePreviewSound:
 		d.previewSound()
 	case protocol.TypeStopSound:
@@ -698,6 +700,32 @@ func (d *Daemon) setVolume(c *ipc.Session, volume int) {
 			d.logger.Printf("preview sound %q: %v", cfg.SoundName, err)
 		}
 	}
+}
+
+// setWindowSize stores the TUI's preferred terminal size. It is display state
+// for the TUI, so it is saved without a config broadcast or a tray refresh; the
+// next handshake reads it back from d.cfg. Failures only go to the log: a lost
+// window preference must not interrupt the session.
+func (d *Daemon) setWindowSize(width, height int) {
+	if width < config.MinWindowCols || width > config.MaxWindowCols ||
+		height < config.MinWindowRows || height > config.MaxWindowRows {
+		return
+	}
+	cfg := d.Config()
+	if cfg.WindowWidth == width && cfg.WindowHeight == height {
+		return
+	}
+	cfg.WindowWidth = width
+	cfg.WindowHeight = height
+	if err := d.store.Save(cfg); err != nil {
+		if d.logger != nil {
+			d.logger.Printf("save window size: %v", err)
+		}
+		return
+	}
+	d.mu.Lock()
+	d.cfg = cfg
+	d.mu.Unlock()
 }
 
 // previewSound plays the current selection even when Sound is off. The tray and

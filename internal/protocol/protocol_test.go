@@ -24,6 +24,7 @@ func TestClientRoundTrip(t *testing.T) {
 		{Type: TypeSetSound, Enabled: &enabled},
 		{Type: TypeSetSoundName, SoundName: config.SoundMarimba},
 		{Type: TypeSetVolume, Volume: &volume},
+		{Type: TypeSetWindowSize, Width: 140, Height: 45},
 		{Type: TypePreviewSound},
 		{Type: TypeStopSound},
 		{Type: TypeCheckUpdate},
@@ -42,7 +43,8 @@ func TestClientRoundTrip(t *testing.T) {
 		}
 		if got.Type != want.Type || got.Seconds != want.Seconds ||
 			got.Label != want.Label || got.ID != want.ID || got.Name != want.Name ||
-			got.SoundName != want.SoundName ||
+			got.SoundName != want.SoundName || got.Width != want.Width ||
+			got.Height != want.Height ||
 			got.DeltaSeconds != want.DeltaSeconds || got.Force != want.Force {
 			t.Fatalf("round trip %s -> %+v", data, got)
 		}
@@ -92,6 +94,7 @@ func TestStateWithoutDeadline(t *testing.T) {
 func TestHelloAndConfigRoundTrip(t *testing.T) {
 	c := config.Default()
 	c.Theme = config.ThemeMono
+	c.WindowWidth, c.WindowHeight = 140, 45
 	upd := &UpdatePayload{Latest: "v0.2.0", URL: "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0", Notes: "## What's new\n\n- Faster\n"}
 	hello := NewHello("dev", c, upd)
 	data, _ := json.Marshal(hello)
@@ -106,6 +109,9 @@ func TestHelloAndConfigRoundTrip(t *testing.T) {
 		h.Update.URL != upd.URL || h.Update.Notes != upd.Notes {
 		t.Fatalf("unexpected hello: %#v", back)
 	}
+	if h.Window == nil || h.Window.Width != 140 || h.Window.Height != 45 {
+		t.Fatalf("window size did not round trip: %#v", h.Window)
+	}
 
 	cfg := NewConfig(c)
 	data, _ = json.Marshal(cfg)
@@ -117,6 +123,17 @@ func TestHelloAndConfigRoundTrip(t *testing.T) {
 	if !ok || cm.Sound != c.Sound || len(cm.Presets) != 3 ||
 		cm.SoundName != c.SoundName || cm.Volume != c.Volume {
 		t.Fatalf("unexpected config: %#v", back)
+	}
+}
+
+func TestHelloAlwaysAdvertisesWindowSupport(t *testing.T) {
+	hello := NewHello("dev", config.Default(), nil)
+	if hello.Window == nil || hello.Window.Width != 0 || hello.Window.Height != 0 {
+		t.Fatalf("fresh hello should advertise an unset window: %#v", hello.Window)
+	}
+	data, _ := json.Marshal(hello)
+	if !strings.Contains(string(data), `"window"`) {
+		t.Fatalf("window support must be visible to the TUI: %s", data)
 	}
 }
 
@@ -293,6 +310,12 @@ func TestValidate(t *testing.T) {
 		{"volume low", ClientMessage{Type: TypeSetVolume, Volume: &volumeLow}, CodeInvalidVolume},
 		{"volume high", ClientMessage{Type: TypeSetVolume, Volume: &volumeHigh}, CodeInvalidVolume},
 		{"volume missing", ClientMessage{Type: TypeSetVolume}, CodeInvalidCommand},
+		{"window size", ClientMessage{Type: TypeSetWindowSize, Width: 140, Height: 45}, ""},
+		{"window size missing", ClientMessage{Type: TypeSetWindowSize}, CodeInvalidWindowSize},
+		{"window size low", ClientMessage{Type: TypeSetWindowSize, Width: 0, Height: 45}, CodeInvalidWindowSize},
+		{"window size high", ClientMessage{
+			Type: TypeSetWindowSize, Width: config.MaxWindowCols + 1, Height: 45,
+		}, CodeInvalidWindowSize},
 		{"preview sound", ClientMessage{Type: TypePreviewSound}, ""},
 		{"stop sound", ClientMessage{Type: TypeStopSound}, ""},
 		{"check update", ClientMessage{Type: TypeCheckUpdate}, ""},
