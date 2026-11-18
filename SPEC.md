@@ -169,7 +169,7 @@ Daemon → cliente:
 | `update` | `latest`, `url`, `setup?`, `portable?`, `notes?` |
 | `update_result` | `current`, `latest?`, `url?`, `setup?`, `portable?`, `notes?`, `error?` |
 | `update_progress` | `kind` (`setup`/`portable`), `phase`, `received?`, `total?`, `path?`, `error?` |
-| `stats` | `daily` (180 días locales), `hourly` (24), `weekday` (7, lunes primero), `labels` (top 8), `records`, `recent` (20, más reciente primero), `totals` (`d7`/`d30`/`d90`/`all`), `retained` |
+| `stats` | `daily` (189 días locales, para cubrir las 26 semanas del heatmap con holgura), `hourly` (24), `weekday` (7, lunes primero), `labels` (top 8), `records`, `recent` (20, más reciente primero), `totals` (`d7`/`d30`/`d90`/`all`), `retained` |
 | `daemon_closing` | `reason?` (`quit`/`update`; la TUI sale sin reintentar) |
 | `error` | `code`, `message` |
 
