@@ -56,6 +56,7 @@ countdown, the sound and the tray icon keep running.
 | **Installer** | Per-user install in `Documents\tuick-tack`, Start Menu shortcut, uninstaller; no admin. |
 | **Portable** | One executable, no installer, no admin, no cgo. |
 | **In-app updates** | Check with `u`; install with the setup or download the portable `.exe`. |
+| **Version in the header** | The running TUI version follows the wordmark in a quiet tone. |
 
 ## Controls
 
@@ -148,9 +149,11 @@ tuick-tack --daemon --hidden   # daemon without a console (used by autostart)
 ## Updates
 
 The daemon checks the latest GitHub release once at startup and every 24 hours. When a newer
-version exists, the TUI shows a moving pastel-rainbow `[Update available →]` after the wordmark.
-Clicking it, or pressing `u` once the release is known, opens the update dialog. The tray menu
-gets `Update available: vX.Y.Z`, which opens the release page.
+version exists, the TUI shows a moving pastel-rainbow `[Update available →]` after the wordmark
+and its version. Clicking it, or pressing `u` once the release is known, opens the update
+dialog: it shows `vCurrent → vLatest`, marks the copy you use and lets you install the setup or
+download the portable `.exe`. The tray menu gets `Update available: vX.Y.Z`, which opens the
+release page.
 
 The dialog shows the copy you are using first, selected and marked `Installed` (setup) or
 `In use` (portable). Use `↑`/`↓` to switch to the other type; if you choose it, the dialog warns

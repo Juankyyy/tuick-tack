@@ -464,14 +464,36 @@ func (m *Model) drawHeader(c *canvas.Canvas, x, y, w int) {
 	brand := copy.T(copy.Brand)
 	c.Set(x, y, '●', canvas.Fg(dot))
 	c.Text(x+2, y, brand, canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
+	next := x + 2 + canvas.Width(brand)
+	// The running version follows the wordmark as a quiet suffix. When an
+	// update notice is showing, the version leaves room for its shortest form:
+	// the notice is actionable and the version is also in the update dialog.
+	if version := buildinfo.Version; version != "" {
+		label := " " + version
+		need := canvas.Width(label)
+		if m.update != nil {
+			short := "[" + copy.T(copy.UpdateShort) + " " + copy.T(copy.UpdateArrow) + "]"
+			need += canvas.Width(short) + 2
+		}
+		if next+need < dotX {
+			c.Text(next, y, label, canvas.Fg(headerVersionColor(m.pal)))
+			next += canvas.Width(label)
+		}
+	}
 	if m.update != nil {
-		m.drawUpdateLink(c, x+2+canvas.Width(brand)+2, y, dotX)
+		m.drawUpdateLink(c, next+2, y, dotX)
 	}
 	c.Set(dotX, y, '●', canvas.Fg(dot))
 	c.Text(lx, y, label, canvas.Style{FG: col, HasFG: true, Bold: true})
 	if sub := m.headerSubline(); sub != "" {
 		c.Text(right-canvas.Width(sub)+1, y+1, sub, canvas.Fg(m.pal.Muted))
 	}
+}
+
+// headerVersionColor is the quiet tone of the version suffix: the muted color
+// at low opacity, so it reads as metadata next to the bold wordmark.
+func headerVersionColor(pal theme.Theme) color.RGBA {
+	return theme.Lerp(pal.BG, pal.Muted, 0.85)
 }
 
 // Update notice colors: a wide hue sweep at low saturation so the link reads as
@@ -1223,6 +1245,42 @@ func (m *Model) drawSoundStep(c *canvas.Canvas, x, y int, label string, action h
 	m.addHit(x, y, w, 1, action, 0)
 }
 
+// drawUpdateTransition paints "current → target" in the quiet version tone.
+// The chooser keeps it static; while the daemon downloads or installs, a soft
+// highlight sweeps across the line so the dialog reads as live without
+// competing with the progress bar.
+func (m *Model) drawUpdateTransition(c *canvas.Canvas, x, y, w int, animate bool) {
+	latest := ""
+	if m.update != nil {
+		latest = m.update.Latest
+	}
+	text := fitText(copy.T(copy.UpdateFromTo, buildinfo.Version, latest), w)
+	if text == "" {
+		return
+	}
+	sx := x + (w-canvas.Width(text))/2
+	if sx < x {
+		sx = x
+	}
+	if !animate {
+		c.Text(sx, y, text, canvas.Fg(m.pal.Muted))
+		return
+	}
+
+	// The band travels a little beyond both ends and then waits a beat off
+	// screen, so the loop does not restart abruptly. The base color stays
+	// muted; only the moving glow brightens.
+	period := float64(canvas.Width(text) + 10)
+	head := math.Mod(m.animTime*10, period) - 5
+	cx := sx
+	for _, r := range text {
+		d := float64(cx-sx) - head
+		glow := math.Exp(-(d * d) / 6)
+		c.Set(cx, y, r, canvas.Fg(theme.Lerp(m.pal.Muted, m.pal.Text, 0.55*glow)))
+		cx += canvas.Width(string(r))
+	}
+}
+
 // drawUpdate paints the install/download chooser, the countdown warning, the
 // progress view, the portable result and the failure view. It reuses the same
 // overlay, button row and bar language as the timer.
@@ -1258,17 +1316,12 @@ func (m *Model) drawUpdate(c *canvas.Canvas, base rect) {
 
 	x, w := r.x+3, r.w-6
 	y := r.y + 3
-	latest := ""
-	if m.update != nil {
-		latest = m.update.Latest
-	}
 
 	switch m.updateStep {
 	case updateStepChoose:
 		m.ensureUpdateType()
 		m.ensureUpdateFocus()
-		m.drawCenteredIn(c, x, y, w, copy.T(copy.UpdateBody, latest), canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
-		m.drawCenteredIn(c, x, y+1, w, copy.T(copy.UpdateCurrent, buildinfo.Version), canvas.Fg(m.pal.Muted))
+		m.drawUpdateTransition(c, x, y+1, w, false)
 		badge := copy.T(copy.UpdatePortableBadge)
 		if m.installInfo.Installed {
 			badge = copy.T(copy.UpdateInstalledBadge, m.installInfo.Dir)
@@ -1332,7 +1385,7 @@ func (m *Model) drawUpdate(c *canvas.Canvas, base rect) {
 		m.drawCenteredIn(c, x, r.y+r.h-2, w, "[Enter] continue · [Esc] back", canvas.Fg(m.pal.Muted))
 
 	case updateStepProgress:
-		m.drawCenteredIn(c, x, y, w, latest, canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
+		m.drawUpdateTransition(c, x, y, w, true)
 		phase := copy.T(copy.UpdatePreparing)
 		switch m.updatePhase {
 		case "downloading":

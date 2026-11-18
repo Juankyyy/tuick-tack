@@ -104,6 +104,47 @@ func TestViewIdle(t *testing.T) {
 	}
 }
 
+func TestHeaderShowsVersion(t *testing.T) {
+	old := buildinfo.Version
+	buildinfo.Version = "v0.2.0"
+	defer func() { buildinfo.Version = old }()
+
+	want := copy.T(copy.Brand) + " v0.2.0"
+	for _, size := range [][2]int{{48, 24}, {80, 24}, {120, 40}} {
+		m, _ := testModel(size[0], size[1])
+		plain := assertFrame(t, m, size[0], size[1])
+		header := strings.Split(plain, "\n")[m.layout(size[0], size[1]).headerY]
+		if !strings.Contains(header, want) {
+			t.Fatalf("%dx%d header missing %q: %q", size[0], size[1], want, header)
+		}
+	}
+
+	m, _ := testModel(80, 24)
+	l := m.layout(80, 24)
+	c := canvas.New(80, 24)
+	m.drawHeader(c, l.x, l.headerY, l.w)
+	brandX := l.x + 2
+	versionX := brandX + canvas.Width(copy.T(copy.Brand)) + 1
+	versionCell := c.At(versionX, l.headerY)
+	if versionCell.FG != headerVersionColor(m.pal) {
+		t.Fatalf("version FG = %+v, want %+v", versionCell.FG, headerVersionColor(m.pal))
+	}
+	if versionCell.Bold {
+		t.Fatal("the version suffix should not be bold")
+	}
+	if c.At(brandX, l.headerY).FG == versionCell.FG {
+		t.Fatal("the version suffix should be quieter than the wordmark")
+	}
+
+	// The notice still fits next to the version at the reference widths.
+	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: "https://example.test/release"})
+	plain := assertFrame(t, m, 80, 24)
+	header := strings.Split(plain, "\n")[m.layout(80, 24).headerY]
+	if !strings.Contains(header, want) || !strings.Contains(header, "["+copy.T(copy.UpdateAvailable)) {
+		t.Fatalf("header should keep the version and the notice: %q", header)
+	}
+}
+
 func TestUpdateHintAndClick(t *testing.T) {
 	m, _ := testModel(80, 24)
 	url := "https://github.com/Juankyyy/tuick-tack/releases/tag/v9.9.9"
@@ -182,6 +223,11 @@ func TestUpdateHintAndClick(t *testing.T) {
 }
 
 func TestUpdateChooserRenders(t *testing.T) {
+	old := buildinfo.Version
+	buildinfo.Version = "v0.2.0"
+	defer func() { buildinfo.Version = old }()
+
+	transition := copy.T(copy.UpdateFromTo, "v0.2.0", "v9.9.9")
 	for _, size := range [][2]int{{48, 22}, {64, 24}, {80, 24}, {120, 40}} {
 		m, _ := testModel(size[0], size[1])
 		m.setUpdate(&protocol.UpdatePayload{
@@ -191,7 +237,7 @@ func TestUpdateChooserRenders(t *testing.T) {
 		m.openUpdateModal()
 		plain := assertFrame(t, m, size[0], size[1])
 		for _, want := range []string{
-			"v9.9.9 is available", "You have", "Installed", "Type",
+			transition, "Installed", "Type",
 			"Setup", "Portable", "Not in use", "install", "github", "later",
 		} {
 			if !strings.Contains(plain, want) {
@@ -428,6 +474,44 @@ func TestUpdateChooserArrowFocus(t *testing.T) {
 	}
 }
 
+func TestUpdateTransitionAnimation(t *testing.T) {
+	old := buildinfo.Version
+	buildinfo.Version = "v0.2.0"
+	defer func() { buildinfo.Version = old }()
+
+	m, _ := testModel(80, 24)
+	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: "https://example.test/release"})
+
+	static := canvas.New(60, 3)
+	m.drawUpdateTransition(static, 0, 1, 60, false)
+	for x := 0; x < 60; x++ {
+		cell := static.At(x, 1)
+		if cell.Ch != ' ' && cell.FG != m.pal.Muted {
+			t.Fatalf("static transition cell %d is not muted: %+v", x, cell)
+		}
+	}
+
+	m.animTime = 0
+	first := canvas.New(60, 3)
+	m.drawUpdateTransition(first, 0, 1, 60, true)
+	m.animTime = 1.2
+	second := canvas.New(60, 3)
+	m.drawUpdateTransition(second, 0, 1, 60, true)
+	changed := 0
+	for x := 0; x < 60; x++ {
+		a, b := first.At(x, 1), second.At(x, 1)
+		if a.Ch != b.Ch {
+			t.Fatalf("transition text changed between frames: %q vs %q", a.Ch, b.Ch)
+		}
+		if a.FG != b.FG {
+			changed++
+		}
+	}
+	if changed == 0 {
+		t.Fatal("the transitioning line did not animate")
+	}
+}
+
 func TestUpdateKeyOpensChooser(t *testing.T) {
 	m, _ := testModel(80, 24)
 	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: "https://example.test/release", Setup: true, Portable: true})
@@ -462,6 +546,10 @@ func TestUpdateTimerWarning(t *testing.T) {
 }
 
 func TestUpdateProgressAndPortableResult(t *testing.T) {
+	old := buildinfo.Version
+	buildinfo.Version = "v0.2.0"
+	defer func() { buildinfo.Version = old }()
+
 	m, _ := testModel(80, 24)
 	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: "https://example.test/release", Setup: true, Portable: true})
 	m.openUpdateModal()
@@ -471,7 +559,10 @@ func TestUpdateProgressAndPortableResult(t *testing.T) {
 		Kind: "setup", Phase: "downloading", Received: 42, Total: 100,
 	}))
 	plain := assertFrame(t, m, 80, 24)
-	for _, want := range []string{"Downloading", "42%", "Download · Verify · Install · Reopen"} {
+	for _, want := range []string{
+		copy.T(copy.UpdateFromTo, "v0.2.0", "v9.9.9"),
+		"Downloading", "42%", "Download · Verify · Install · Reopen",
+	} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("progress missing %q:\n%s", want, plain)
 		}

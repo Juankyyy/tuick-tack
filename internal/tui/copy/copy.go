@@ -41,8 +41,7 @@ const (
 	UpdateHint       = Key("hint.update")
 	UpdateHintNew    = Key("hint.update.new")
 
-	UpdateBody               = Key("update.body")
-	UpdateCurrent            = Key("update.current")
+	UpdateFromTo             = Key("update.fromto")
 	UpdateType               = Key("update.type")
 	UpdateTypeSetup          = Key("update.type.setup")
 	UpdateTypePortable       = Key("update.type.portable")
@@ -292,8 +291,7 @@ var texts = map[Key]string{
 	UpdateHint:       "[u] check for updates",
 	UpdateHintNew:    "[u] update to %s",
 
-	UpdateBody:               "%s is available",
-	UpdateCurrent:            "You have %s.",
+	UpdateFromTo:             "%s → %s",
 	UpdateType:               "Type",
 	UpdateTypeSetup:          "Setup",
 	UpdateTypePortable:       "Portable",
