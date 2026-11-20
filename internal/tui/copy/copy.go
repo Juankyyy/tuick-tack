@@ -416,7 +416,7 @@ var texts = map[Key]string{
 	UpdateNotesTitle:         "What's new in %s",
 	UpdateHintSelect:         "[Enter] select",
 	UpdateHintTab:            "[Tab] type",
-	UpdateHintNotes:          "[PgUp/Dn] notes",
+	UpdateHintNotes:          "[↑/↓] notes",
 	UpdateHintGithub:         "[g] github",
 	UpdateHintLater:          "[Esc] later",
 	UpdateHintWarn:           "[Enter] continue · [Esc] back",
@@ -544,7 +544,7 @@ var texts = map[Key]string{
 	HelpModal:  "[p] presets · [t] theme · [v] sound · [s] stats",
 	HelpClose:  "[Esc] or [Enter] to close",
 	HelpQuit:   "[q] closes the TUI; the tray keeps running",
-	HelpUpdate: "updates: [u] check · dialog: [Tab] type · [PgUp/Dn] notes",
+	HelpUpdate: "updates: [u] check · dialog: [Tab] type · [↑/↓] notes",
 
 	PresetsTitle:      "Presets",
 	PresetsEmpty:      "No presets yet. Press [a] to add one.",

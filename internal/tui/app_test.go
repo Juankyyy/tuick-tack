@@ -281,9 +281,19 @@ func TestUpdateTypeSelection(t *testing.T) {
 		t.Fatalf("installed copy should start on Setup/install, type=%q focus=%v", m.updateType, m.updateFocus)
 	}
 
+	// The arrows scroll the notes; Tab is the only key that changes the copy.
 	press(m, tea.KeyDown, "")
+	if m.updateType != updateTypeSetup || m.updateFocus != hitUpdateInstall {
+		t.Fatalf("down must not change the copy, type=%q focus=%v", m.updateType, m.updateFocus)
+	}
+	press(m, tea.KeyUp, "")
+	if m.updateType != updateTypeSetup || m.updateFocus != hitUpdateInstall {
+		t.Fatalf("up must not change the copy, type=%q focus=%v", m.updateType, m.updateFocus)
+	}
+
+	press(m, tea.KeyTab, "")
 	if m.updateType != updateTypePortable || m.updateFocus != hitUpdatePortable {
-		t.Fatalf("down should select Portable/download, type=%q focus=%v", m.updateType, m.updateFocus)
+		t.Fatalf("Tab should select Portable/download, type=%q focus=%v", m.updateType, m.updateFocus)
 	}
 	plain := assertFrame(t, m, 80, 24)
 	for _, want := range []string{
@@ -295,13 +305,9 @@ func TestUpdateTypeSelection(t *testing.T) {
 		}
 	}
 
-	press(m, tea.KeyDown, "")
-	if m.updateType != updateTypePortable {
-		t.Fatalf("down at the other copy should stay, type=%q", m.updateType)
-	}
-	press(m, tea.KeyUp, "")
+	press(m, tea.KeyTab, "")
 	if m.updateType != updateTypeSetup || m.updateFocus != hitUpdateInstall {
-		t.Fatalf("up should return to Setup/install, type=%q focus=%v", m.updateType, m.updateFocus)
+		t.Fatalf("Tab should return to Setup/install, type=%q focus=%v", m.updateType, m.updateFocus)
 	}
 	plain = assertFrame(t, m, 80, 24)
 	if strings.Contains(plain, copy.T(copy.UpdateOtherShort)) {
@@ -368,7 +374,7 @@ func TestUpdateTypeHorizontalActions(t *testing.T) {
 	m.setUpdate(&protocol.UpdatePayload{Latest: "v9.9.9", URL: "https://example.test/release", Setup: true, Portable: true})
 	m.installInfo = install.Info{Installed: true}
 	m.openUpdateModal()
-	press(m, tea.KeyDown, "")
+	press(m, tea.KeyTab, "")
 	press(m, tea.KeyRight, "")
 	if m.updateFocus != hitUpdateRelease {
 		t.Fatalf("right should move to github, got %v", m.updateFocus)

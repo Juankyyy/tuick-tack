@@ -73,7 +73,7 @@ countdown, the sound and the tray icon keep running.
 | Sound panel | `↑` `↓` select the sound; `←` `→` volume ±5%; `Space` preview; `m` mute; `Esc` close |
 | Presets panel | `↑` `↓` move; `Tab` actions; `←` `→` choose an action; `Enter` start or run; `a` add; `e` edit; `d` delete; `r` restore defaults; `Esc` close |
 | Form | `Tab` next field; `Enter` save; `Esc` cancel |
-| Update dialog | `↑` `↓` or `Tab` switch setup/portable; `←` `→` actions; `PgUp` `PgDn` scroll the release notes; `Enter` run; `g` GitHub; `Esc` later |
+| Update dialog | `Tab` switches setup/portable; `←` `→` actions; `↑` `↓` `PgUp` `PgDn` `Home` `End` or the wheel scroll the release notes; `Enter` run; `g` GitHub; `Esc` later |
 
 In the app, key hints use the `[key] action` format, for example `[Space] pause`.
 
@@ -180,13 +180,13 @@ download the portable `.exe`. The tray menu gets `Update available: vX.Y.Z`, whi
 release page.
 
 The dialog shows the copy you are using first, selected and marked `Installed` (setup) or
-`In use` (portable). Use `↑`/`↓` or `Tab` to switch to the other type; if you choose it, the
+`In use` (portable). Use `Tab` to switch to the other type; if you choose it, the
 dialog warns that it is not the copy you use and that your settings carry over. The horizontal
 action row stays below: `install` or `download`, `github` and `later`.
 
 When the release publishes notes, the dialog also opens a `What's new in vX` panel above the
 type row: the first eight lines at 80×24 and sixteen at 120×40, with a scrollbar. Read the rest
-with `PgUp`/`PgDn`, `Home`/`End` or the mouse wheel; `Tab` keeps switching the copy without
+with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End` or the mouse wheel; `Tab` keeps switching the copy without
 losing the scroll position. Releases without notes keep the shorter dialog.
 
 - **Install update:** downloads `tuick-tack-setup.exe`, verifies it and runs the same

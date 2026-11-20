@@ -113,6 +113,20 @@ func TestUpdateNotesScrolls(t *testing.T) {
 		t.Fatalf("Home did not return to the top:\n%s", plain)
 	}
 
+	// The arrows scroll one line at a time, like the statistics modal.
+	press(m, tea.KeyDown, "")
+	if m.notesScroll != 1 {
+		t.Fatalf("down line scroll = %d, want 1", m.notesScroll)
+	}
+	press(m, tea.KeyUp, "")
+	if m.notesScroll != 0 {
+		t.Fatalf("up did not return to the top: %d", m.notesScroll)
+	}
+	press(m, tea.KeyUp, "")
+	if m.notesScroll != 0 {
+		t.Fatalf("up ran past the top: %d", m.notesScroll)
+	}
+
 	// The wheel is the pointer equivalent of PgUp/PgDn.
 	_, _ = m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
 	if m.notesScroll == 0 {
@@ -143,10 +157,16 @@ func TestUpdateNotesNoPanelWithoutNotes(t *testing.T) {
 	if !strings.Contains(plain, copy.T(copy.UpdateHintTab)) {
 		t.Fatalf("Tab should be advertised when both copies exist:\n%s", plain)
 	}
+	beforeType := m.updateType
+	press(m, tea.KeyDown, "")
+	press(m, tea.KeyUp, "")
 	press(m, tea.KeyPgDown, "")
 	press(m, tea.KeyEnd, "")
 	if m.notesScroll != 0 {
 		t.Fatalf("scroll moved without notes: %d", m.notesScroll)
+	}
+	if m.updateType != beforeType {
+		t.Fatalf("arrows changed the copy without notes: %q -> %q", beforeType, m.updateType)
 	}
 }
 
@@ -247,7 +267,7 @@ func TestUpdateNotesCompactTypeRow(t *testing.T) {
 
 	// The other-copy warning wraps to two lines at 44 columns and pushes the
 	// notes pane down without covering the buttons.
-	press(m, tea.KeyDown, "")
+	press(m, tea.KeyTab, "")
 	plain = assertFrame(t, m, 48, 22)
 	for _, want := range []string{"This is not the copy you use;", "carry over.", "[ install ]", "[Enter] select"} {
 		if !strings.Contains(plain, want) {

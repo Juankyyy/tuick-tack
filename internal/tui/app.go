@@ -739,36 +739,6 @@ func (m *Model) ensureUpdateType() {
 	}
 }
 
-// moveUpdateType moves the Type selection. The current copy is always the
-// first row and the other copy the second, so down selects the other and up
-// returns to the current one. The ends do not wrap.
-func (m *Model) moveUpdateType(delta int) {
-	m.ensureUpdateType()
-	current := m.currentUpdateType()
-	other := m.otherUpdateType(current)
-	changed := false
-	switch {
-	case delta > 0:
-		if m.updateType == current && m.updateTypeAvailable(other) {
-			m.updateType = other
-			changed = true
-		}
-	case delta < 0:
-		if m.updateType == other && m.updateTypeAvailable(current) {
-			m.updateType = current
-			changed = true
-		}
-	}
-	if !changed {
-		return
-	}
-	if m.updateFocus == hitUpdateInstall || m.updateFocus == hitUpdatePortable {
-		m.updateFocus = m.primaryUpdateAction()
-		return
-	}
-	m.ensureUpdateFocus()
-}
-
 // toggleUpdateType is the Tab shortcut: it switches between the copy in use
 // and the other one when both assets exist. The chooser hint advertises it at
 // widths that can hold the label.
@@ -878,9 +848,9 @@ func (m *Model) handleUpdateKey(key tea.Key) tea.Cmd {
 		case key.Code == tea.KeyEnter:
 			return m.activateUpdateFocus()
 		case key.Code == tea.KeyUp:
-			m.moveUpdateType(-1)
+			m.scrollUpdateNotes(-1)
 		case key.Code == tea.KeyDown:
-			m.moveUpdateType(1)
+			m.scrollUpdateNotes(1)
 		case key.Code == tea.KeyTab:
 			m.toggleUpdateType()
 		case key.Code == tea.KeyLeft:
