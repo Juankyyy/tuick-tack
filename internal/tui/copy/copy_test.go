@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"tuick-tack/internal/config"
+	"tuick-tack/internal/tui/bigfont"
 	"tuick-tack/internal/tui/canvas"
 )
 
@@ -24,6 +25,32 @@ func TestSoundLabelsAreSingleCell(t *testing.T) {
 				t.Errorf("SoundLabel(%q) contains a non-ASCII rune %q", name, r)
 			}
 		}
+	}
+}
+
+func TestFinishedChoicesFitHero(t *testing.T) {
+	seen := map[string]bool{}
+	for _, key := range HeroFinishedChoices {
+		word := T(key)
+		if word == "" || word == string(key) {
+			t.Errorf("copy key %q has no text", key)
+			continue
+		}
+		if seen[word] {
+			t.Errorf("duplicate celebration word %q", word)
+		}
+		seen[word] = true
+		for _, r := range word {
+			if _, ok := bigfont.Glyph(r); !ok {
+				t.Errorf("%q has no bigfont glyph for %q", word, r)
+			}
+		}
+		if w := bigfont.WidthProportional(word, 2); w > 92 {
+			t.Errorf("%q is %d columns at 2x, want at most 92", word, w)
+		}
+	}
+	if len(seen) < 6 {
+		t.Fatalf("only %d celebration words, want 6", len(seen))
 	}
 }
 

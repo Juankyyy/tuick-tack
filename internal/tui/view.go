@@ -355,7 +355,11 @@ func (m *Model) compactLines(w int) []string {
 		}
 		lines = append(lines, hint)
 	case engine.Finished:
-		lines = append(lines, copy.T(copy.HeroFinished))
+		word := m.finishWord
+		if word == "" {
+			word = copy.T(copy.HeroFinished)
+		}
+		lines = append(lines, word)
 		lines = append(lines, copy.T(copy.FinishedTitle, m.finishLabel()))
 		at := m.finishedAt
 		if at.IsZero() {
@@ -616,7 +620,10 @@ func (m *Model) drawHero(c *canvas.Canvas, y, x, w int) {
 	case engine.Running, engine.Paused:
 		text = duration.Format(m.remaining())
 	case engine.Finished:
-		text = copy.T(copy.HeroFinished)
+		text = m.finishWord
+		if text == "" {
+			text = copy.T(copy.HeroFinished)
+		}
 	default:
 		ghost = true
 		if strings.TrimSpace(m.input) != "" {
@@ -628,17 +635,34 @@ func (m *Model) drawHero(c *canvas.Canvas, y, x, w int) {
 	}
 
 	scale := 1
-	if m.width >= 100 && m.height >= 30 {
+	proportional := false
+	if m.status() == engine.Finished {
+		// The celebration word keeps the wide scale whenever it fits: short
+		// words do it on their own, and proportional spacing trims the glyph
+		// bearings so TIME'S UP! and FINISHED! do not fall back to thin 1x
+		// glyphs. The hero block is always seven rows, so width decides.
+		if m.width >= 100 && bigfont.WidthProportional(text, 2) <= w {
+			scale = 2
+			proportional = true
+		}
+	} else if m.width >= 100 && m.height >= 30 {
 		scale = 2
 	}
-	if bigfont.Width(text, scale) > w {
-		scale = 1
+	bw := bigfont.Width(text, scale)
+	if proportional {
+		bw = bigfont.WidthProportional(text, scale)
 	}
-	if bigfont.Width(text, 1) > w {
+	if bw > w {
+		scale = 1
+		proportional = false
+		bw = bigfont.Width(text, scale)
+	}
+	if bw > w {
 		// Extremely narrow terminal: keep the clock rather than clipping the
 		// celebration word.
 		if m.status() == engine.Finished {
 			text = "0:00"
+			bw = bigfont.Width(text, 1)
 		}
 	}
 	top, bottom := m.heroColors(ghost)
@@ -646,19 +670,19 @@ func (m *Model) drawHero(c *canvas.Canvas, y, x, w int) {
 	if m.status() != engine.Paused && m.status() != engine.Finished {
 		hideColon = (m.now().UnixMilli()/500)%2 == 1
 	}
-	bw := bigfont.Width(text, scale)
 	bx := x + (w-bw)/2
 	if bx < x {
 		bx = x
 	}
 	bigfont.Draw(c, bx, y, text, bigfont.Options{
-		Scale:     scale,
-		Top:       top,
-		Bottom:    bottom,
-		Shadow:    theme.Scale(m.pal.BG, 0.5),
-		HasShadow: true,
-		Bold:      true,
-		HideColon: hideColon,
+		Scale:        scale,
+		Top:          top,
+		Bottom:       bottom,
+		Shadow:       theme.Scale(m.pal.BG, 0.5),
+		HasShadow:    true,
+		Bold:         true,
+		HideColon:    hideColon,
+		Proportional: proportional,
 	})
 }
 

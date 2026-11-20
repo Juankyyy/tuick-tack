@@ -227,7 +227,7 @@ Rutas (por usuario, sin admin):
 - **Idle:** cabecera `READY` con `no countdown`, dígitos fantasma `00:00`, input enfocado, chips de presets y atajos de teclas bajo los presets. Mientras escribes una duración válida, los dígitos fantasma la previsualizan.
 - **Running:** cabecera `RUNNING` con `ends at HH:MM`; dígitos grandes, barra, “X remaining”, botones y atajos de controles bajo los botones. Sin chips (foco).
 - **Paused:** como running en ámbar, cabecera `PAUSED` con `on hold`, barra atenuada, meta con “[Space] resume”.
-- **Finished / celebración:** flash + confeti + “TIME'S UP!”; la cabecera muestra `TIME'S UP!` y `at HH:MM`; tras 6 s, pantalla tranquila con resumen y `r` repeat / `Enter` close.
+- **Finished / celebración:** flash + confeti + una palabra grande al azar (`TIME'S UP!`, `DONE!`, `FINISHED!`, `TIME OUT!`, `THE END!`, `BINGO!`); la cabecera muestra `TIME'S UP!` y `at HH:MM`; tras 6 s, pantalla tranquila con resumen y `r` repeat / `Enter` close.
 - **Gestión de presets:** lista, añadir (`a`), editar (`e`), borrar (`d` con confirmación), restore defaults (`r`), start (`Enter`), close (`Esc`). `Tab` lleva el foco a la barra de acciones; `←/→` eligen acción y `Enter` la ejecuta. Las acciones que necesitan un preset se atenúan y se saltan si la lista está vacía.
 - **Sonido:** modal `v` con on/off, lista Chime/Marimba/Digital/Deep, volumen 0–100 en pasos de 5, preview con `Space` y mute con `m`. Elegir sonido o cambiar volumen previsualiza si el sonido está activo.
 - **Confirmación de cancelar:** overlay “Stop the countdown? Enter yes · Esc no”.
@@ -317,7 +317,7 @@ Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pa
 - **Fondo aurora:** degradado vertical + dos halos radiales suaves; deriva lenta ligada al progreso. Ocupa toda la pantalla, sin recorte por ningún panel.
 - **Escenario abierto:** sin panel, sin marco y sin borde. El contenido flota directamente sobre la aurora en una columna centrada de hasta 100 celdas; no hay caja que simule una ventana.
 - **Cabecera de dos alturas:** marca y dot a la izquierda; estado en mayúsculas y dot a la derecha; sub-línea derecha con `ends at HH:MM`, `on hold`, `at HH:MM` o `no countdown`. Sin píldora de estado.
-- **Dígitos:** fuente de bloques 7×5, escala horizontal 1 en compacto y 2 en amplio, degradado por fila, sombra de 1 celda (abajo-derecha) y halo tenue.
+- **Dígitos:** fuente de bloques 7×5, escala horizontal 1 en compacto y 2 en amplio, degradado por fila, sombra de 1 celda (abajo-derecha) y halo tenue. Las palabras de celebración usan la misma fuente y la escala 2 desde 100 columnas con espaciado proporcional (recorta los huecos laterales de cada glifo) para que las frases largas quepan sin volver a 1×; los dígitos siguen monoespaciados para que el reloj no cambie de ancho.
 - **Barra de progreso:** 1 fila, relleno con degradado accent→accent2, pista oscura, cabeza blanca brillante y checkpoints `┆` cada 25%.
 - **Detalles vivos:** colon parpadeante, dot de estado pulsante, ~30 motas de polvo lentas, pulso ámbar en los últimos 10 s.
 - **Sin emoji ni runas de doble ancho.** Todo el contenido usa glifos de una celda y box-drawing.
@@ -335,7 +335,7 @@ Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pa
 ### Secuencia
 
 1. `finish_seq` cambia → flash de fondo (~120 ms) + arranca el sonido del daemon.
-2. Ráfagas de confeti + “TIME'S UP!” en bloques grandes.
+2. Ráfagas de confeti + una de seis palabras en bloques grandes (`TIME'S UP!`, `DONE!`, `FINISHED!`, `TIME OUT!`, `THE END!`, `BINGO!`), elegida al azar una vez por `finish_seq` y sin repetir la del finish anterior.
 3. ~6 s de animación; el sonido dura entre 1,7 y 4 s según el pack.
 4. Pantalla de celebración tranquila: “5 min completed”, hora, `r` repeat, `Enter` close.
 5. `Enter`/`Esc` → idle y parar sonido; `r` → repetir la misma duración y volver al countdown.
@@ -350,7 +350,7 @@ Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pa
 - Al redimensionar, las posiciones se remapean proporcionalmente; las piezas que salen de pantalla se recortan.
 - Dibujo por capas: fondo → polvo → confeti → texto. La palabra y el resumen se dibujan encima para que el confeti pase por detrás.
 - 30 fps con `tea.Every(33ms, …)` durante la celebración; después vuelve el tick de 100 ms.
-- RNG con semilla en tests; en producción semilla temporal.
+- RNG con semilla en tests; en producción semilla temporal. La palabra de celebración se deriva de `seed + finish_seq`, se fija al empezar el finish y se mantiene hasta el siguiente.
 
 ## 12. Bandeja
 
@@ -443,7 +443,7 @@ Quit
 ## 14. Render por celdas
 
 - `internal/tui/canvas`: rejilla de celdas `{ch rune; fg, bg color.RGBA; bold bool}` con `Set`, `Text`, `Box`, `Fill`, `Gradient`, `Blit`, `Center`, `Dim` (scrim de modales) y `Render() string` (ANSI SGR 24-bit, reset por fila, sin runas anchas).
-- `internal/tui/bigfont`: fuente 7×5 para `0-9 : T I E M P O ¡ !`; dibuja con gradiente por fila y sombra.
+- `internal/tui/bigfont`: fuente 7×5 para `0-9`, `A-Z` y `: ' ! . - ?`; dibuja con gradiente por fila y sombra, y tiene un modo proporcional para las palabras de celebración (recorta los huecos laterales; los dígitos siguen monoespaciados).
 - `internal/tui/theme`: paletas y utilidades de mezcla/lerp.
 - `internal/tui/notes`: extrae la sección `What's new` del body de la release, quita Markdown/HTML/ANSI/emoji y envuelve el texto a celdas; el resultado lo pinta el diálogo de actualización con scroll.
 - `internal/tui/fx`: polvo ambiental y sistema de partículas del confeti.

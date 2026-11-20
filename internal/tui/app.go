@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -222,6 +223,7 @@ type Model struct {
 	deleteTarget config.Preset
 
 	finishSeen       int64
+	finishWord       string
 	celebrating      bool
 	celebrationStart time.Time
 	finishedAt       time.Time
@@ -1079,6 +1081,7 @@ func (m *Model) checkUpdates() tea.Cmd {
 }
 
 func (m *Model) startCelebration(short bool) {
+	m.finishWord = m.pickFinishWord()
 	m.celebrating = true
 	m.celebrationStart = m.now()
 	m.finishedAt = m.now()
@@ -1092,6 +1095,33 @@ func (m *Model) startCelebration(short bool) {
 	seed := m.seed + m.state.FinishSeq*7919
 	m.confetti = fx.NewCelebration(seed, w, h, m.pal.Confetti, m.pal.BG, short)
 	m.dust = fx.NewDust(seed, w, h)
+}
+
+// pickFinishWord chooses the big celebration word for the current finish. The
+// session seed and finish_seq make it deterministic in tests, and the next
+// word never repeats the previous one so two finishes in a row feel distinct.
+func (m *Model) pickFinishWord() string {
+	words := copy.HeroFinishedChoices
+	n := len(words)
+	if n == 0 {
+		return copy.T(copy.HeroFinished)
+	}
+	rng := rand.New(rand.NewSource(m.seed + m.state.FinishSeq*104729))
+	prev := -1
+	for i, key := range words {
+		if copy.T(key) == m.finishWord {
+			prev = i
+			break
+		}
+	}
+	if prev < 0 || n == 1 {
+		return copy.T(words[rng.Intn(n)])
+	}
+	i := rng.Intn(n - 1)
+	if i >= prev {
+		i++
+	}
+	return copy.T(words[i])
 }
 
 func (m *Model) showToast(s string) {

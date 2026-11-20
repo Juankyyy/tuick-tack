@@ -14,6 +14,7 @@ import (
 	"tuick-tack/internal/engine"
 	"tuick-tack/internal/install"
 	"tuick-tack/internal/protocol"
+	"tuick-tack/internal/tui/bigfont"
 	"tuick-tack/internal/tui/canvas"
 	"tuick-tack/internal/tui/copy"
 	"tuick-tack/internal/tui/theme"
@@ -1020,10 +1021,15 @@ func TestViewFinishedAndCelebrationOnce(t *testing.T) {
 		t.Fatalf("confetti count = %d, want 230", m.confetti.Count())
 	}
 	plain := assertFrame(t, m, 80, 24)
+	// The header keeps the status copy; the hero word is drawn in blocks, so
+	// its literal text never appears in the frame.
 	for _, want := range []string{"TIME'S UP!", "5 min completed", "repeat", "close", copy.T(copy.ControlsFinished), copy.T(copy.FinishedMeta)} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("finished view missing %q", want)
 		}
+	}
+	if !validFinishWord(m.finishWord) {
+		t.Errorf("finish word %q is not one of the celebration words", m.finishWord)
 	}
 
 	// The same finish_seq must not celebrate twice, even after the animation.
@@ -1043,6 +1049,134 @@ func TestViewFinishedAndCelebrationOnce(t *testing.T) {
 	})
 	if !m.celebrating {
 		t.Fatal("a new finish_seq should celebrate")
+	}
+}
+
+func validFinishWord(word string) bool {
+	for _, key := range copy.HeroFinishedChoices {
+		if copy.T(key) == word {
+			return true
+		}
+	}
+	return false
+}
+
+func TestFinishWordStaysForTheFinish(t *testing.T) {
+	m, _ := testModel(120, 40)
+	applyRunning(m)
+	m.applyState(protocol.StateMessage{
+		Type: protocol.TypeState, Status: "finished",
+		DurationMS: 300000, RemainingMS: 0, Label: "5 min", FinishSeq: 1,
+	})
+	word := m.finishWord
+	if word == "" {
+		t.Fatal("finish did not pick a celebration word")
+	}
+	m.celebrating = false
+	m.confetti = nil
+	first := assertFrame(t, m, 120, 40)
+	second := assertFrame(t, m, 120, 40)
+	if first != second {
+		t.Fatal("the finished frame changed between renders")
+	}
+	if m.finishWord != word {
+		t.Fatalf("word changed from %q to %q while the finish stood", word, m.finishWord)
+	}
+}
+
+func TestFinishWordsVaryAndNeverRepeat(t *testing.T) {
+	m, _ := testModel(120, 40)
+	applyRunning(m)
+	seen := map[string]bool{}
+	prev := ""
+	for seq := int64(1); seq <= 12; seq++ {
+		m.applyState(protocol.StateMessage{
+			Type: protocol.TypeState, Status: "finished",
+			DurationMS: 300000, RemainingMS: 0, Label: "5 min", FinishSeq: seq,
+		})
+		word := m.finishWord
+		if !validFinishWord(word) {
+			t.Fatalf("finish %d picked %q, not a celebration word", seq, word)
+		}
+		if word == prev {
+			t.Fatalf("finish %d repeated %q", seq, word)
+		}
+		seen[word] = true
+		prev = word
+	}
+	if len(seen) < 4 {
+		t.Fatalf("only %d distinct words in 12 finishes: %v", len(seen), seen)
+	}
+}
+
+func TestFinishedWordUsesWideScale(t *testing.T) {
+	for _, size := range [][2]int{{100, 30}, {106, 30}, {120, 40}} {
+		m, _ := testModel(size[0], size[1])
+		applyRunning(m)
+		m.applyState(protocol.StateMessage{
+			Type: protocol.TypeState, Status: "finished",
+			DurationMS: 300000, RemainingMS: 0, Label: "5 min", FinishSeq: 1,
+		})
+		m.celebrating = false
+		m.confetti = nil
+		plain := assertFrame(t, m, size[0], size[1])
+		lines := strings.Split(plain, "\n")
+		l := m.layout(size[0], size[1])
+		minX, maxX := size[0], -1
+		for _, line := range lines[l.heroY : l.heroY+bigfont.GlyphH] {
+			for x, r := range []rune(line) {
+				if r == '█' {
+					if x < minX {
+						minX = x
+					}
+					if x > maxX {
+						maxX = x
+					}
+				}
+			}
+		}
+		want := bigfont.WidthProportional(m.finishWord, 2)
+		if got := maxX - minX + 1; got != want {
+			t.Fatalf("%q spans %d columns at %dx%d, want %d", m.finishWord, got, size[0], size[1], want)
+		}
+	}
+}
+
+func TestEveryHeroWordFitsAtHundredColumns(t *testing.T) {
+	m, _ := testModel(100, 30)
+	applyRunning(m)
+	m.applyState(protocol.StateMessage{
+		Type: protocol.TypeState, Status: "finished",
+		DurationMS: 300000, RemainingMS: 0, Label: "5 min", FinishSeq: 1,
+	})
+	m.celebrating = false
+	m.confetti = nil
+	for _, key := range copy.HeroFinishedChoices {
+		word := copy.T(key)
+		m.finishWord = word
+		plain := assertFrame(t, m, 100, 30)
+		lines := strings.Split(plain, "\n")
+		l := m.layout(100, 30)
+		minX, maxX := 100, -1
+		for _, line := range lines[l.heroY : l.heroY+bigfont.GlyphH] {
+			for x, r := range []rune(line) {
+				if r == '█' {
+					if x < minX {
+						minX = x
+					}
+					if x > maxX {
+						maxX = x
+					}
+				}
+			}
+		}
+		want := bigfont.WidthProportional(word, 2)
+		if want > 92 {
+			t.Fatalf("%q is %d columns at 2x, want at most 92", word, want)
+		}
+		if got := maxX - minX + 1; got != want {
+			t.Fatalf("%q spans %d columns at 100x30, want %d", word, got, want)
+		}
 	}
 }
 

@@ -124,6 +124,11 @@ const (
 	CompactFinished  = Key("compact.finished")
 	CompactStopHint  = Key("compact.stop.hint")
 	HeroFinished     = Key("hero.finished")
+	HeroDone         = Key("hero.finished.done")
+	HeroFinishedWord = Key("hero.finished.finished")
+	HeroTimeOut      = Key("hero.finished.timeout")
+	HeroTheEnd       = Key("hero.finished.theend")
+	HeroBingo        = Key("hero.finished.bingo")
 	LabelFocus       = Key("label.focus")
 	RepeatHint       = Key("hint.repeat")
 	CloseHint        = Key("hint.close")
@@ -434,6 +439,11 @@ var texts = map[Key]string{
 	CompactFinished:  "[r] repeat · [Enter] close · [q] quit",
 	CompactStopHint:  "[Enter] yes · [Esc] no",
 	HeroFinished:     "TIME'S UP!",
+	HeroDone:         "DONE!",
+	HeroFinishedWord: "FINISHED!",
+	HeroTimeOut:      "TIME OUT!",
+	HeroTheEnd:       "THE END!",
+	HeroBingo:        "BINGO!",
 	LabelFocus:       "Focus",
 	RepeatHint:       "r repeat",
 	CloseHint:        "enter close",
@@ -633,6 +643,17 @@ var texts = map[Key]string{
 	TrayQuit:                 "Quit",
 	TrayQuitTooltip:          "Quit Tuick-Tack",
 	TrayCurrentTooltip:       "Current countdown",
+}
+
+// HeroFinishedChoices are the big celebration words. The TUI picks one per
+// finish; every one fits the hero at scale 2 with proportional spacing.
+var HeroFinishedChoices = []Key{
+	HeroFinished,
+	HeroDone,
+	HeroFinishedWord,
+	HeroTimeOut,
+	HeroTheEnd,
+	HeroBingo,
 }
 
 // SoundLabel returns the user-facing label for a stable sound ID.
