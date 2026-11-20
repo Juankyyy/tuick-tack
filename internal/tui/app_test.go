@@ -1180,6 +1180,94 @@ func TestEveryHeroWordFitsAtHundredColumns(t *testing.T) {
 	}
 }
 
+func TestFinishAutoClosesAfterTenSeconds(t *testing.T) {
+	m, clock := testModel(120, 40)
+	applyRunning(m)
+	m.applyState(protocol.StateMessage{
+		Type: protocol.TypeState, Status: "finished",
+		DurationMS: 300000, RemainingMS: 0, Label: "5 min", FinishSeq: 1,
+	})
+	if !m.finishAutoArmed {
+		t.Fatal("a new finish should arm the automatic close")
+	}
+	clock.Advance(9 * time.Second)
+	m.handleTick()
+	if !m.finishAutoArmed {
+		t.Fatal("the celebration closed before ten seconds")
+	}
+	clock.Advance(time.Second)
+	m.handleTick()
+	if m.finishAutoArmed {
+		t.Fatal("the automatic close did not fire at ten seconds")
+	}
+	if m.celebrating || m.confetti != nil {
+		t.Fatal("the automatic close left the celebration running")
+	}
+	// The test model has no IPC client, so send() reports the disconnect; that
+	// proves the dismiss was attempted.
+	if m.toast != copy.T(copy.ErrorOffline) {
+		t.Fatalf("automatic dismiss was not sent: toast = %q", m.toast)
+	}
+	m.toast = ""
+	m.handleTick()
+	if m.toast != "" {
+		t.Fatalf("automatic close repeated: toast = %q", m.toast)
+	}
+	m.applyState(protocol.StateMessage{
+		Type: protocol.TypeState, Status: "finished",
+		DurationMS: 600000, RemainingMS: 0, Label: "10 min", FinishSeq: 2,
+	})
+	if !m.finishAutoArmed {
+		t.Fatal("the next finish should re-arm the automatic close")
+	}
+	m.applyState(protocol.StateMessage{
+		Type: protocol.TypeState, Status: "running",
+		DurationMS: 600000, RemainingMS: 590000, Label: "10 min", FinishSeq: 2,
+	})
+	if m.finishAutoArmed {
+		t.Fatal("leaving the finished screen should disarm the automatic close")
+	}
+}
+
+func TestFinishAutoCloseWaitsForModal(t *testing.T) {
+	m, clock := testModel(120, 40)
+	applyRunning(m)
+	m.applyState(protocol.StateMessage{
+		Type: protocol.TypeState, Status: "finished",
+		DurationMS: 300000, RemainingMS: 0, Label: "5 min", FinishSeq: 1,
+	})
+	m.modal = modalStats
+	clock.Advance(11 * time.Second)
+	m.handleTick()
+	if !m.finishAutoArmed {
+		t.Fatal("the automatic close fired while a modal was open")
+	}
+	m.modal = modalNone
+	m.handleTick()
+	if m.finishAutoArmed {
+		t.Fatal("the automatic close did not fire after closing the modal")
+	}
+}
+
+func TestFinishAutoCloseCancelledByRepeat(t *testing.T) {
+	m, clock := testModel(120, 40)
+	applyRunning(m)
+	m.applyState(protocol.StateMessage{
+		Type: protocol.TypeState, Status: "finished",
+		DurationMS: 300000, RemainingMS: 0, Label: "5 min", FinishSeq: 1,
+	})
+	clock.Advance(11 * time.Second)
+	press(m, 'r', "r")
+	if m.finishAutoArmed {
+		t.Fatal("repeat did not disarm the automatic close")
+	}
+	m.toast = ""
+	m.handleTick()
+	if m.toast != "" {
+		t.Fatalf("repeat still sent the automatic dismiss: toast = %q", m.toast)
+	}
+}
+
 func TestViewCelebrationRendersConfetti(t *testing.T) {
 	for _, size := range [][2]int{{80, 24}, {120, 40}} {
 		m, _ := testModel(size[0], size[1])

@@ -68,7 +68,7 @@ countdown, the sound and the tray icon keep running.
 | Idle | `←` `→` select a preset; `p` presets; `t` theme; `v` sound settings; `m` mute; `s` statistics; `u` check/install update; `?` help; `q` close |
 | Running | `Space` pause; `Esc` confirm cancel; `+` / `-` ±1 min; `v` sound settings; `m` mute; `s` statistics; `?` help; `q` close |
 | Paused | `Space` resume; `Esc` confirm cancel; `+` / `-` ±1 min; `v` sound settings; `m` mute; `s` statistics; `?` help |
-| Finished | `r` repeat; `v` sound settings; `m` mute; `s` statistics; `Enter` / `Esc` close the celebration |
+| Finished | `r` repeat; `v` sound settings; `m` mute; `s` statistics; `Enter` / `Esc` close the celebration (it also closes itself after 10 s) |
 | Statistics | `←` `→` or `Tab` switch section; `1`–`4` jump; `t` range (7/30/90 days or all time); `↑` `↓` `PgUp` `PgDn` `Home` `End` or the wheel scroll; `Esc` or `s` close |
 | Sound panel | `↑` `↓` select the sound; `←` `→` volume ±5%; `Space` preview; `m` mute; `Esc` close |
 | Presets panel | `↑` `↓` move; `Tab` actions; `←` `→` choose an action; `Enter` start or run; `a` add; `e` edit; `d` delete; `r` restore defaults; `Esc` close |
@@ -240,7 +240,9 @@ Feedback and safety:
   tray, and downloads an update only when the TUI asks. The downloader verifies SHA-256; the
   setup path starts a short-lived helper and the portable path writes the `.exe` to Downloads.
 - On finish the daemon increments `finish_seq` once, plays the selected sound at the
-  configured volume and updates the tray; the TUI celebrates when it sees the new sequence.
+  configured volume and updates the tray; the TUI celebrates when it sees the new sequence
+  and dismisses the finished screen on its own after ten seconds (a manual close or repeat
+  wins; an open modal postpones it until the modal closes).
 - The daemon also records finished sessions and aggregates them for `get_stats`; the
   Statistics tab is a view over that summary and adds no timer truth of its own.
 

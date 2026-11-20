@@ -227,7 +227,7 @@ Rutas (por usuario, sin admin):
 - **Idle:** cabecera `READY` con `no countdown`, dígitos fantasma `00:00`, input enfocado, chips de presets y atajos de teclas bajo los presets. Mientras escribes una duración válida, los dígitos fantasma la previsualizan.
 - **Running:** cabecera `RUNNING` con `ends at HH:MM`; dígitos grandes, barra, “X remaining”, botones y atajos de controles bajo los botones. Sin chips (foco).
 - **Paused:** como running en ámbar, cabecera `PAUSED` con `on hold`, barra atenuada, meta con “[Space] resume”.
-- **Finished / celebración:** flash + confeti + una palabra grande al azar (`TIME'S UP!`, `DONE!`, `FINISHED!`, `TIME OUT!`, `THE END!`, `BINGO!`); la cabecera muestra `TIME'S UP!` y `at HH:MM`; tras 6 s, pantalla tranquila con resumen y `r` repeat / `Enter` close.
+- **Finished / celebración:** flash + confeti + una palabra grande al azar (`TIME'S UP!`, `DONE!`, `FINISHED!`, `TIME OUT!`, `THE END!`, `BINGO!`); la cabecera muestra `TIME'S UP!` y `at HH:MM`; tras 6 s, pantalla tranquila con resumen y `r` repeat / `Enter` close. A los 10 s del finish la TUI manda `dismiss` y vuelve a idle por sí sola; si hay un modal abierto espera a que se cierre, y un `r` o un cierre manual cancelan el plazo.
 - **Gestión de presets:** lista, añadir (`a`), editar (`e`), borrar (`d` con confirmación), restore defaults (`r`), start (`Enter`), close (`Esc`). `Tab` lleva el foco a la barra de acciones; `←/→` eligen acción y `Enter` la ejecuta. Las acciones que necesitan un preset se atenúan y se saltan si la lista está vacía.
 - **Sonido:** modal `v` con on/off, lista Chime/Marimba/Digital/Deep, volumen 0–100 en pasos de 5, preview con `Space` y mute con `m`. Elegir sonido o cambiar volumen previsualiza si el sonido está activo.
 - **Confirmación de cancelar:** overlay “Stop the countdown? Enter yes · Esc no”.
@@ -337,7 +337,7 @@ Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pa
 1. `finish_seq` cambia → flash de fondo (~120 ms) + arranca el sonido del daemon.
 2. Ráfagas de confeti + una de seis palabras en bloques grandes (`TIME'S UP!`, `DONE!`, `FINISHED!`, `TIME OUT!`, `THE END!`, `BINGO!`), elegida al azar una vez por `finish_seq` y sin repetir la del finish anterior.
 3. ~6 s de animación; el sonido dura entre 1,7 y 4 s según el pack.
-4. Pantalla de celebración tranquila: “5 min completed”, hora, `r` repeat, `Enter` close.
+4. Pantalla de celebración tranquila: “5 min completed”, hora, `r` repeat, `Enter` close. A los 10 s del finish la TUI manda `dismiss` y vuelve a idle por sí sola, salvo que haya un modal abierto (espera a que se cierre).
 5. `Enter`/`Esc` → idle y parar sonido; `r` → repetir la misma duración y volver al countdown.
 
 ### Confeti

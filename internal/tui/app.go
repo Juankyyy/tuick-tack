@@ -224,6 +224,7 @@ type Model struct {
 
 	finishSeen       int64
 	finishWord       string
+	finishAutoArmed  bool
 	celebrating      bool
 	celebrationStart time.Time
 	finishedAt       time.Time
@@ -490,6 +491,12 @@ func (m *Model) handleServerEvent(msg serverEventMsg) tea.Cmd {
 	return nil
 }
 
+// finishAutoClose is how long the finished screen stays before the TUI
+// dismisses it on its own. It starts when the finish arrives (or when the TUI
+// connects to an already finished timer) and leaves the 6 s confetti burst
+// untouched inside it.
+const finishAutoClose = 10 * time.Second
+
 func (m *Model) handleTick() tea.Cmd {
 	now := m.now()
 	dt := now.Sub(m.lastTick)
@@ -510,11 +517,17 @@ func (m *Model) handleTick() tea.Cmd {
 	if m.celebrating && now.Sub(m.celebrationStart) > 6*time.Second {
 		m.confetti = nil
 	}
+	var autoClose tea.Cmd
+	if m.finishAutoArmed && m.status() == engine.Finished && m.modal == modalNone &&
+		!m.finishedAt.IsZero() && now.Sub(m.finishedAt) >= finishAutoClose {
+		m.leaveFinished()
+		autoClose = m.send(protocol.ClientMessage{Type: protocol.TypeDismiss})
+	}
 	next := 100 * time.Millisecond
 	if m.celebrating && now.Sub(m.celebrationStart) < 6*time.Second {
 		next = 33 * time.Millisecond
 	}
-	return tea.Batch(tickCmd(next), m.sampleWindow())
+	return tea.Batch(tickCmd(next), m.sampleWindow(), autoClose)
 }
 
 func (m *Model) applyConfig(cfg protocol.ConfigMessage) {
@@ -587,6 +600,7 @@ func (m *Model) applyState(st protocol.StateMessage) {
 	if st.Status != string(engine.Finished) {
 		m.celebrating = false
 		m.confetti = nil
+		m.finishAutoArmed = false
 	} else if m.modal != modalNone && m.modal != modalUpdate {
 		m.modal = modalNone
 		m.form.err = ""
@@ -1082,6 +1096,7 @@ func (m *Model) checkUpdates() tea.Cmd {
 
 func (m *Model) startCelebration(short bool) {
 	m.finishWord = m.pickFinishWord()
+	m.finishAutoArmed = true
 	m.celebrating = true
 	m.celebrationStart = m.now()
 	m.finishedAt = m.now()
@@ -1122,6 +1137,15 @@ func (m *Model) pickFinishWord() string {
 		i++
 	}
 	return copy.T(words[i])
+}
+
+// leaveFinished clears the local celebration for the current finish and
+// disarms the automatic close, so a manual repeat or dismiss cannot race the
+// ten-second deadline.
+func (m *Model) leaveFinished() {
+	m.celebrating = false
+	m.confetti = nil
+	m.finishAutoArmed = false
 }
 
 func (m *Model) showToast(s string) {
@@ -1257,12 +1281,10 @@ func (m *Model) handleFinishedKey(key tea.Key) tea.Cmd {
 	text := key.Text
 	switch {
 	case key.Code == tea.KeyEnter || key.Code == tea.KeyEscape:
-		m.celebrating = false
-		m.confetti = nil
+		m.leaveFinished()
 		return m.send(protocol.ClientMessage{Type: protocol.TypeDismiss})
 	case text == "r":
-		m.celebrating = false
-		m.confetti = nil
+		m.leaveFinished()
 		return m.send(protocol.ClientMessage{Type: protocol.TypeRestart})
 	case text == "?":
 		m.modal = modalHelp
@@ -1620,12 +1642,10 @@ func (m *Model) performHit(hit hitbox) tea.Cmd {
 		m.modal = modalPresets
 		m.form.err = ""
 	case hitRepeat:
-		m.celebrating = false
-		m.confetti = nil
+		m.leaveFinished()
 		return m.send(protocol.ClientMessage{Type: protocol.TypeRestart})
 	case hitDismiss:
-		m.celebrating = false
-		m.confetti = nil
+		m.leaveFinished()
 		return m.send(protocol.ClientMessage{Type: protocol.TypeDismiss})
 	case hitSoundRow:
 		if hit.index >= 0 && hit.index < len(config.Sounds) {
