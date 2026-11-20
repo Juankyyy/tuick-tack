@@ -2,7 +2,9 @@ package tui
 
 import (
 	"testing"
+	"time"
 
+	"tuick-tack/internal/config"
 	"tuick-tack/internal/protocol"
 )
 
@@ -15,34 +17,70 @@ func TestResizeSequence(t *testing.T) {
 func TestHelloWindowAppliesOnce(t *testing.T) {
 	m, _ := testModel(80, 24)
 	m.sizeKnown = true
+	m.windowOwned = true
+	var order []string
 	var applied [][2]int
-	m.applyWindow = func(w, h int) { applied = append(applied, [2]int{w, h}) }
+	m.applyWindow = func(w, h int) {
+		order = append(order, "resize")
+		applied = append(applied, [2]int{w, h})
+	}
+	var moved [][2]int
+	m.moveWindow = func(x, y int) bool {
+		order = append(order, "move")
+		moved = append(moved, [2]int{x, y})
+		return true
+	}
+	m.windowMaximizedFn = func() bool { return false }
+	pos := &config.WindowPosition{X: 93, Y: 100}
 
-	if cmd := m.noteHelloWindow(&protocol.WindowSizePayload{Width: 140, Height: 45}); cmd != nil {
+	if cmd := m.noteHelloWindow(&protocol.WindowSizePayload{
+		Width: 140, Height: 45, Position: pos,
+	}); cmd != nil {
 		t.Fatal("connecting should not schedule a save")
 	}
 	if len(applied) != 1 || applied[0] != [2]int{140, 45} {
 		t.Fatalf("applied = %v, want one 140x45 resize", applied)
 	}
+	if len(moved) != 1 || moved[0] != [2]int{93, 100} {
+		t.Fatalf("moved = %v, want one move to 93,100", moved)
+	}
+	if len(order) != 2 || order[0] != "move" || order[1] != "resize" {
+		t.Fatalf("placement order = %v, want move before resize", order)
+	}
 	if !m.windowSupported || !m.windowArmed || m.windowSavedW != 140 || m.windowSavedH != 45 {
 		t.Fatalf("unexpected window state: supported=%v armed=%v saved=%dx%d",
 			m.windowSupported, m.windowArmed, m.windowSavedW, m.windowSavedH)
 	}
+	if !m.windowHasPos || !m.posKnown || !m.posArmed ||
+		m.windowSavedX != 93 || m.windowSavedY != 100 {
+		t.Fatalf("unexpected position state: has=%v known=%v armed=%v saved=%d,%d x=%d",
+			m.windowHasPos, m.posKnown, m.posArmed, m.windowSavedX, m.windowSavedY, m.windowX)
+	}
 
-	// A reconnect must not reapply the stored size over a user resize.
-	m.noteHelloWindow(&protocol.WindowSizePayload{Width: 140, Height: 45})
-	if len(applied) != 1 {
-		t.Fatalf("reconnect applied the size again: %v", applied)
+	// A reconnect must not reapply the stored placement over a user change.
+	pos2 := &config.WindowPosition{X: 10, Y: 20}
+	m.noteHelloWindow(&protocol.WindowSizePayload{Width: 140, Height: 45, Position: pos2})
+	if len(applied) != 1 || len(moved) != 1 {
+		t.Fatalf("reconnect reapplied the placement: applied=%v moved=%v", applied, moved)
+	}
+	if m.windowSavedX != 10 || m.windowSavedY != 20 {
+		t.Fatalf("reconnect did not refresh the saved position: %d,%d",
+			m.windowSavedX, m.windowSavedY)
 	}
 }
 
 func TestHelloBeforeStartupDefersApply(t *testing.T) {
 	m, _ := testModel(80, 24)
 	m.sizeKnown = false
+	m.windowOwned = true
 	var applied [][2]int
 	m.applyWindow = func(w, h int) { applied = append(applied, [2]int{w, h}) }
+	m.moveWindow = func(int, int) bool { return true }
+	m.windowMaximizedFn = func() bool { return false }
 
-	m.noteHelloWindow(&protocol.WindowSizePayload{Width: 140, Height: 45})
+	m.noteHelloWindow(&protocol.WindowSizePayload{
+		Width: 140, Height: 45, Position: &config.WindowPosition{X: 93, Y: 100},
+	})
 	if len(applied) != 0 {
 		t.Fatal("the stored size must wait for the terminal's startup size")
 	}
@@ -66,8 +104,11 @@ func TestHelloBeforeStartupDefersApply(t *testing.T) {
 func TestHelloWindowSkipsMatchingSize(t *testing.T) {
 	m, _ := testModel(140, 45)
 	m.sizeKnown = true
+	m.windowOwned = true
 	applied := false
 	m.applyWindow = func(int, int) { applied = true }
+	m.moveWindow = func(int, int) bool { return true }
+	m.windowMaximizedFn = func() bool { return false }
 
 	m.noteHelloWindow(&protocol.WindowSizePayload{Width: 140, Height: 45})
 	if applied {
@@ -99,9 +140,11 @@ func TestResizeSchedulesAndSaves(t *testing.T) {
 	m.windowArmed = true
 	m.windowSavedW, m.windowSavedH = 80, 24
 
-	var sent [2]int
-	m.sendWindow = func(w, h int) error {
-		sent = [2]int{w, h}
+	var sentSize [2]int
+	var sentPos *config.WindowPosition
+	m.sendWindow = func(w, h int, pos *config.WindowPosition) error {
+		sentSize = [2]int{w, h}
+		sentPos = pos
 		return nil
 	}
 
@@ -117,8 +160,8 @@ func TestResizeSchedulesAndSaves(t *testing.T) {
 	if cmd := m.handleWindowSave(windowSaveMsg{width: 90, height: 28}); cmd != nil {
 		t.Fatal("a superseded size must not be saved")
 	}
-	if sent != [2]int{} {
-		t.Fatalf("stale size was sent: %v", sent)
+	if sentSize != [2]int{} {
+		t.Fatalf("stale size was sent: %v", sentSize)
 	}
 
 	cmd = m.handleWindowSave(windowSaveMsg{width: 100, height: 30})
@@ -129,8 +172,8 @@ func TestResizeSchedulesAndSaves(t *testing.T) {
 	if !ok || msg.err != nil {
 		t.Fatalf("unexpected save result: %#v", msg)
 	}
-	if sent != [2]int{100, 30} {
-		t.Fatalf("sent = %v, want 100x30", sent)
+	if sentSize != [2]int{100, 30} || sentPos != nil {
+		t.Fatalf("sent = %v pos=%v, want 100x30 without position", sentSize, sentPos)
 	}
 
 	m.handleWindowSaved(msg)
@@ -140,10 +183,204 @@ func TestResizeSchedulesAndSaves(t *testing.T) {
 	}
 }
 
+func TestPositionBaselineIsNotSaved(t *testing.T) {
+	m, clock := testModel(80, 24)
+	m.sizeKnown = true
+	m.windowSupported = true
+	m.windowConnected = true
+	m.windowOwned = true
+	m.windowSavedW, m.windowSavedH = 80, 24
+	x, y := 93, 100
+	m.windowPositionFn = func() (int, int, bool) { return x, y, true }
+	m.windowMaximizedFn = func() bool { return false }
+	cmd := m.sampleWindow()
+	if cmd != nil {
+		t.Fatal("the first observed position is a baseline, not a move")
+	}
+	if !m.posArmed || m.windowX != 93 || m.windowY != 100 || m.windowHasPos {
+		t.Fatalf("unexpected baseline: armed=%v pos=%d,%d has=%v",
+			m.posArmed, m.windowX, m.windowY, m.windowHasPos)
+	}
+
+	clock.Advance(windowPosSampleInterval + time.Millisecond)
+	x, y = 200, 300
+	cmd = m.sampleWindow()
+	if cmd == nil {
+		t.Fatal("a real move should schedule a save")
+	}
+	if !m.posDirty || !m.windowHasPos || m.windowX != 200 || m.windowY != 300 {
+		t.Fatalf("unexpected move state: dirty=%v has=%v pos=%d,%d",
+			m.posDirty, m.windowHasPos, m.windowX, m.windowY)
+	}
+
+	var sentSize [2]int
+	var sentPos *config.WindowPosition
+	m.sendWindow = func(w, h int, pos *config.WindowPosition) error {
+		sentSize = [2]int{w, h}
+		sentPos = pos
+		return nil
+	}
+	cmd = m.handleWindowSave(windowSaveMsg{width: 80, height: 24, x: 200, y: 300, hasPos: true})
+	if cmd == nil {
+		t.Fatal("the move should be sent after the debounce")
+	}
+	msg := cmd().(windowSavedMsg)
+	if sentSize != [2]int{80, 24} || sentPos == nil ||
+		sentPos.X != 200 || sentPos.Y != 300 {
+		t.Fatalf("sent = %v pos=%v, want the moved position", sentSize, sentPos)
+	}
+	m.handleWindowSaved(msg)
+	if m.posDirty || m.windowSavedX != 200 || m.windowSavedY != 300 {
+		t.Fatalf("position not marked saved: dirty=%v saved=%d,%d",
+			m.posDirty, m.windowSavedX, m.windowSavedY)
+	}
+}
+
+func TestUnavailablePositionKeepsStoredValue(t *testing.T) {
+	m, clock := testModel(80, 24)
+	m.sizeKnown = true
+	m.windowOwned = true
+	m.moveWindow = func(int, int) bool { return false }
+	m.windowMaximizedFn = func() bool { return false }
+	m.windowPositionFn = func() (int, int, bool) { return 50, 60, true }
+	m.noteHelloWindow(&protocol.WindowSizePayload{
+		Width: 80, Height: 24, Position: &config.WindowPosition{X: 93, Y: 100},
+	})
+	if !m.posApplyPending {
+		t.Fatal("a failed start should retry the stored position")
+	}
+
+	clock.Advance(windowPosApplyWindow + time.Second)
+	m.sampleWindow()
+	if m.posApplyPending || m.windowHasPos || m.posKnown {
+		t.Fatalf("expired placement was not forgotten: pending=%v has=%v known=%v",
+			m.posApplyPending, m.windowHasPos, m.posKnown)
+	}
+	if !m.posArmed || m.windowX != 50 || m.windowY != 60 {
+		t.Fatalf("baseline not set: armed=%v pos=%d,%d",
+			m.posArmed, m.windowX, m.windowY)
+	}
+
+	var sentPos *config.WindowPosition
+	m.sendWindow = func(w, h int, pos *config.WindowPosition) error {
+		sentPos = pos
+		return nil
+	}
+	m.windowDirty = true
+	m.width, m.height = 90, 28
+	m.flushWindow()
+	if sentPos != nil {
+		t.Fatalf("size save overwrote the stored position: %+v", sentPos)
+	}
+}
+
+func TestStalePositionSaveIsDropped(t *testing.T) {
+	m, clock := testModel(80, 24)
+	m.sizeKnown = true
+	m.windowSupported = true
+	m.windowConnected = true
+	m.windowOwned = true
+	m.windowSavedW, m.windowSavedH = 80, 24
+	x, y := 100, 100
+	m.windowPositionFn = func() (int, int, bool) { return x, y, true }
+	m.windowMaximizedFn = func() bool { return false }
+	m.sampleWindow() // baseline
+	clock.Advance(windowPosSampleInterval + time.Millisecond)
+	x, y = 200, 200
+	if cmd := m.sampleWindow(); cmd == nil {
+		t.Fatal("move not detected")
+	}
+	clock.Advance(windowPosSampleInterval + time.Millisecond)
+	x, y = 300, 300
+	m.sampleWindow()
+	if cmd := m.handleWindowSave(windowSaveMsg{
+		width: 80, height: 24, x: 200, y: 200, hasPos: true,
+	}); cmd != nil {
+		t.Fatal("a superseded position must not be saved")
+	}
+}
+
+func TestFlushWindowSavesPosition(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.sizeKnown = true
+	m.windowSupported = true
+	m.connected = true
+	m.windowOwned = true
+	m.windowSavedW, m.windowSavedH = 80, 24
+	m.windowSavedX, m.windowSavedY = 93, 100
+	m.windowX, m.windowY = 93, 100
+	m.windowHasPos = true
+	m.posKnown = true
+	m.posArmed = true
+	m.windowPositionFn = func() (int, int, bool) { return 110, 120, true }
+	m.windowMaximizedFn = func() bool { return false }
+	var sentPos *config.WindowPosition
+	m.sendWindow = func(w, h int, pos *config.WindowPosition) error {
+		sentPos = pos
+		return nil
+	}
+
+	m.flushWindow()
+	if sentPos == nil || sentPos.X != 110 || sentPos.Y != 120 {
+		t.Fatalf("position not flushed: %+v", sentPos)
+	}
+	if m.posDirty || m.windowSavedX != 110 || m.windowSavedY != 120 {
+		t.Fatalf("unexpected state after flush: dirty=%v saved=%d,%d",
+			m.posDirty, m.windowSavedX, m.windowSavedY)
+	}
+}
+
+func TestSharedConsoleSkipsPosition(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.sizeKnown = true
+	m.windowOwned = false
+	m.moveWindow = func(int, int) bool {
+		t.Fatal("a shared console must not be moved")
+		return false
+	}
+	m.windowPositionFn = func() (int, int, bool) {
+		t.Fatal("a shared console must not be sampled")
+		return 0, 0, false
+	}
+	m.windowMaximizedFn = func() bool { return false }
+
+	m.noteHelloWindow(&protocol.WindowSizePayload{
+		Width: 80, Height: 24, Position: &config.WindowPosition{X: 93, Y: 100},
+	})
+	if cmd := m.sampleWindow(); cmd != nil {
+		t.Fatal("a shared console must not schedule a position save")
+	}
+	if m.windowHasPos || m.posArmed {
+		t.Fatalf("shared console recorded a position: has=%v armed=%v",
+			m.windowHasPos, m.posArmed)
+	}
+}
+
+func TestMaximizedSizeIsNotSaved(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.sizeKnown = true
+	m.windowSupported = true
+	m.windowConnected = true
+	m.windowArmed = true
+	m.windowOwned = true
+	m.windowSavedW, m.windowSavedH = 80, 24
+	m.windowMaximizedFn = func() bool { return true }
+
+	if cmd := m.handleWindowSize(200, 50); cmd != nil {
+		t.Fatal("the maximized grid must not be saved")
+	}
+	if m.windowDirty {
+		t.Fatal("the maximized grid marked the size dirty")
+	}
+}
+
 func TestOfflineResizeIsSavedAfterReconnect(t *testing.T) {
 	m, _ := testModel(80, 24)
 	m.connected = false
 	m.sizeKnown = false
+	m.windowOwned = true
+	m.moveWindow = func(int, int) bool { return true }
+	m.windowMaximizedFn = func() bool { return false }
 
 	m.handleWindowSize(80, 24) // startup size
 	m.handleWindowSize(90, 28) // user resize while connecting
@@ -183,12 +420,12 @@ func TestFlushWindowSizeOnClose(t *testing.T) {
 	m.width, m.height = 110, 35
 	m.windowSavedW, m.windowSavedH = 80, 24
 	var sent [2]int
-	m.sendWindow = func(w, h int) error {
+	m.sendWindow = func(w, h int, pos *config.WindowPosition) error {
 		sent = [2]int{w, h}
 		return nil
 	}
 
-	m.flushWindowSize()
+	m.flushWindow()
 	if sent != [2]int{110, 35} {
 		t.Fatalf("sent = %v, want 110x35", sent)
 	}
@@ -198,18 +435,18 @@ func TestFlushWindowSizeOnClose(t *testing.T) {
 	}
 }
 
-func TestFlushWindowSizeWithoutChanges(t *testing.T) {
+func TestFlushWindowWithoutChanges(t *testing.T) {
 	m, _ := testModel(80, 24)
 	m.sizeKnown = true
 	m.windowSupported = true
 	m.windowSavedW, m.windowSavedH = 80, 24
 	sent := false
-	m.sendWindow = func(int, int) error {
+	m.sendWindow = func(int, int, *config.WindowPosition) error {
 		sent = true
 		return nil
 	}
 
-	m.flushWindowSize()
+	m.flushWindow()
 	if sent {
 		t.Fatal("an unchanged size must not be sent")
 	}

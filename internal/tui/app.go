@@ -18,6 +18,7 @@ import (
 	"tuick-tack/internal/install"
 	"tuick-tack/internal/ipc"
 	"tuick-tack/internal/protocol"
+	"tuick-tack/internal/termwin"
 	"tuick-tack/internal/tui/copy"
 	"tuick-tack/internal/tui/fx"
 	"tuick-tack/internal/tui/notes"
@@ -173,10 +174,12 @@ type Model struct {
 	width, height int
 	hits          []hitbox
 
-	// Terminal size preference: sizeKnown is set by the first WindowSizeMsg,
-	// windowSupported by a daemon that advertises window in the hello. The size
-	// is applied once per TUI session; later resizes are persisted after
-	// windowSaveDelay, and again on a clean exit.
+	// Terminal placement preference: sizeKnown is set by the first
+	// WindowSizeMsg, windowSupported by a daemon that advertises window in the
+	// hello. The placement is applied once per TUI session; later resizes and
+	// moves are persisted after windowSaveDelay, and again on a clean exit.
+	// windowOwned is false when the TUI shares a console (a terminal tab) and
+	// must not move the user's whole terminal window.
 	sizeKnown            bool
 	windowConnected      bool
 	windowSupported      bool
@@ -186,8 +189,25 @@ type Model struct {
 	windowChangedOffline bool
 	windowSavedW         int
 	windowSavedH         int
+	windowOwned          bool
+	posArmed             bool
+	posApplyPending      bool
+	posApplyUntil        time.Time
+	posReapply           bool
+	posDirty             bool
+	posKnown             bool
+	posValid             bool
+	windowHasPos         bool
+	windowX              int
+	windowY              int
+	windowSavedX         int
+	windowSavedY         int
+	lastPosSample        time.Time
 	applyWindow          func(w, h int)
-	sendWindow           func(w, h int) error
+	moveWindow           func(x, y int) bool
+	windowPositionFn     func() (x, y int, ok bool)
+	windowMaximizedFn    func() bool
+	sendWindow           func(w, h int, pos *config.WindowPosition) error
 
 	input    string
 	inputErr string
@@ -254,6 +274,10 @@ func New(pipe string) *Model {
 	info, _ := install.Current()
 	m.installInfo = info
 	m.applyWindow = resizeTerminal
+	m.windowOwned = termwin.OwnsConsole()
+	m.windowPositionFn = func() (int, int, bool) { return termwin.Position(buildinfo.Name) }
+	m.moveWindow = func(x, y int) bool { return termwin.Move(buildinfo.Name, x, y) }
+	m.windowMaximizedFn = func() bool { return termwin.Maximized(buildinfo.Name) }
 	return m
 }
 
@@ -484,10 +508,11 @@ func (m *Model) handleTick() tea.Cmd {
 	if m.celebrating && now.Sub(m.celebrationStart) > 6*time.Second {
 		m.confetti = nil
 	}
+	next := 100 * time.Millisecond
 	if m.celebrating && now.Sub(m.celebrationStart) < 6*time.Second {
-		return tickCmd(33 * time.Millisecond)
+		next = 33 * time.Millisecond
 	}
-	return tickCmd(100 * time.Millisecond)
+	return tea.Batch(tickCmd(next), m.sampleWindow())
 }
 
 func (m *Model) applyConfig(cfg protocol.ConfigMessage) {
@@ -1984,12 +2009,12 @@ func (m *Model) viewSize() (int, int) {
 }
 
 // Close releases the pipe connection. Called after the Bubble Tea program
-// exits so the daemon keeps running. A pending window size is sent first so a
-// resize followed by a quick quit is not lost.
+// exits so the daemon keeps running. A pending placement is sent first so a
+// resize or move followed by a quick quit is not lost.
 func (m *Model) Close() {
 	if m.client != nil {
 		if m.connected {
-			m.flushWindowSize()
+			m.flushWindow()
 		}
 		_ = m.client.Close()
 		m.client = nil

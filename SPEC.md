@@ -127,7 +127,7 @@ Campos de estado:
 ## 7. Protocolo IPC
 
 - Transporte: named pipe de go-winio; mensajes JSON consecutivos con `json.Encoder`/`json.Decoder` sobre `net.Conn`. Los buffers del pipe son explícitos (64 KiB): con los tamaños por defecto una escritura puede esperar a que el cliente lea, y eso bloquearía los snapshots o el aviso final.
-- Handshake: cliente `hello {protocol: 1}` ↔ servidor `hello {protocol: 1, app_version, config, update?, window?}`. `window` es aditivo y siempre lo envía un daemon de esta versión (`{width,height}` en celdas; ceros si no hay preferencia guardada). Su presencia indica que el daemon entiende `set_window_size`; un daemon viejo lo omite y la TUI no manda ese comando.
+- Handshake: cliente `hello {protocol: 1}` ↔ servidor `hello {protocol: 1, app_version, config, update?, window?}`. `window` es aditivo y siempre lo envía un daemon de esta versión (`{width,height}` en celdas y `position?` en píxeles; ceros si no hay tamaño guardado). Su presencia indica que el daemon entiende `set_window_size`; un daemon viejo lo omite y la TUI no manda ese comando. La posición es opcional: nil significa que no hay ninguna guardada o que el daemon es viejo.
 - El servidor acepta N clientes; broadcast de estado a 10 Hz mientras corre (y en cada cambio), y config solo al cambiar.
 - Errores: `{ "type": "error", "code": "...", "message": "..." }`.
 - La TUI reintenta la conexión cada 1 s si se cae; muestra banner de desconexión y deshabilita comandos.
@@ -149,7 +149,7 @@ Cliente → daemon:
 | `set_sound` | `enabled` |
 | `set_sound_name` | `sound_name` |
 | `set_volume` | `volume` |
-| `set_window_size` | `width`, `height` (celdas; 1..1000) |
+| `set_window_size` | `width`, `height` (celdas; 1..1000), `position?` (`x`,`y` en píxeles; si falta, se conserva la guardada) |
 | `preview_sound` | — |
 | `stop_sound` | — |
 | `check_update` | — |
@@ -163,7 +163,7 @@ Daemon → cliente:
 
 | Mensaje | Contenido |
 |---|---|
-| `hello` | `protocol`, `app_version`, `config`, `update?`, `window?` (`width`, `height`; siempre presente en daemons de esta versión) |
+| `hello` | `protocol`, `app_version`, `config`, `update?`, `window?` (`width`, `height`, `position?`; siempre presente en daemons de esta versión) |
 | `state` | snapshot del §6 |
 | `config` | `presets`, `theme`, `sound`, `sound_name`, `volume` |
 | `update` | `latest`, `url`, `setup?`, `portable?`, `notes?` |
@@ -177,9 +177,9 @@ Daemon → cliente:
 
 `get_stats` y `stats` son aditivos: un daemon viejo responde `invalid_command` y la TUI cierra la pestaña con un aviso; un cliente viejo ignora `stats`. El daemon responde solo al cliente que lo pidió, como `update_result`. La TUI pide el agregado al abrir la pestaña, al reconectar y cuando un snapshot muestra un stop o un reemplazo con la pestaña abierta (un final la cierra para celebrar); el resto del tiempo no hay tráfico extra.
 
-El tamaño de ventana no se difunde: es geometría del cliente, no estado compartido. El daemon lo guarda en config y lo devuelve en el siguiente `hello`; no hace broadcast ni refresca la bandeja.
+El tamaño y la posición de ventana no se difunden: son geometría del cliente, no estado compartido. El daemon los guarda en config y los devuelve en el siguiente `hello`; no hace broadcast ni refresca la bandeja.
 
-Validación: duración 1..86400 s; etiqueta 1..32 caracteres; máximo 16 presets; tema válido; sonido válido (`chime`, `marimba`, `digital`, `deep`); volumen 0..100; tamaño de ventana 1..1000 por 1..1000 celdas. Comando inválido → error, sin cambiar estado.
+Validación: duración 1..86400 s; etiqueta 1..32 caracteres; máximo 16 presets; tema válido; sonido válido (`chime`, `marimba`, `digital`, `deep`); volumen 0..100; tamaño de ventana 1..1000 por 1..1000 celdas; posición entre -32768 y 32767 en ambos ejes. Comando inválido → error, sin cambiar estado.
 
 ## 8. Configuración y presets
 
@@ -191,13 +191,14 @@ Rutas (por usuario, sin admin):
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "theme": "midnight",
   "sound": true,
   "sound_name": "digital",
   "volume": 80,
   "window_width": 140,
   "window_height": 45,
+  "window_position": { "x": 93, "y": 100 },
   "presets": [
     { "id": "p5",  "label": "5 min",  "seconds": 300 },
     { "id": "p10", "label": "10 min", "seconds": 600 },
@@ -209,11 +210,12 @@ Rutas (por usuario, sin admin):
 - Semilla de defaults en el primer arranque; presets editables/borrables; “Restore defaults” en el gestor.
 - Sonido por defecto `digital`; volumen por defecto 80, rango 0..100 y pasos de 5 en la UI.
 - `window_width`/`window_height` son el tamaño de terminal preferido en celdas y se omiten mientras no haya preferencia (0). Solo los escribe el daemon cuando la TUI reporta un resize.
-- Migración v1 → v3 y v2 → v3 al cargar: conserva theme, sound, presets, sonido y volumen; v1 fija `sound_name=digital` y `volume=80`; el tamaño de ventana queda sin definir. El daemon guarda la config migrada al arrancar.
+- `window_position` es el borde superior izquierdo exterior de la ventana en píxeles de pantalla (admite negativos en multi-monitor) y se omite mientras no haya preferencia. Solo lo escribe el daemon cuando la TUI reporta un movimiento. Una posición fuera de rango se descarta al normalizar en vez de invalidar toda la config.
+- Migración v1 → v4, v2 → v4 y v3 → v4 al cargar: conserva theme, sound, presets, sonido, volumen y tamaño; v1 fija `sound_name=digital` y `volume=80`; la posición queda sin definir. El daemon guarda la config migrada al arrancar.
 - Escritura atómica (temporal en el mismo directorio + rename). Config corrupta: backup `config.bad-<timestamp>.json` y defaults.
 - Historial de sesiones: una línea JSON por countdown terminado (`started_ms`, `planned_ms`, `elapsed_ms`, `paused_ms?`, `label`, `preset_id?`, `outcome`). `outcome` es `completed` (llega a 0, también ajustando), `stopped` (stop explícito) o `replaced` (un `start` lo sustituye). No se registra un daemon que muere con el timer vivo, igual que el timer no se restaura. Cap 2000 registros con recorte atómico e histéresis (256); las líneas inválidas se saltan y un fichero ilegible se respalda como `history.bad-<timestamp>.jsonl` y arranca vacío. **No vive en `config.json`**: es un log de datos, no ajustes versionados, y no se añade un segundo store de configuración ni una base de datos.
 - El daemon es el único escritor. Para el historial guarda el inicio de pared al arrancar, acumula las pausas y suma los ajustes al planificado, de modo que el registro refleja el objetivo final y el tiempo real. El cálculo de días, horas y rachas usa la zona local y un reloj inyectable en tests.
-- El daemon es el único escritor. La TUI manda comandos; el daemon guarda, actualiza el menú y hace broadcast del estado compartido. El tamaño de ventana solo se guarda y se devuelve en el siguiente `hello`.
+- El daemon es el único escritor. La TUI manda comandos; el daemon guarda, actualiza el menú y hace broadcast del estado compartido. El tamaño y la posición de ventana solo se guardan y se devuelven en el siguiente `hello`.
 - El registro se usa solo para autostart (`HKCU\...\Run`) y para el AUMID de las notificaciones (`HKCU\Software\Classes\AppUserModelId\Juankyyy.TuickTack`, valor `DisplayName`); nunca para estado de la app.
 - Etiqueta y duración visibles en el menú; el orden es el almacenado (defaults primero; los nuevos al final).
 - Duraciones: parser en §9. Límite 1 s..24 h.
@@ -239,7 +241,9 @@ Rutas (por usuario, sin admin):
 ### Layout
 
 - Alt screen, cursor oculto, mouse en modo all-motion para chips/botones y el hover del aviso de actualización.
-- **Tamaño de ventana recordado:** al conectar, si el daemon anuncia `window` con un tamaño guardado distinto del actual, la TUI pide al terminal `CSI 8;filas;columnas t` (lo soportan conhost y Windows Terminal moderno; uno que lo ignore se queda como está). Un resize real se envía al daemon con 300 ms de debounce y otra vez al cerrar con `q`/`Esc`; el tamaño inicial de arranque y el que produce aplicar la preferencia no se guardan. En reconexiones no se reaplica, para no pisar un resize del usuario. Se guardan celdas, no posición ni si estaba maximizada.
+- **Colocación de ventana recordada:** al conectar, si el daemon anuncia `window` con una posición guardada, la TUI mueve la ventana real del terminal antes de aplicar el tamaño y, si el host la desplaza al redimensionar, la reaplica una vez. Localiza la ventana por título exacto (`Tuick-Tack`) y clase (`ConsoleWindowClass` o `CASCADIA_HOSTING_WINDOW_CLASS`) mediante `internal/termwin`; la clase es necesaria porque en Windows Terminal el proceso solo ve un `PseudoConsoleWindow` oculto. Después, si el tamaño guardado difiere del actual, pide `CSI 8;filas;columnas t` (lo soportan conhost y Windows Terminal moderno; uno que lo ignore se queda como está).
+- **Solo ventana propia:** `GetConsoleProcessList` decide si la TUI es el único cliente de su consola. Si comparte consola con un shell (p. ej. una pestaña de Windows Terminal o `go run`), no se mueve la ventana ni se guarda su posición; el tamaño sigue funcionando como antes.
+- **Persistencia:** la posición se muestrea cada 500 ms desde el tick existente y se envía al daemon, junto al tamaño, con 300 ms de debounce y otra vez al cerrar con `q`/`Esc`; el `HWND` se cachea. La posición inicial de arranque y la que produce aplicar la preferencia no se guardan. En reconexiones no se reaplica nada, para no pisar un resize o un movimiento del usuario. Mientras la ventana está maximizada o minimizada no se guarda ni tamaño ni posición: se conserva la última colocación normal. Si la posición guardada no cae en ningún monitor (pantalla desconectada), no se mueve y se conserva el valor.
 - Mínimo con estilos 48×22. El reloj usa escala 1 y pasa a escala 2 desde 100×30. La separación entre piezas es de una fila por debajo de 32 de alto y de dos filas desde 32 (la fila extra del aviso de actualización retrasa el cambio).
 - Entre 22 y 23 filas se usa el modo *tight*: se omite la línea meta (`remaining` / `Type a duration or pick a preset`) y su hueco para que el bloque quepa sin solapes. Desde 24 filas vuelve la meta.
 - Sin panel ni marco: la aurora ocupa toda la pantalla y el contenido vive en una columna centrada de máximo 100 celdas. En 80×24 quedan 4 celdas de margen a cada lado.
@@ -468,12 +472,14 @@ internal/
   install/                    # detecta la copia instalada en el registro de Inno
   instance/                   # mutex de daemon/TUI compartidos
   winproc/                    # CreateProcess oculto y consola nueva
+  termwin/                    # localizar y mover la ventana real de la consola
   explorer/                   # abrir Downloads con el fichero seleccionado
   browser/                    # ShellExecuteW para abrir la release
   notify/                     # toasts WinRT: AUMID, resultado de la comprobación
   tray/                       # systray menu, icons, tooltip
   tui/
     app.go                    # Bubble Tea model/update
+    window.go                 # tamaño y posición de la ventana recordados
     view.go                   # pantallas y layout
     stats.go                  # pestaña de estadísticas y sus gráficas
     copy/                     # todo el copy de la UI
@@ -535,9 +541,9 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 ### Automáticos
 
 - `duration`: tabla de formatos válidos/inválidos, clamps.
-- `config`: defaults, carga/guardado, corrupto → backup, migración v1→v3 y v2→v3, validación de presets/sonido/volumen/tamaño de ventana.
+- `config`: defaults, carga/guardado, corrupto → backup, migración v1→v4, v2→v4 y v3→v4, validación de presets/sonido/volumen/tamaño y posición de ventana.
 - `engine`: reloj falso; start/pause/resume/adjust/finish una vez/replace/restart; `finish_seq`.
-- `protocol`: round-trip JSON, versión, errores, comandos de sonido y volumen, `set_window_size` y `hello.window`, `update`, `check_update`/`update_result`, `install_update`/`download_portable`, `update_progress`, `daemon_closing` con motivo, `get_stats`/`stats` y tolerancia a tipos desconocidos.
+- `protocol`: round-trip JSON, versión, errores, comandos de sonido y volumen, `set_window_size` y `hello.window` con y sin posición, `update`, `check_update`/`update_result`, `install_update`/`download_portable`, `update_progress`, `daemon_closing` con motivo, `get_stats`/`stats` y tolerancia a tipos desconocidos.
 - `stats`: alta y recarga de JSONL, rechazo de registros inválidos, líneas corruptas saltadas, respaldo de un fichero ilegible, recorte al cap, agregados (día local, hora, día de la semana, totales por rango, top de etiquetas, recientes ordenados, récords) y rachas con huecos y mañana sin sesiones.
 - `ipc`: pipe de test con nombre único, handshake con `update`, start/pause/stop, broadcast, múltiples clientes, reconexión y aviso final entregado antes de cerrar el pipe.
 - `update`: comparación semver y pre-releases, GET contra `httptest` (200/404/403/JSON roto/timeout), `User-Agent`, assets estables/digest, `body`/notas con normalización de CRLF y recorte a 16 KiB en límite de rune, descarga TLS con progreso, SHA-256 correcto e incorrecto, checksums y rechazo de URLs no HTTPS.
@@ -547,8 +553,8 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - `browser`: solo `https`, rechazo de `http`, `file` y `javascript`.
 - `canvas`/`bigfont`: dimensiones, clipping, ancho de runas, gradiente.
 - `fx`: RNG con semilla, física, caducidad, sin NaN, límites.
-- `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único; persistencia del tamaño de ventana; parseo y migración del valor de autostart; catálogo de sonidos, escalado PCM y caché; caché de la release (incluidas las notas) y comprobación manual (up to date / available / failed) contra `httptest`; notificación inyectada solo para la bandeja; `Quit` idempotente y marcado como cierre pedido por el usuario; payload con capacidades setup/portable y notas; rechazos de instalación (`unavailable`, `busy`, `unsupported`, `timer_active`) y descarga+spawn con un `spawnUpdater` inyectado; historial con reloj inyectado: completed/stopped/replaced, pausas acumuladas, ajustes en el planificado, `onFinish` repetido no duplica y `get_stats` sale del store.
-- `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; tamaño de ventana (aplicar una vez, ignorar el inicial, debounce, guardado al cerrar y compatibilidad con daemon viejo); modal de sonido; aviso de actualización (degradado animado con `animTime`, flecha, fallback corto, hover, click y modo compacto); `u` abre el diálogo si hay release o comprueba si no; diálogo en 48×22/80×24/120×40 con chips de tipo en una fila (copia en uso primero, estados `Installed`/`Not installed`/`In use`/`Not in use`/`Not available`; apilados a 44 columnas), selección con `↑`/`↓` y `Tab`, fila horizontal de acciones con `←`/`→`, aviso de la otra copia en una línea, aviso de countdown, progreso, resultado portable y fallo; panel de notas con `What's new`, scroll por `PgUp`/`PgDn`/`Home`/`End`/rueda, barra de scroll, hint dinámico (`[Tab] type`, `[PgUp/Dn] notes`, `[g] github` según ancho y assets) y vuelta a 18 filas sin notas; `Enter`/`g`/`Esc`; aviso secundario `[u] update to vX`; celebración una vez por `finish_seq`; cierre por `daemon_closing` (quit/update) sin reconexión; estadísticas: `s` abre en idle (solo cuando no es sufijo), running, paused y finished; `25m`/`90s` siguen tecleándose; `m` mutea; `s`/`Esc` cierran; secciones con `←/→`/`Tab`/`1..4`, `t` cicla el rango, scroll y rueda, tabs clicables, refresco al reconectar y al parar con la pestaña abierta, cierre con aviso si el daemon es viejo, estado vacío, `s` ignorada en compacto y layout sin runas anchas en 48×22/80×24/120×40.
+- `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único; persistencia del tamaño y la posición de ventana, conservando la posición cuando el mensaje no la trae; parseo y migración del valor de autostart; catálogo de sonidos, escalado PCM y caché; caché de la release (incluidas las notas) y comprobación manual (up to date / available / failed) contra `httptest`; notificación inyectada solo para la bandeja; `Quit` idempotente y marcado como cierre pedido por el usuario; payload con capacidades setup/portable y notas; rechazos de instalación (`unavailable`, `busy`, `unsupported`, `timer_active`) y descarga+spawn con un `spawnUpdater` inyectado; historial con reloj inyectado: completed/stopped/replaced, pausas acumuladas, ajustes en el planificado, `onFinish` repetido no duplica y `get_stats` sale del store.
+- `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; colocación de ventana (aplicar una vez, ignorar el inicial, debounce, descartar guardados obsoletos, guardado al cerrar, consola compartida sin mover, maximizado sin guardar y compatibilidad con daemon viejo); `termwin` se prueba a mano por depender de la ventana real; modal de sonido; aviso de actualización (degradado animado con `animTime`, flecha, fallback corto, hover, click y modo compacto); `u` abre el diálogo si hay release o comprueba si no; diálogo en 48×22/80×24/120×40 con chips de tipo en una fila (copia en uso primero, estados `Installed`/`Not installed`/`In use`/`Not in use`/`Not available`; apilados a 44 columnas), selección con `↑`/`↓` y `Tab`, fila horizontal de acciones con `←`/`→`, aviso de la otra copia en una línea, aviso de countdown, progreso, resultado portable y fallo; panel de notas con `What's new`, scroll por `PgUp`/`PgDn`/`Home`/`End`/rueda, barra de scroll, hint dinámico (`[Tab] type`, `[PgUp/Dn] notes`, `[g] github` según ancho y assets) y vuelta a 18 filas sin notas; `Enter`/`g`/`Esc`; aviso secundario `[u] update to vX`; celebración una vez por `finish_seq`; cierre por `daemon_closing` (quit/update) sin reconexión; estadísticas: `s` abre en idle (solo cuando no es sufijo), running, paused y finished; `25m`/`90s` siguen tecleándose; `m` mutea; `s`/`Esc` cierran; secciones con `←/→`/`Tab`/`1..4`, `t` cicla el rango, scroll y rueda, tabs clicables, refresco al reconectar y al parar con la pestaña abierta, cierre con aviso si el daemon es viejo, estado vacío, `s` ignorada en compacto y layout sin runas anchas en 48×22/80×24/120×40.
 - `notes`: extracción de `What's new` (incluida la apóstrofe tipográfica) y fallback al body completo; tablas, enlaces, imágenes, énfasis, code fences, blockquotes y callouts; limpieza de ANSI, controles, emojis, CJK, bidi y entidades; wrapping con sangría colgante, palabras largas y anchos 20/36/56, todo de una celda.
 - Comandos: `go test ./...`, `go vet ./...`, `gofmt -l .`.
 
@@ -562,7 +568,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 6. Añadir/editar/borrar preset → el submenú se actualiza; persistencia tras reiniciar.
 7. Entradas `25`, `12:30`, `90s`, `1h30m`, inválida.
 8. Temas; abrir `v`, recorrer los cuatro sonidos y probar 0/5/50/80/100 %; preview con `Space`; mute; “Start with Windows” on/off; “Quit”.
-9. Migrar un config v1 o v2 → aparece v3: v1 fija digital/80; v2 conserva sonido y volumen; ambos conservan presets, tema y mute y dejan el tamaño de ventana sin definir.
+9. Migrar un config v1, v2 o v3 → aparece v4: v1 fija digital/80; v2 y v3 conservan sonido, volumen y tamaño; todos conservan presets, tema y mute y dejan la posición de ventana sin definir.
 10. 48×22, 80×24 y 120×40; resize durante el confeti; con una TUI abierta, el clic en la bandeja la enfoca sin abrir otra; lanzar `tuick-tack.exe` a mano también la enfoca y sale.
 11. El daemon (`--daemon --hidden`) no muestra consola; la TUI sí.
 12. `dist/` contiene `tuick-tack.exe` y, con `-Version … -Installer`, `tuick-tack-setup.exe`; `go test`, build y ejecución desde `dist/`.
@@ -575,7 +581,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 19. Abrir el diálogo de actualización a 48×22: los chips de tipo se apilan, el panel de notas muestra menos líneas y el hint cae a la forma corta; comprobar que no hay runas anchas, solapes ni texto de control con una release que tenga emojis, enlaces y tablas. Repetir con una release sin sección `What's new`: debe caer al body completo, y con una sin `body`: el diálogo vuelve a 18 filas.
 20. Con la TUI abierta (con y sin timer, y con un modal abierto), pulsar **Quit** en la bandeja: la TUI sale, el icono desaparece y no reaparece un daemon. `q` sigue cerrando solo la TUI.
 21. Actualizar con un countdown corriendo: la TUI pide confirmación, el timer se pierde si se continúa y la app vuelve con el nuevo binario; la config se conserva.
-22. Cambiar el tamaño de la ventana de la TUI, cerrar con `q` y reabrir: vuelve el mismo tamaño y `config.json` muestra `window_width`/`window_height`. Repetir cerrando con la X tras medio segundo. En Windows Terminal, redimensionar y reabrir: la versión moderna aplica el tamaño; un terminal que ignore la secuencia se queda como está y no pisa la preferencia al abrir y cerrar sin redimensionar.
+22. Mover y redimensionar la ventana de la TUI, cerrar con `q` y reabrir desde la bandeja: vuelven la misma posición y el mismo tamaño, y `config.json` muestra `window_width`/`window_height` y `window_position`. Repetir cerrando con la X tras medio segundo. En Windows Terminal, comprobar que la ventana se mueve antes de redimensionar (el tamaño no se recorta) y que un terminal que ignore `CSI 8` conserva su tamaño. Maximizar, cerrar y reabrir: vuelve la última colocación normal, nunca la rejilla maximizada. Abrir la TUI desde una pestaña de Windows Terminal o con `go run`: no debe moverse la ventana completa ni guardarse su posición. Reiniciar el daemon con la TUI abierta: la ventana no salta.
 23. Estadísticas: terminar un 5 min, parar otro antes de cero y reemplazar un tercero con un `start` nuevo. Abrir `s`: el overview suma las tres sesiones y el % de completadas usa completed+stopped (el reemplazado no penaliza); las barras por día, la racha y el récord de sesión más larga cuadran. Revisar activity (heatmap de 26 semanas, hora y día), presets (totales por etiqueta, runs y %) y recent (`✓ completed`, `· stopped at`, `· replaced at`). Reiniciar el daemon y reabrir: el historial sigue y `history.jsonl` tiene una línea por sesión. Repetir a 48×22, 80×24 y 120×40 en los tres temas, con rueda y `PgUp`/`PgDn`, `t` cambiando el rango y un timer corriendo (abrir y cerrar la pestaña no lo toca).
 
 ### Criterios de aceptación (v1)
@@ -586,10 +592,10 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - [ ] Una sola TUI: el tray y una segunda ejecución del exe enfocan la ventana existente sin duplicarla.
 - [ ] Los presets (5/10/15 + personalizados) se inician desde TUI y bandeja; persisten.
 - [ ] Sonido de fin de 1–5 s elegible entre cuatro, con volumen 0–100 y silencio; preview desde TUI y bandeja.
-- [ ] La config v1 migra a v3 (digital/80) y la v2 conserva sonido/volumen, sin perder presets, tema ni mute.
+- [ ] La config v1 migra a v4 (digital/80) y la v2/v3 conservan sonido/volumen/tamaño, sin perder presets, tema ni mute.
 - [ ] Confeti a 0 en la TUI, una vez por final, ~6 s, sin artefactos al redimensionar.
 - [ ] La UI es usable a 48×22 (modo tight), a 80×24, y se ve bien a 120×40.
-- [ ] El tamaño de la ventana se recuerda entre sesiones y no se guarda el tamaño inicial ni se reaplica al reconectar.
+- [ ] El tamaño y la posición de la ventana se recuerdan entre sesiones, no se guarda la colocación inicial ni se reaplica al reconectar, y una pestaña compartida no mueve el terminal entero.
 - [ ] Un solo `.exe` portable; el daemon no abre consola con `--hidden`; autostart opcional funciona. El setup per-user instala, actualiza y desinstala sin admin.
 - [ ] El aviso de release aparece en TUI y bandeja; el diálogo ofrece instalar con el setup o descargar el portable, verifica SHA-256, avisa si se pierde un countdown y conserva la config; la comprobación manual funciona desde la bandeja y con `u`.
 - [ ] La comprobación desde la bandeja muestra un toast nativo con el resultado; el de una release nueva abre la página al pulsar.
@@ -647,13 +653,14 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "theme": "midnight",
   "sound": true,
   "sound_name": "digital",
   "volume": 80,
   "window_width": 140,
   "window_height": 45,
+  "window_position": { "x": 93, "y": 100 },
   "presets": [
     { "id": "p5",  "label": "5 min",  "seconds": 300 },
     { "id": "p10", "label": "10 min", "seconds": 600 },
@@ -671,7 +678,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 {"type":"preset_add","label":"Focus","seconds":1500}
 {"type":"set_sound_name","sound_name":"marimba"}
 {"type":"set_volume","volume":75}
-{"type":"set_window_size","width":140,"height":45}
+{"type":"set_window_size","width":140,"height":45,"position":{"x":93,"y":100}}
 {"type":"check_update"}
 {"type":"install_update","force":true}
 {"type":"download_portable"}
@@ -679,7 +686,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 
 // daemon → cliente
 {"type":"hello","protocol":1,"app_version":"v0.2.0","config":{...},
- "window":{"width":140,"height":45},
+ "window":{"width":140,"height":45,"position":{"x":93,"y":100}},
  "update":{"latest":"v0.3.0","url":"https://github.com/Juankyyy/tuick-tack/releases/tag/v0.3.0","setup":true,"portable":true,"notes":"## What's new in v0.3.0\n..."}}
 {"type":"update","latest":"v0.3.0",
  "url":"https://github.com/Juankyyy/tuick-tack/releases/tag/v0.3.0","setup":true,"portable":true,"notes":"## What's new in v0.3.0\n..."}

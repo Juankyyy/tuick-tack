@@ -25,6 +25,8 @@ func TestClientRoundTrip(t *testing.T) {
 		{Type: TypeSetSoundName, SoundName: config.SoundMarimba},
 		{Type: TypeSetVolume, Volume: &volume},
 		{Type: TypeSetWindowSize, Width: 140, Height: 45},
+		{Type: TypeSetWindowSize, Width: 140, Height: 45,
+			Position: &config.WindowPosition{X: -120, Y: 100}},
 		{Type: TypePreviewSound},
 		{Type: TypeStopSound},
 		{Type: TypeCheckUpdate},
@@ -48,6 +50,13 @@ func TestClientRoundTrip(t *testing.T) {
 			got.Height != want.Height ||
 			got.DeltaSeconds != want.DeltaSeconds || got.Force != want.Force {
 			t.Fatalf("round trip %s -> %+v", data, got)
+		}
+		if want.Position == nil {
+			if got.Position != nil {
+				t.Fatalf("position appeared from nowhere: %+v", got)
+			}
+		} else if got.Position == nil || *got.Position != *want.Position {
+			t.Fatalf("position did not round trip: %+v", got)
 		}
 		if want.Enabled != nil && (got.Enabled == nil || *got.Enabled != *want.Enabled) {
 			t.Fatalf("enabled did not round trip: %+v", got)
@@ -96,6 +105,7 @@ func TestHelloAndConfigRoundTrip(t *testing.T) {
 	c := config.Default()
 	c.Theme = config.ThemeMono
 	c.WindowWidth, c.WindowHeight = 140, 45
+	c.WindowPosition = &config.WindowPosition{X: -120, Y: 100}
 	upd := &UpdatePayload{Latest: "v0.2.0", URL: "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0", Notes: "## What's new\n\n- Faster\n"}
 	hello := NewHello("dev", c, upd)
 	data, _ := json.Marshal(hello)
@@ -112,6 +122,9 @@ func TestHelloAndConfigRoundTrip(t *testing.T) {
 	}
 	if h.Window == nil || h.Window.Width != 140 || h.Window.Height != 45 {
 		t.Fatalf("window size did not round trip: %#v", h.Window)
+	}
+	if h.Window.Position == nil || *h.Window.Position != *c.WindowPosition {
+		t.Fatalf("window position did not round trip: %#v", h.Window.Position)
 	}
 
 	cfg := NewConfig(c)
@@ -132,9 +145,12 @@ func TestHelloAlwaysAdvertisesWindowSupport(t *testing.T) {
 	if hello.Window == nil || hello.Window.Width != 0 || hello.Window.Height != 0 {
 		t.Fatalf("fresh hello should advertise an unset window: %#v", hello.Window)
 	}
+	if hello.Window.Position != nil {
+		t.Fatalf("fresh hello should not carry a position: %#v", hello.Window.Position)
+	}
 	data, _ := json.Marshal(hello)
-	if !strings.Contains(string(data), `"window"`) {
-		t.Fatalf("window support must be visible to the TUI: %s", data)
+	if !strings.Contains(string(data), `"window"`) || strings.Contains(string(data), `"position"`) {
+		t.Fatalf("window support must be visible without a phantom position: %s", data)
 	}
 }
 
@@ -316,6 +332,18 @@ func TestValidate(t *testing.T) {
 		{"window size low", ClientMessage{Type: TypeSetWindowSize, Width: 0, Height: 45}, CodeInvalidWindowSize},
 		{"window size high", ClientMessage{
 			Type: TypeSetWindowSize, Width: config.MaxWindowCols + 1, Height: 45,
+		}, CodeInvalidWindowSize},
+		{"window position", ClientMessage{
+			Type: TypeSetWindowSize, Width: 140, Height: 45,
+			Position: &config.WindowPosition{X: 93, Y: 100},
+		}, ""},
+		{"window position low", ClientMessage{
+			Type: TypeSetWindowSize, Width: 140, Height: 45,
+			Position: &config.WindowPosition{X: config.MinWindowPos - 1, Y: 100},
+		}, CodeInvalidWindowSize},
+		{"window position high", ClientMessage{
+			Type: TypeSetWindowSize, Width: 140, Height: 45,
+			Position: &config.WindowPosition{X: 93, Y: config.MaxWindowPos + 1},
 		}, CodeInvalidWindowSize},
 		{"preview sound", ClientMessage{Type: TypePreviewSound}, ""},
 		{"stop sound", ClientMessage{Type: TypeStopSound}, ""},

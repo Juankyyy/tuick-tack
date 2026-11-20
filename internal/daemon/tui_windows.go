@@ -1,19 +1,14 @@
 package daemon
 
 import (
-	"unsafe"
-
 	"golang.org/x/sys/windows"
 
 	"tuick-tack/internal/buildinfo"
 	"tuick-tack/internal/instance"
+	"tuick-tack/internal/termwin"
 )
 
 const (
-	// Console host classes: classic conhost and Windows Terminal.
-	consoleWindowClass  = "ConsoleWindowClass"
-	terminalWindowClass = "CASCADIA_HOSTING_WINDOW_CLASS"
-
 	vkMenu        = 0x12
 	keyEventKeyUp = 0x0002
 )
@@ -21,8 +16,6 @@ const (
 var (
 	user32 = windows.NewLazySystemDLL("user32.dll")
 
-	procGetWindowTextW      = user32.NewProc("GetWindowTextW")
-	procIsWindowVisible     = user32.NewProc("IsWindowVisible")
 	procIsIconic            = user32.NewProc("IsIconic")
 	procShowWindow          = user32.NewProc("ShowWindow")
 	procKeybdEvent          = user32.NewProc("keybd_event")
@@ -48,20 +41,12 @@ func TUIRunning(pipe string) bool {
 	return instance.TUIRunning(pipe)
 }
 
-// FocusTUI brings the open TUI window to the foreground. It matches the exact
-// window title and console class so other windows whose title merely contains
-// the project name (editors, browsers) are ignored.
+// FocusTUI brings the open TUI window to the foreground. termwin.Find matches
+// the exact window title and console class so other windows whose title merely
+// contains the project name (editors, browsers) are ignored.
 func FocusTUI() bool {
-	var target windows.HWND
-	callback := windows.NewCallback(func(hwnd windows.HWND, _ uintptr) uintptr {
-		if isTUIWindow(hwnd) {
-			target = hwnd
-			return 0
-		}
-		return 1
-	})
-	_ = windows.EnumWindows(callback, nil)
-	if target == 0 {
+	target, ok := termwin.Find(buildinfo.Name)
+	if !ok {
 		return false
 	}
 
@@ -89,23 +74,4 @@ func FocusTUI() bool {
 		_, _, _ = procSwitchToThisWindow.Call(uintptr(target), 1)
 	}
 	return true
-}
-
-func isTUIWindow(hwnd windows.HWND) bool {
-	var title [256]uint16
-	n, _, _ := procGetWindowTextW.Call(uintptr(hwnd), uintptr(unsafe.Pointer(&title[0])), uintptr(len(title)))
-	if n == 0 || windows.UTF16ToString(title[:int(n)]) != buildinfo.Name {
-		return false
-	}
-	var class [128]uint16
-	copied, err := windows.GetClassName(hwnd, &class[0], int32(len(class)))
-	if err != nil || copied == 0 {
-		return false
-	}
-	name := windows.UTF16ToString(class[:copied])
-	if name != consoleWindowClass && name != terminalWindowClass {
-		return false
-	}
-	r, _, _ := procIsWindowVisible.Call(uintptr(hwnd))
-	return r != 0
 }

@@ -5,9 +5,9 @@
 **Tuick-Tack** is a Windows countdown app for personal focus sessions: a modern terminal UI (TUI) plus a background tray daemon that owns the timer, presets, sound and system-tray menu.
 
 - Stack: Go 1.26+ (pinned Bubble Tea v2/go-winio require it), Bubble Tea v2.1.1, Lipgloss v2.1.0, `fyne.io/systray` v1.12.2, `github.com/Microsoft/go-winio` v0.6.4, `github.com/mtunjic/winrt-toast` v1.2.0 (pure-Go WinRT toasts), `golang.org/x/sys/windows`; `CGO_ENABLED=0`.
-- App code lives in `cmd/` and `internal/`. Windows-specific code lives in `internal/tray/`, `internal/browser/`, `internal/notify/`, `internal/ipc/` and the `*_windows.go` files under `internal/daemon/`.
-- Platform features that cannot live in the shared layer stay in the native layer behind small, documented bridges: systray/menu (`internal/tray`), `PlaySoundW` (`internal/daemon/sound_windows.go`), registry/autostart (`internal/daemon/autostart_windows.go`), named pipes (`internal/ipc`), the default browser (`internal/browser`, `ShellExecuteW`), native toasts (`internal/notify`, WinRT COM), process/mutex helpers (`internal/winproc`, `internal/instance`) and the installer/update helper (`installer/`, `internal/updater`). Inno Setup 6 is a build-time dependency only; the app stays cgo-free.
-- Current state: v1 implemented in `dev` (M0–M5 complete) plus the selectable sound pack and volume, the release update notice and its Windows toast, the per-user Inno Setup installer and the in-app update flow (install with setup or download the portable `.exe`); `SPEC.md` is the functional source. Next work is polish/QA; releases are published on GitHub when the user asks for one.
+- App code lives in `cmd/` and `internal/`. Windows-specific code lives in `internal/tray/`, `internal/browser/`, `internal/notify/`, `internal/ipc/`, `internal/termwin/` and the `*_windows.go` files under `internal/daemon/`.
+- Platform features that cannot live in the shared layer stay in the native layer behind small, documented bridges: systray/menu (`internal/tray`), `PlaySoundW` (`internal/daemon/sound_windows.go`), registry/autostart (`internal/daemon/autostart_windows.go`), named pipes (`internal/ipc`), the default browser (`internal/browser`, `ShellExecuteW`), native toasts (`internal/notify`, WinRT COM), process/mutex helpers (`internal/winproc`, `internal/instance`), the terminal window finder (`internal/termwin`) and the installer/update helper (`installer/`, `internal/updater`). Inno Setup 6 is a build-time dependency only; the app stays cgo-free.
+- Current state: v1 implemented in `dev` (M0–M5 complete) plus the selectable sound pack and volume, the release update notice and its Windows toast, the per-user Inno Setup installer, the in-app update flow (install with setup or download the portable `.exe`) and the remembered TUI window placement; `SPEC.md` is the functional source. Next work is polish/QA; releases are published on GitHub when the user asks for one.
 - Generated assets (`assets/sounds/*.wav`, `assets/icon.ico`, `assets/icon.png`, `assets/icons/*.ico`, `assets/banner.txt`, `assets/banner-compact.txt`, `assets/banner.png`, `installer/wizard-large.png`, `installer/wizard-small.png`, the `.syso` file under `cmd/`) are committed; do not hand-edit them. Regenerate with `go generate ./...` / `scripts/build.ps1`. The branding banner comes from the same 5×7 bigfont grid as the countdown and is not embedded in the executable: `banner.txt` is the 2x ASCII (118 columns) and `banner-compact.txt` the 1x version (59 columns).
 - The tray states are a 7×7 pixel grid and the executable icon a 16×16 grid, drawn without antialiasing by `tools/gen-icons`; keep the ICO sizes and the 2× HICON caveat from `SPEC.md` §12.
 
@@ -52,6 +52,7 @@ internal/
   install/              reads the Inno uninstall entry (installed vs portable)
   instance/             daemon/TUI mutex names and acquisition
   winproc/              CreateProcess helpers (hidden daemon, new console)
+  termwin/              locate and move the real console window (conhost/WT)
   explorer/             open the downloaded portable in Explorer
   browser/              ShellExecuteW for https links
   notify/               native Windows toasts (WinRT, AUMID)
@@ -64,12 +65,12 @@ scripts/build.ps1
 winres/                 go-winres metadata
 ```
 
-- State management: the **daemon is the single source of truth** (timer, presets, theme, sound selection, volume, remembered TUI window size, tray). The TUI is a client; it renders snapshots and interpolates locally for smoothness. `finish_seq` dedupes celebrations. No client-side timer truth, no external state library.
+- State management: the **daemon is the single source of truth** (timer, presets, theme, sound selection, volume, remembered TUI window placement, tray). The TUI is a client; it renders snapshots and interpolates locally for smoothness. `finish_seq` dedupes celebrations. No client-side timer truth, no external state library.
 - Local persistence: JSON config at `%APPDATA%\tuick-tack\config.json`; the daemon is the only writer; atomic writes; no DB. Session history for the Statistics tab lives next to it in `%APPDATA%\tuick-tack\history.jsonl` (append-only JSONL, cap 2000, atomic trim): it is data, not settings, and does not make config.json a second store. The Windows registry is used **only** for autostart (`HKCU\...\Run`), the per-user AUMID registration (`HKCU\Software\Classes\AppUserModelId\Juankyyy.TuickTack`, `DisplayName`) and the standard Inno uninstall entry (read-only from the app; written by the setup), never for app state. Do not add SQLite or a second config store.
 - Localization: all user-facing copy lives in `internal/tui/copy`; UI code reads it via `copy.T(...)`. Do not hardcode labels, tooltips, dialogs or toasts in widgets. The v1 UI is English; if Spanish is added later, its messages live in the same package.
 - Dependencies pinned for a reason keep a comment next to them; do not bump until the packages are compatible. Bubble Tea/Lipgloss v2 use the `charm.land/...` module paths and the v2 API; `systray` v1.12.2 is the Fyne fork with left/right-click callbacks and package-level menu state.
 - Keep time-dependent logic testable by injecting a clock; never call `time.Now()` in domain logic that has tests. `time.Now()` belongs in `main`/wiring; tests use a fake clock. The engine relies on the monotonic reading inside `time.Time`.
-- Config schema version is `3`. Bump it and add a migration before adding/changing fields; back up a corrupt config and fall back to defaults.
+- Config schema version is `4`. Bump it and add a migration before adding/changing fields; back up a corrupt config and fall back to defaults.
 - No cgo: build with `CGO_ENABLED=0`. `systray` and `go-winio` are pure Go on Windows.
 - No wide runes or emoji in the TUI. Every glyph must be one terminal cell; test layouts at 80×24 and 120×40.
 - All TUI rendering goes through `internal/tui/canvas`; do not scatter raw ANSI outside the canvas serializer.

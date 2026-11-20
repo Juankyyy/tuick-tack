@@ -1,5 +1,5 @@
 // Package config owns the persisted preferences: presets, theme, sound
-// selection, volume and the TUI window size.
+// selection, volume and the TUI window placement.
 //
 // The daemon is the only writer. Load falls back to defaults when the file is
 // missing, and backs up an unreadable or invalid file before doing the same.
@@ -18,7 +18,7 @@ import (
 
 const (
 	// Version is the schema version understood by this build.
-	Version = 3
+	Version = 4
 	// MaxPresets is the maximum number of stored presets.
 	MaxPresets = 16
 	// MinSeconds and MaxSeconds bound a preset or countdown.
@@ -66,6 +66,22 @@ const (
 	MaxWindowRows = 1000
 )
 
+// Window position bounds in screen pixels. Real desktops fit well inside this
+// range, including negative coordinates from monitors placed to the left or
+// above the primary one.
+const (
+	MinWindowPos = -32768
+	MaxWindowPos = 32767
+)
+
+// WindowPosition is the outer top-left of the TUI window in screen pixels. It
+// is display state stored next to the cell size and does not describe the
+// maximized or minimized state.
+type WindowPosition struct {
+	X int `json:"x"`
+	Y int `json:"y"`
+}
+
 // Preset is a named duration. IDs are stable across restarts.
 type Preset struct {
 	ID      string `json:"id"`
@@ -75,14 +91,15 @@ type Preset struct {
 
 // Config is the on-disk configuration.
 type Config struct {
-	Version      int      `json:"version"`
-	Theme        string   `json:"theme"`
-	Sound        bool     `json:"sound"`
-	SoundName    string   `json:"sound_name"`
-	Volume       int      `json:"volume"`
-	WindowWidth  int      `json:"window_width,omitempty"`
-	WindowHeight int      `json:"window_height,omitempty"`
-	Presets      []Preset `json:"presets"`
+	Version        int             `json:"version"`
+	Theme          string          `json:"theme"`
+	Sound          bool            `json:"sound"`
+	SoundName      string          `json:"sound_name"`
+	Volume         int             `json:"volume"`
+	WindowWidth    int             `json:"window_width,omitempty"`
+	WindowHeight   int             `json:"window_height,omitempty"`
+	WindowPosition *WindowPosition `json:"window_position,omitempty"`
+	Presets        []Preset        `json:"presets"`
 }
 
 // Default returns a fresh default configuration.
@@ -141,6 +158,12 @@ func ValidWindowSize(w, h int) bool {
 		h >= MinWindowRows && h <= MaxWindowRows
 }
 
+// ValidWindowPosition reports whether p is a plausible screen position.
+func ValidWindowPosition(p WindowPosition) bool {
+	return p.X >= MinWindowPos && p.X <= MaxWindowPos &&
+		p.Y >= MinWindowPos && p.Y <= MaxWindowPos
+}
+
 // ValidLabel validates a user-facing label: 1..32 printable runes, trimmed by
 // the caller or here for convenience.
 func ValidLabel(label string) bool {
@@ -173,8 +196,9 @@ func ValidPresetID(id string) bool {
 
 // Migrate upgrades a decoded configuration to the current schema. Version 1
 // had no sound selection or volume, so both take the v2 defaults. Version 3
-// adds the optional window size, which stays unset (zero) until the TUI
-// records one. It returns the migrated config and whether anything changed.
+// adds the optional window size and version 4 the optional window position;
+// both stay unset until the TUI records them. It returns the migrated config
+// and whether anything changed.
 func Migrate(c Config) (Config, bool) {
 	if c.Version >= Version {
 		return c, false
@@ -203,6 +227,9 @@ func Validate(c Config) error {
 	}
 	if !ValidWindowSize(c.WindowWidth, c.WindowHeight) {
 		return fmt.Errorf("invalid window size %dx%d", c.WindowWidth, c.WindowHeight)
+	}
+	if c.WindowPosition != nil && !ValidWindowPosition(*c.WindowPosition) {
+		return fmt.Errorf("invalid window position %d,%d", c.WindowPosition.X, c.WindowPosition.Y)
 	}
 	if len(c.Presets) > MaxPresets {
 		return fmt.Errorf("too many presets: %d (max %d)", len(c.Presets), MaxPresets)
@@ -235,6 +262,11 @@ func Normalize(c Config) Config {
 	if c.Presets == nil {
 		c.Presets = []Preset{}
 	}
+	// The position is display state: a corrupt value is dropped instead of
+	// invalidating the rest of the configuration.
+	if c.WindowPosition != nil && !ValidWindowPosition(*c.WindowPosition) {
+		c.WindowPosition = nil
+	}
 	return c
 }
 
@@ -256,6 +288,10 @@ func NewPreset(label string, seconds int) Preset {
 func (c Config) Copy() Config {
 	out := c
 	out.Presets = append([]Preset(nil), c.Presets...)
+	if c.WindowPosition != nil {
+		pos := *c.WindowPosition
+		out.WindowPosition = &pos
+	}
 	return out
 }
 

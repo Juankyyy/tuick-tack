@@ -28,7 +28,7 @@ Presets, free-form durations, a sound pack with volume, and full-screen confetti
   dependencies.
 
 Both copies share `%APPDATA%\tuick-tack\config.json`, so presets, theme, sound, volume
-and the remembered window size are the same if you switch between them. If an older Tuick-Tack is running, quit it from the
+and the remembered window placement are the same if you switch between them. If an older Tuick-Tack is running, quit it from the
 tray before running the setup for the first time. Windows 10 or 11, 64-bit. The build is
 unsigned, so SmartScreen may warn on first launch. Check the download against `SHA256SUMS.txt`:
 
@@ -53,7 +53,7 @@ countdown, the sound and the tray icon keep running.
 | **At zero** | The selected sound at the chosen volume, an alert tray icon and full-screen confetti. |
 | **Sound pack** | Chime, Marimba, Digital and Deep; 0–100% volume in 5% steps, with preview and mute. |
 | **Three themes** | Midnight, Ember and Mono. |
-| **Remembers the window size** | Resize the terminal and the next TUI opens with the same columns and rows. |
+| **Remembers the window placement** | Move or resize the terminal and the next TUI opens at the same screen position with the same columns and rows. |
 | **Single instance** | Running the executable again focuses the open TUI instead of opening a second one. |
 | **Installer** | Per-user install in `Documents\tuick-tack`, Start Menu shortcut, uninstaller; no admin. |
 | **Portable** | One executable, no installer, no admin, no cgo. |
@@ -124,13 +124,14 @@ countdown; persistence is future work.
 
 ```json
 {
-  "version": 3,
+  "version": 4,
   "theme": "midnight",
   "sound": true,
   "sound_name": "digital",
   "volume": 80,
   "window_width": 140,
   "window_height": 45,
+  "window_position": { "x": 93, "y": 100 },
   "presets": [
     { "id": "p5",  "label": "5 min",  "seconds": 300 },
     { "id": "p10", "label": "10 min", "seconds": 600 },
@@ -141,12 +142,15 @@ countdown; persistence is future work.
 
 The daemon is the only writer and writes atomically. A corrupt config is backed up as
 `config.bad-<timestamp>.json` and replaced with defaults. A version 1 config is migrated to
-version 3 with Digital at 80%; a version 2 config keeps its sound and volume. The window
-size stays unset until you resize the TUI.
+version 4 with Digital at 80%; version 2 and 3 configs keep their sound, volume and size.
+The window position stays unset until you move the TUI.
 
-The remembered size is columns by rows. It is restored when the TUI starts, including in
-Windows Terminal; terminals that do not support the resize sequence keep their own size.
-Position and the maximized state are not stored.
+The remembered size is columns by rows and the position is the window's top-left in screen
+pixels. Both are restored when the TUI starts, including in Windows Terminal; terminals that
+do not support the resize sequence keep their own size. A TUI running inside a terminal tab
+never moves the whole window. While the window is maximized or minimized its size and
+position are not recorded, so the last normal placement is kept; the maximized state itself
+is not restored.
 
 The daemon appends one line per finished countdown to `history.jsonl` (local time, planned and
 real elapsed time, label and outcome: completed, stopped or replaced). It keeps the newest 2000

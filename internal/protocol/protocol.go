@@ -47,9 +47,10 @@ const (
 	TypeStopSound    = "stop_sound"
 	TypeCheckUpdate  = "check_update"
 
-	// TypeSetWindowSize records the TUI's preferred terminal size in cells. It
-	// is additive: the hello's window object announces support, and a TUI that
-	// does not see it never sends the command, so an older daemon is safe.
+	// TypeSetWindowSize records the TUI's preferred terminal size in cells and,
+	// optionally, the window position in screen pixels. It is additive: the
+	// hello's window object announces support, and a TUI that does not see it
+	// never sends the command, so an older daemon is safe.
 	TypeSetWindowSize = "set_window_size"
 
 	// TypeInstallUpdate downloads the release installer and runs it after the
@@ -106,20 +107,21 @@ const (
 // ClientMessage is the union of every TUI-to-daemon command. Fields not used
 // by a command are omitted on the wire.
 type ClientMessage struct {
-	Type         string `json:"type"`
-	Protocol     int    `json:"protocol,omitempty"`
-	Seconds      int    `json:"seconds,omitempty"`
-	Label        string `json:"label,omitempty"`
-	PresetID     string `json:"preset_id,omitempty"`
-	DeltaSeconds int    `json:"delta_seconds,omitempty"`
-	ID           string `json:"id,omitempty"`
-	Name         string `json:"name,omitempty"`
-	SoundName    string `json:"sound_name,omitempty"`
-	Volume       *int   `json:"volume,omitempty"`
-	Enabled      *bool  `json:"enabled,omitempty"`
-	Width        int    `json:"width,omitempty"`
-	Height       int    `json:"height,omitempty"`
-	Force        bool   `json:"force,omitempty"`
+	Type         string                 `json:"type"`
+	Protocol     int                    `json:"protocol,omitempty"`
+	Seconds      int                    `json:"seconds,omitempty"`
+	Label        string                 `json:"label,omitempty"`
+	PresetID     string                 `json:"preset_id,omitempty"`
+	DeltaSeconds int                    `json:"delta_seconds,omitempty"`
+	ID           string                 `json:"id,omitempty"`
+	Name         string                 `json:"name,omitempty"`
+	SoundName    string                 `json:"sound_name,omitempty"`
+	Volume       *int                   `json:"volume,omitempty"`
+	Enabled      *bool                  `json:"enabled,omitempty"`
+	Width        int                    `json:"width,omitempty"`
+	Height       int                    `json:"height,omitempty"`
+	Position     *config.WindowPosition `json:"position,omitempty"`
+	Force        bool                   `json:"force,omitempty"`
 }
 
 // ConfigPayload is the shared preset, theme, sound and volume shape.
@@ -148,13 +150,15 @@ type HelloMessage struct {
 
 func (HelloMessage) isServerMessage() {}
 
-// WindowSizePayload is the TUI's preferred terminal size in character cells.
-// A hello from this build always carries it (zeros when no preference is
+// WindowSizePayload is the TUI's preferred terminal size in character cells and
+// the optional position of the window's outer top-left in screen pixels. A
+// hello from this build always carries the object (zeros when no size is
 // stored), so its presence also tells the TUI that set_window_size is
-// supported. Older daemons omit it and older TUIs ignore it.
+// supported. Older daemons omit the position and older TUIs ignore it.
 type WindowSizePayload struct {
-	Width  int `json:"width"`
-	Height int `json:"height"`
+	Width    int                    `json:"width"`
+	Height   int                    `json:"height"`
+	Position *config.WindowPosition `json:"position,omitempty"`
 }
 
 // UpdatePayload is the latest release the daemon knows about. It is carried by
@@ -358,6 +362,10 @@ func NewHello(appVersion string, c config.Config, upd *UpdatePayload) HelloMessa
 			Width:  c.WindowWidth,
 			Height: c.WindowHeight,
 		},
+	}
+	if c.WindowPosition != nil {
+		pos := *c.WindowPosition
+		m.Window.Position = &pos
 	}
 	if upd != nil {
 		payload := *upd
@@ -604,6 +612,12 @@ func (m ClientMessage) Validate() *ErrorMessage {
 				fmt.Sprintf("window size must be %d..%d by %d..%d",
 					config.MinWindowCols, config.MaxWindowCols,
 					config.MinWindowRows, config.MaxWindowRows))
+		}
+		if m.Position != nil && !config.ValidWindowPosition(*m.Position) {
+			return invalid(CodeInvalidWindowSize,
+				fmt.Sprintf("window position must be %d..%d by %d..%d",
+					config.MinWindowPos, config.MaxWindowPos,
+					config.MinWindowPos, config.MaxWindowPos))
 		}
 		return nil
 	case "":

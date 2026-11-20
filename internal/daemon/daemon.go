@@ -581,7 +581,7 @@ func (d *Daemon) Command(c *ipc.Session, msg protocol.ClientMessage) {
 			d.setVolume(c, *msg.Volume)
 		}
 	case protocol.TypeSetWindowSize:
-		d.setWindowSize(msg.Width, msg.Height)
+		d.setWindowSize(msg.Width, msg.Height, msg.Position)
 	case protocol.TypePreviewSound:
 		d.previewSound()
 	case protocol.TypeStopSound:
@@ -773,21 +773,32 @@ func (d *Daemon) setVolume(c *ipc.Session, volume int) {
 	}
 }
 
-// setWindowSize stores the TUI's preferred terminal size. It is display state
-// for the TUI, so it is saved without a config broadcast or a tray refresh; the
-// next handshake reads it back from d.cfg. Failures only go to the log: a lost
-// window preference must not interrupt the session.
-func (d *Daemon) setWindowSize(width, height int) {
+// setWindowSize stores the TUI's preferred terminal size and, when pos is not
+// nil, the window position. It is display state for the TUI, so it is saved
+// without a config broadcast or a tray refresh; the next handshake reads it
+// back from d.cfg. Failures only go to the log: a lost window preference must
+// not interrupt the session.
+func (d *Daemon) setWindowSize(width, height int, pos *config.WindowPosition) {
 	if width < config.MinWindowCols || width > config.MaxWindowCols ||
 		height < config.MinWindowRows || height > config.MaxWindowRows {
 		return
 	}
+	if pos != nil && !config.ValidWindowPosition(*pos) {
+		return
+	}
 	cfg := d.Config()
-	if cfg.WindowWidth == width && cfg.WindowHeight == height {
+	sameSize := cfg.WindowWidth == width && cfg.WindowHeight == height
+	samePos := pos == nil || (cfg.WindowPosition != nil &&
+		cfg.WindowPosition.X == pos.X && cfg.WindowPosition.Y == pos.Y)
+	if sameSize && samePos {
 		return
 	}
 	cfg.WindowWidth = width
 	cfg.WindowHeight = height
+	if pos != nil {
+		saved := *pos
+		cfg.WindowPosition = &saved
+	}
 	if err := d.store.Save(cfg); err != nil {
 		if d.logger != nil {
 			d.logger.Printf("save window size: %v", err)

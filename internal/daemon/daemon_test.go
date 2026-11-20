@@ -182,9 +182,14 @@ func TestSetWindowSizePersists(t *testing.T) {
 		cfg:    cfg,
 	}
 
-	d.setWindowSize(140, 45)
-	if got := d.Config(); got.WindowWidth != 140 || got.WindowHeight != 45 {
+	pos := &config.WindowPosition{X: 93, Y: 100}
+	d.setWindowSize(140, 45, pos)
+	got := d.Config()
+	if got.WindowWidth != 140 || got.WindowHeight != 45 {
 		t.Fatalf("window size not set: %+v", got)
+	}
+	if got.WindowPosition == nil || got.WindowPosition.X != 93 || got.WindowPosition.Y != 100 {
+		t.Fatalf("window position not set: %+v", got.WindowPosition)
 	}
 	loaded, err := store.Load()
 	if err != nil {
@@ -193,12 +198,24 @@ func TestSetWindowSizePersists(t *testing.T) {
 	if loaded.WindowWidth != 140 || loaded.WindowHeight != 45 {
 		t.Fatalf("window size not persisted: %+v", loaded)
 	}
+	if loaded.WindowPosition == nil || loaded.WindowPosition.X != 93 || loaded.WindowPosition.Y != 100 {
+		t.Fatalf("window position not persisted: %+v", loaded.WindowPosition)
+	}
+
+	// A size-only update keeps the stored position.
+	d.setWindowSize(150, 50, nil)
+	if got := d.Config(); got.WindowWidth != 150 || got.WindowPosition == nil ||
+		got.WindowPosition.X != 93 || got.WindowPosition.Y != 100 {
+		t.Fatalf("size-only update changed the position: %+v", got)
+	}
 
 	// Out-of-range values are ignored instead of corrupting the config.
-	d.setWindowSize(0, 45)
-	d.setWindowSize(config.MaxWindowCols+1, 45)
-	if got := d.Config(); got.WindowWidth != 140 || got.WindowHeight != 45 {
-		t.Fatalf("invalid size changed the config: %+v", got)
+	d.setWindowSize(0, 45, nil)
+	d.setWindowSize(config.MaxWindowCols+1, 45, nil)
+	d.setWindowSize(150, 50, &config.WindowPosition{X: config.MinWindowPos - 1, Y: 100})
+	if got := d.Config(); got.WindowWidth != 150 || got.WindowHeight != 50 ||
+		got.WindowPosition == nil || got.WindowPosition.X != 93 {
+		t.Fatalf("invalid values changed the config: %+v", got)
 	}
 }
 

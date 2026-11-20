@@ -47,6 +47,15 @@ func TestValidate(t *testing.T) {
 		{"huge window", func(c *Config) {
 			c.WindowWidth, c.WindowHeight = MaxWindowCols+1, 45
 		}, false},
+		{"window position", func(c *Config) {
+			c.WindowPosition = &WindowPosition{X: -1920, Y: 50}
+		}, true},
+		{"window position low", func(c *Config) {
+			c.WindowPosition = &WindowPosition{X: MinWindowPos - 1, Y: 50}
+		}, false},
+		{"window position high", func(c *Config) {
+			c.WindowPosition = &WindowPosition{X: 10, Y: MaxWindowPos + 1}
+		}, false},
 		{"too many", func(c *Config) {
 			for i := 0; i < MaxPresets+1; i++ {
 				c.Presets = append(c.Presets, Preset{ID: NewPresetID(), Label: "x", Seconds: 1})
@@ -72,6 +81,18 @@ func TestValidate(t *testing.T) {
 				t.Fatal("Validate() = nil, want error")
 			}
 		})
+	}
+}
+
+func TestNormalizeDropsInvalidWindowPosition(t *testing.T) {
+	c := Default()
+	c.WindowPosition = &WindowPosition{X: MinWindowPos - 1, Y: 10}
+	if got := Normalize(c); got.WindowPosition != nil {
+		t.Fatalf("invalid position survived Normalize: %+v", got.WindowPosition)
+	}
+	c.WindowPosition = &WindowPosition{X: 10, Y: 20}
+	if got := Normalize(c); got.WindowPosition == nil || got.WindowPosition.Y != 20 {
+		t.Fatalf("valid position was dropped: %+v", got.WindowPosition)
 	}
 }
 
@@ -129,9 +150,9 @@ func TestLoadMigratesV1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"version": 3`) ||
+	if !strings.Contains(string(data), `"version": 4`) ||
 		!strings.Contains(string(data), `"sound_name": "digital"`) {
-		t.Fatalf("migrated file not written as v3: %s", data)
+		t.Fatalf("migrated file not written as v4: %s", data)
 	}
 }
 
@@ -162,8 +183,35 @@ func TestLoadMigratesV2(t *testing.T) {
 		c.Theme != ThemeMono || len(c.Presets) != 1 {
 		t.Fatalf("v2 migration lost settings: %+v", c)
 	}
-	if c.WindowWidth != 0 || c.WindowHeight != 0 {
-		t.Fatalf("window size should start unset: %+v", c)
+	if c.WindowWidth != 0 || c.WindowHeight != 0 || c.WindowPosition != nil {
+		t.Fatalf("window placement should start unset: %+v", c)
+	}
+}
+
+func TestLoadMigratesV3(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	v3 := `{
+  "version": 3,
+  "theme": "midnight",
+  "sound": true,
+  "sound_name": "deep",
+  "volume": 55,
+  "window_width": 140,
+  "window_height": 45,
+  "presets": []
+}`
+	if err := os.WriteFile(path, []byte(v3), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := NewStore(path).Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Version != Version || c.WindowWidth != 140 || c.WindowHeight != 45 {
+		t.Fatalf("v3 migration lost settings: %+v", c)
+	}
+	if c.WindowPosition != nil {
+		t.Fatalf("position should start unset: %+v", c.WindowPosition)
 	}
 }
 
@@ -177,6 +225,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	c.Volume = 35
 	c.WindowWidth = 140
 	c.WindowHeight = 45
+	c.WindowPosition = &WindowPosition{X: -120, Y: 100}
 	c.Presets = append(c.Presets, NewPreset("Focus", 1500))
 	if err := store.Save(c); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -190,7 +239,9 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 	if got.Theme != ThemeEmber || got.Sound || len(got.Presets) != 4 ||
 		got.SoundName != SoundMarimba || got.Volume != 35 ||
-		got.WindowWidth != 140 || got.WindowHeight != 45 {
+		got.WindowWidth != 140 || got.WindowHeight != 45 ||
+		got.WindowPosition == nil || got.WindowPosition.X != -120 ||
+		got.WindowPosition.Y != 100 {
 		t.Fatalf("round trip mismatch: %+v", got)
 	}
 	entries, err := os.ReadDir(filepath.Dir(path))
