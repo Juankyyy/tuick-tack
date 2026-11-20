@@ -4,7 +4,7 @@
 
 **Your countdown, in the terminal and in the tray.**
 
-Presets, free-form durations, a sound pack with volume, and full-screen confetti. Windows 10/11.
+Presets, free-form durations, a sound pack with volume, and full-screen pixel-art confetti. Windows 10/11.
 
 [![Latest release](https://img.shields.io/github/v/release/Juankyyy/tuick-tack?style=flat-square&color=2ea043)](https://github.com/Juankyyy/tuick-tack/releases/latest)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-2ea043?style=flat-square)](LICENSE)
@@ -50,7 +50,7 @@ countdown, the sound and the tray icon keep running.
 | **Always running** | The daemon owns the timer, so closing the TUI never stops a countdown. |
 | **Tray menu** | Start a preset, pause, stop, change the sound or volume, and open the TUI. |
 | **Statistics** | `s` opens a full-screen view with focus per day, a 26-week heatmap, time by hour and weekday, per-preset totals and the latest sessions. |
-| **At zero** | The selected sound at the chosen volume, an alert tray icon and full-screen confetti. |
+| **At zero** | The selected sound at the chosen volume, an alert tray icon and full-screen pixel-art confetti. |
 | **Sound pack** | Chime, Marimba, Digital and Deep; 0–100% volume in 5% steps, with preview and mute. |
 | **Three themes** | Midnight, Ember and Mono. |
 | **Remembers the window placement** | Move or resize the terminal and the next TUI opens at the same screen position with the same columns and rows. |

@@ -26,33 +26,95 @@ type burst struct {
 	kind  burstKind
 }
 
-// glyphFamily is one kind of paper: the glyph shown face-on, its back and its
-// edge-on profile. The renderer picks between them from the tumble angle.
-type glyphFamily struct {
-	front rune
-	back  rune
-	edge  rune
+// tint is one flat tone of a confetti tile. The cartoon look uses a fixed
+// three-tone ramp (highlight, body, shadow) plus a darker drop shadow; no
+// color is blended into the background while the piece is alive.
+type tint uint8
+
+const (
+	tintBody tint = iota
+	tintHighlight
+	tintShadow
+	tintDrop
+	tintWhite
+)
+
+// spriteCell is one terminal cell of a tile, in cell units from the tile's
+// top-left anchor. UseBG paints the cell background with the body color, so
+// the glyph can draw a flat highlight or shadow over a solid tile.
+type spriteCell struct {
+	DX, DY int
+	Glyph  rune
+	Tint   tint
+	UseBG  bool
+	Rank   int
 }
 
-var paperFamilies = []glyphFamily{
-	{'█', '▒', '▌'},
-	{'▀', '▄', '─'},
-	{'▐', '▌', '│'},
-	{'◆', '◇', '▸'},
-	{'▓', '░', '▏'},
+// spriteFrame is one frame of the tumble. Width is the frame's width in cells.
+type spriteFrame struct {
+	Cells []spriteCell
+	Width int
 }
 
-var sparkFamily = glyphFamily{'✦', '✧', '·'}
+// paperFrames is the 2x1 cartoon tile: a solid body with a top-left highlight
+// and a bottom-right shadow. The tumble moves through a full tile, a top
+// sliver, an edge-on strip and a bottom sliver. Only block glyphs are used.
+var paperFrames = [4]spriteFrame{
+	{
+		Width: 2,
+		Cells: []spriteCell{
+			{DX: 0, DY: 0, Glyph: '▘', Tint: tintHighlight, UseBG: true, Rank: 1},
+			{DX: 1, DY: 0, Glyph: '▄', Tint: tintShadow, UseBG: true, Rank: 0},
+		},
+	},
+	{
+		Width: 2,
+		Cells: []spriteCell{
+			{DX: 0, DY: 0, Glyph: '▀', Tint: tintHighlight, Rank: 1},
+			{DX: 1, DY: 0, Glyph: '▀', Tint: tintBody, Rank: 0},
+		},
+	},
+	{
+		Width: 1,
+		Cells: []spriteCell{
+			{DX: 0, DY: 0, Glyph: '▌', Tint: tintBody, Rank: 1},
+		},
+	},
+	{
+		Width: 2,
+		Cells: []spriteCell{
+			{DX: 0, DY: 0, Glyph: '▄', Tint: tintBody, Rank: 1},
+			{DX: 1, DY: 0, Glyph: '▄', Tint: tintShadow, Rank: 0},
+		},
+	},
+}
+
+// paperDrop is the thin shadow cast one cell down and right of the tile. It is
+// a top-half block, so it reads as a soft strip rather than a second piece.
+var paperDrop = spriteCell{DX: 1, DY: 1, Glyph: '▀', Tint: tintDrop}
+
+// sparkFrame is a chunky pixel star: four arms and a white center.
+var sparkFrame = []spriteCell{
+	{DX: -1, DY: 0, Glyph: '█', Tint: tintBody, Rank: 0},
+	{DX: 1, DY: 0, Glyph: '█', Tint: tintBody, Rank: 0},
+	{DX: 0, DY: -1, Glyph: '█', Tint: tintBody, Rank: 0},
+	{DX: 0, DY: 1, Glyph: '█', Tint: tintBody, Rank: 0},
+	{DX: 0, DY: 0, Glyph: '█', Tint: tintWhite, Rank: 1},
+}
 
 var sparkWhite = color.RGBA{R: 255, G: 255, B: 255, A: 255}
 
 const (
-	trailGlyph = '·'
-
-	maxParticles     = 360
+	maxParticles     = 240
 	baseArea         = 80 * 24
 	minParticleScale = 0.55
 	maxParticleScale = 1.45
+
+	// Alpha thresholds of the pixel dissolve. The drop shadow and the right
+	// cell disappear first, then the left cell. Quantised steps keep the fade
+	// crisp instead of blending the palette into the background.
+	keepBothAlpha = 0.55
+	keepOneAlpha  = 0.16
 )
 
 type particle struct {
@@ -71,7 +133,6 @@ type particle struct {
 	Bob      float64
 	BobFreq  float64
 	Color    color.RGBA
-	Family   glyphFamily
 	Kind     burstKind
 	Spark    bool
 	Placed   bool
@@ -83,7 +144,6 @@ type Confetti struct {
 	W, H      int
 	rng       *rand.Rand
 	palette   []color.RGBA
-	bg        color.RGBA
 	particles []particle
 	elapsed   float64
 	fadeStart float64
@@ -93,12 +153,11 @@ type Confetti struct {
 
 // NewCelebration creates the celebration bursts. short fires a compact burst
 // for a TUI that connects with the timer already finished.
-func NewCelebration(seed int64, w, h int, palette []color.RGBA, bg color.RGBA, short bool) *Confetti {
+func NewCelebration(seed int64, w, h int, palette []color.RGBA, short bool) *Confetti {
 	c := &Confetti{
 		W: w, H: h,
 		rng:     rand.New(rand.NewSource(seed)),
 		palette: append([]color.RGBA(nil), palette...),
-		bg:      bg,
 		short:   short,
 	}
 	if len(c.palette) == 0 {
@@ -107,16 +166,16 @@ func NewCelebration(seed int64, w, h int, palette []color.RGBA, bg color.RGBA, s
 	c.fadeStart, c.fadeEnd = 5.0, 5.7
 
 	bursts := []burst{
-		{delay: 0.00, paper: 48, spark: 12, kind: burstCenter},
-		{delay: 0.12, paper: 30, spark: 5, kind: burstLeft},
-		{delay: 0.26, paper: 30, spark: 5, kind: burstRight},
-		{delay: 0.55, paper: 55, spark: 15, kind: burstRain},
-		{delay: 2.40, paper: 25, spark: 5, kind: burstDrizzle},
+		{delay: 0.00, paper: 28, spark: 4, kind: burstCenter},
+		{delay: 0.12, paper: 14, spark: 1, kind: burstLeft},
+		{delay: 0.26, paper: 14, spark: 1, kind: burstRight},
+		{delay: 0.55, paper: 32, spark: 3, kind: burstRain},
+		{delay: 2.40, paper: 12, spark: 1, kind: burstDrizzle},
 	}
 	if short {
 		bursts = []burst{
-			{delay: 0.00, paper: 50, spark: 15, kind: burstCenter},
-			{delay: 0.15, paper: 20, spark: 5, kind: burstRain},
+			{delay: 0.00, paper: 30, spark: 4, kind: burstCenter},
+			{delay: 0.15, paper: 16, spark: 2, kind: burstRain},
 		}
 		c.fadeStart, c.fadeEnd = 2.6, 3.2
 	}
@@ -170,27 +229,22 @@ func (c *Confetti) appendBurst(b burst, scale float64) {
 
 func (c *Confetti) newParticle(b burst, spark bool) particle {
 	p := particle{
-		Delay:  b.delay + c.rng.Float64()*burstJitter(b.kind),
-		Phase:  c.rng.Float64() * math.Pi * 2,
-		Kind:   b.kind,
-		Spark:  spark,
-		Color:  c.palette[c.rng.Intn(len(c.palette))],
-		Family: paperFamilies[c.rng.Intn(len(paperFamilies))],
-	}
-	if spark {
-		p.Family = sparkFamily
-		p.Color = theme.Lerp(p.Color, sparkWhite, 0.3)
-		p.Life = c.sparkLife(b.kind)
-	} else {
-		p.Life = c.paperLife(b.kind)
+		Delay: b.delay + c.rng.Float64()*burstJitter(b.kind),
+		Phase: c.rng.Float64() * math.Pi * 2,
+		Kind:  b.kind,
+		Spark: spark,
+		Color: c.palette[c.rng.Intn(len(c.palette))],
 	}
 	sign := 1.0
 	if c.rng.Intn(2) == 0 {
 		sign = -1
 	}
 	if spark {
+		p.Color = theme.Lerp(p.Color, sparkWhite, 0.45)
+		p.Life = c.sparkLife(b.kind)
 		p.Spin = (1.4 + c.rng.Float64()*2.0) * sign
 	} else {
+		p.Life = c.paperLife(b.kind)
 		p.Spin = (2.5 + c.rng.Float64()*3.5) * sign
 	}
 	return p
@@ -387,8 +441,9 @@ func (c *Confetti) Update(dt float64) {
 	}
 }
 
-// Draw paints the particles. It fades into the cell's own background so pieces
-// over the panel dissolve into the panel, not into the outer aurora.
+// Draw paints the particles. Flat palette tones and a pixel dissolve replace
+// the old continuous fade, so pieces drop cells instead of blending into the
+// background. It draws in three passes: drop shadows, tiles, then sparkles.
 func (c *Confetti) Draw(cv *canvas.Canvas) {
 	if cv == nil {
 		return
@@ -397,85 +452,119 @@ func (c *Confetti) Draw(cv *canvas.Canvas) {
 	if global <= 0 {
 		return
 	}
+
+	// Drop shadows first, so every tile sits over its own shadow and no tile
+	// is painted by another piece's shadow.
 	for i := range c.particles {
 		p := &c.particles[i]
-		if !p.Placed || !p.Active || p.Age >= p.Life {
+		if !p.Placed || !p.Active || p.Age >= p.Life || p.Spark {
 			continue
 		}
-		x, y := int(math.Round(p.X)), int(math.Round(p.Y))
-		if x < 0 || y < 0 || x >= cv.W || y >= cv.H {
+		alpha := pieceAlpha(p, global)
+		if alpha <= keepBothAlpha {
 			continue
 		}
-		alpha := global
-		if p.Age > p.Life*0.85 {
-			alpha *= 1 - (p.Age-p.Life*0.85)/(p.Life*0.15)
-		}
-		if alpha <= 0 {
+		frame := paperFrames[p.frame()]
+		x, y := tileOrigin(p, frame.Width)
+		drawCell(cv, x+paperDrop.DX, y+paperDrop.DY, paperDrop, p.Color)
+	}
+
+	// Tumbling tiles.
+	for i := range c.particles {
+		p := &c.particles[i]
+		if !p.Placed || !p.Active || p.Age >= p.Life || p.Spark {
 			continue
 		}
-		c.drawTrail(cv, p, x, y, alpha)
-		glyph, shade := p.surface()
-		bg := c.localBG(cv, x, y)
-		col := theme.Lerp(p.Color, bg, 1-alpha*shade)
-		cv.Set(x, y, glyph, canvas.Fg(col))
+		alpha := pieceAlpha(p, global)
+		if alpha <= keepOneAlpha {
+			continue
+		}
+		frame := paperFrames[p.frame()]
+		x, y := tileOrigin(p, frame.Width)
+		for _, cell := range frame.Cells {
+			if cell.Rank == 0 && alpha <= keepBothAlpha {
+				continue
+			}
+			drawCell(cv, x+cell.DX, y+cell.DY, cell, p.Color)
+		}
+	}
+
+	// Sparkles over the paper.
+	for i := range c.particles {
+		p := &c.particles[i]
+		if !p.Placed || !p.Active || p.Age >= p.Life || !p.Spark {
+			continue
+		}
+		alpha := pieceAlpha(p, global)
+		if alpha <= keepOneAlpha {
+			continue
+		}
+		arms := math.Sin(p.Age*8+p.Phase) > -0.15
+		x, y := tileOrigin(p, 1)
+		for _, cell := range sparkFrame {
+			if cell.Rank == 0 && (!arms || alpha <= keepBothAlpha) {
+				continue
+			}
+			drawCell(cv, x+cell.DX, y+cell.DY, cell, p.Color)
+		}
 	}
 }
 
-func (p *particle) surface() (rune, float64) {
-	if p.Spark {
-		glyph := p.Family.front
-		if math.Sin(p.Age*5+p.Phase) < -0.25 {
-			glyph = p.Family.back
-		}
-		return glyph, 0.78 + 0.22*math.Sin(p.Age*6.5+p.Phase)
+// frame picks the tumble frame from the current rotation. A full turn visits
+// the four block silhouettes in order.
+func (p *particle) frame() int {
+	q := int(math.Floor(p.Angle / (math.Pi / 2)))
+	return ((q % 4) + 4) % 4
+}
+
+// tileOrigin centers a frame of the given width on the particle position.
+func tileOrigin(p *particle, width int) (int, int) {
+	return int(math.Round(p.X - float64(width-1)/2)), int(math.Round(p.Y))
+}
+
+// pieceAlpha is the piece opacity: the global fade multiplied by the short
+// tail at the end of the piece's life.
+func pieceAlpha(p *particle, global float64) float64 {
+	if p.Life <= 0 {
+		return 0
 	}
-	face := math.Cos(p.Angle)
-	switch {
-	case face > 0.35:
-		return p.Family.front, 1.0
-	case face < -0.35:
-		return p.Family.back, 0.55
+	a := global
+	if p.Age > p.Life*0.85 {
+		a *= 1 - (p.Age-p.Life*0.85)/(p.Life*0.15)
+	}
+	if a < 0 {
+		return 0
+	}
+	if a > 1 {
+		return 1
+	}
+	return a
+}
+
+func drawCell(cv *canvas.Canvas, x, y int, cell spriteCell, base color.RGBA) {
+	col := tintColor(base, cell.Tint)
+	st := canvas.Fg(col)
+	if cell.UseBG {
+		st = canvas.Full(col, base)
+	}
+	cv.Set(x, y, cell.Glyph, st)
+}
+
+// tintColor maps the flat ramp of a piece. The highlight and shadow are fixed
+// tones derived from the palette color, not a blend with the background.
+func tintColor(base color.RGBA, t tint) color.RGBA {
+	switch t {
+	case tintHighlight:
+		return theme.Lerp(base, sparkWhite, 0.38)
+	case tintShadow:
+		return theme.Scale(base, 0.45)
+	case tintDrop:
+		return theme.Scale(base, 0.22)
+	case tintWhite:
+		return sparkWhite
 	default:
-		return p.Family.edge, 0.78
+		return base
 	}
-}
-
-// drawTrail leaves two dim ghosts behind a piece while it is still moving fast
-// enough for motion to blur. Slow, fluttering pieces stay clean.
-func (c *Confetti) drawTrail(cv *canvas.Canvas, p *particle, x, y int, alpha float64) {
-	if p.Spark {
-		return
-	}
-	speed := math.Hypot(p.VX, p.VY)
-	unit := float64(max(c.H, 1)) / 24
-	if speed < 14*unit {
-		return
-	}
-	for k := 1; k <= 2; k++ {
-		tx := int(math.Round(p.X - p.VX*0.03*float64(k)))
-		ty := int(math.Round(p.Y - p.VY*0.03*float64(k)))
-		if (tx == x && ty == y) || tx < 0 || ty < 0 || tx >= cv.W || ty >= cv.H {
-			continue
-		}
-		cell := cv.At(tx, ty)
-		if cell.Ch != ' ' && cell.Ch != trailGlyph {
-			continue
-		}
-		bg := c.bg
-		if cell.HasBG {
-			bg = cell.BG
-		}
-		col := theme.Lerp(p.Color, bg, 0.62+0.10*float64(k))
-		col = theme.Lerp(col, bg, 1-alpha)
-		cv.Set(tx, ty, trailGlyph, canvas.Fg(col))
-	}
-}
-
-func (c *Confetti) localBG(cv *canvas.Canvas, x, y int) color.RGBA {
-	if cell := cv.At(x, y); cell.HasBG {
-		return cell.BG
-	}
-	return c.bg
 }
 
 func (c *Confetti) fade() float64 {

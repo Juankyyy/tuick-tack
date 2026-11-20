@@ -1023,8 +1023,8 @@ func TestViewFinishedAndCelebrationOnce(t *testing.T) {
 	if !m.celebrating {
 		t.Fatal("finish should start the celebration")
 	}
-	if m.confetti == nil || m.confetti.Count() != 230 {
-		t.Fatalf("confetti count = %d, want 230", m.confetti.Count())
+	if m.confetti == nil || m.confetti.Count() != 110 {
+		t.Fatalf("confetti count = %d, want 110", m.confetti.Count())
 	}
 	plain := assertFrame(t, m, 80, 24)
 	// The header keeps the status copy; the hero word is drawn in blocks, so
@@ -1286,7 +1286,7 @@ func TestViewCelebrationRendersConfetti(t *testing.T) {
 			m.confetti.Update(0.033)
 		}
 		plain := assertFrame(t, m, size[0], size[1])
-		if !strings.ContainsAny(plain, "█▀▄▌▐▓▒░◆◇✦✧▸▏") {
+		if !strings.ContainsAny(plain, "█▀▄▌▘") {
 			t.Fatalf("%dx%d celebration did not draw any confetti", size[0], size[1])
 		}
 	}

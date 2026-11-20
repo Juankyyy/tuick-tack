@@ -35,20 +35,20 @@ func TestDustUpdateBounds(t *testing.T) {
 
 func TestConfettiBursts(t *testing.T) {
 	th := theme.Get("midnight")
-	full := NewCelebration(1, 80, 24, th.Confetti, th.BG, false)
-	if full.Count() != 230 {
-		t.Fatalf("particles = %d, want 230", full.Count())
+	full := NewCelebration(1, 80, 24, th.Confetti, false)
+	if full.Count() != 110 {
+		t.Fatalf("particles = %d, want 110", full.Count())
 	}
 	if full.Count() > maxParticles {
 		t.Fatalf("particle cap exceeded: %d", full.Count())
 	}
 
-	short := NewCelebration(1, 80, 24, th.Confetti, th.BG, true)
-	if short.Count() != 90 {
-		t.Fatalf("short burst = %d, want 90", short.Count())
+	short := NewCelebration(1, 80, 24, th.Confetti, true)
+	if short.Count() != 52 {
+		t.Fatalf("short burst = %d, want 52", short.Count())
 	}
 
-	big := NewCelebration(1, 120, 40, th.Confetti, th.BG, false)
+	big := NewCelebration(1, 120, 40, th.Confetti, false)
 	if big.Count() <= full.Count() {
 		t.Fatalf("120x40 count = %d, should exceed 80x24 count %d", big.Count(), full.Count())
 	}
@@ -56,7 +56,7 @@ func TestConfettiBursts(t *testing.T) {
 		t.Fatalf("120x40 cap exceeded: %d", big.Count())
 	}
 
-	tiny := NewCelebration(1, 40, 12, th.Confetti, th.BG, false)
+	tiny := NewCelebration(1, 40, 12, th.Confetti, false)
 	if tiny.Count() <= 0 || tiny.Count() >= full.Count() {
 		t.Fatalf("40x12 count = %d, want between 1 and %d", tiny.Count(), full.Count())
 	}
@@ -64,7 +64,7 @@ func TestConfettiBursts(t *testing.T) {
 
 func TestConfettiExpires(t *testing.T) {
 	th := theme.Get("midnight")
-	c := NewCelebration(2, 80, 24, th.Confetti, th.BG, false)
+	c := NewCelebration(2, 80, 24, th.Confetti, false)
 	if c.Done() {
 		t.Fatal("confetti reported done before the bursts fired")
 	}
@@ -83,7 +83,7 @@ func TestConfettiExpires(t *testing.T) {
 
 func TestConfettiResize(t *testing.T) {
 	th := theme.Get("mono")
-	c := NewCelebration(3, 120, 40, th.Confetti, th.BG, false)
+	c := NewCelebration(3, 120, 40, th.Confetti, false)
 	for i := 0; i < 10; i++ {
 		c.Update(0.05)
 	}
@@ -105,7 +105,7 @@ func TestConfettiResize(t *testing.T) {
 
 func TestConfettiResizeBeforeBurst(t *testing.T) {
 	th := theme.Get("midnight")
-	c := NewCelebration(4, 120, 40, th.Confetti, th.BG, false)
+	c := NewCelebration(4, 120, 40, th.Confetti, false)
 	c.Resize(80, 24)
 	c.Update(0.05)
 	placed := 0
@@ -125,8 +125,8 @@ func TestConfettiResizeBeforeBurst(t *testing.T) {
 
 func TestConfettiDeterministic(t *testing.T) {
 	th := theme.Get("midnight")
-	a := NewCelebration(42, 80, 24, th.Confetti, th.BG, false)
-	b := NewCelebration(42, 80, 24, th.Confetti, th.BG, false)
+	a := NewCelebration(42, 80, 24, th.Confetti, false)
+	b := NewCelebration(42, 80, 24, th.Confetti, false)
 	for i := 0; i < 100; i++ {
 		a.Update(0.033)
 		b.Update(0.033)
@@ -144,7 +144,7 @@ func TestConfettiDeterministic(t *testing.T) {
 
 func TestConfettiFlutterSpeed(t *testing.T) {
 	th := theme.Get("midnight")
-	c := NewCelebration(5, 80, 24, th.Confetti, th.BG, false)
+	c := NewCelebration(5, 80, 24, th.Confetti, false)
 	maxFall := 0.0
 	for i := 0; i < 200; i++ {
 		c.Update(0.05)
@@ -161,23 +161,126 @@ func TestConfettiFlutterSpeed(t *testing.T) {
 }
 
 func TestConfettiGlyphsSingleCell(t *testing.T) {
-	for i, f := range paperFamilies {
-		for _, g := range []rune{f.front, f.back, f.edge} {
-			if !canvas.SingleCell(g) {
-				t.Fatalf("paper family %d has a non-single-cell rune %q", i, g)
+	for i, f := range paperFrames {
+		if f.Width < 1 || len(f.Cells) == 0 {
+			t.Fatalf("paper frame %d is empty or has width %d", i, f.Width)
+		}
+		for _, c := range f.Cells {
+			if !canvas.SingleCell(c.Glyph) {
+				t.Fatalf("paper frame %d has a non-single-cell rune %q", i, c.Glyph)
 			}
 		}
 	}
-	for _, g := range []rune{sparkFamily.front, sparkFamily.back, sparkFamily.edge, trailGlyph} {
-		if !canvas.SingleCell(g) {
-			t.Fatalf("spark/trail has a non-single-cell rune %q", g)
+	if !canvas.SingleCell(paperDrop.Glyph) {
+		t.Fatalf("drop shadow has a non-single-cell rune %q", paperDrop.Glyph)
+	}
+	for _, c := range sparkFrame {
+		if !canvas.SingleCell(c.Glyph) {
+			t.Fatalf("spark has a non-single-cell rune %q", c.Glyph)
 		}
+	}
+}
+
+func TestConfettiOnlyBlockGlyphs(t *testing.T) {
+	allowed := map[rune]bool{
+		'█': true,
+		'▀': true,
+		'▄': true,
+		'▌': true,
+		'▘': true,
+	}
+	for i, f := range paperFrames {
+		for _, c := range f.Cells {
+			if !allowed[c.Glyph] {
+				t.Fatalf("paper frame %d uses %q, want a block glyph", i, c.Glyph)
+			}
+		}
+	}
+	for _, c := range append([]spriteCell{paperDrop}, sparkFrame...) {
+		if !allowed[c.Glyph] {
+			t.Fatalf("sprite uses %q, want a block glyph", c.Glyph)
+		}
+	}
+}
+
+func TestConfettiCartoonShading(t *testing.T) {
+	full := paperFrames[0]
+	var highlight, shadow bool
+	for _, c := range full.Cells {
+		if c.UseBG && c.Tint == tintHighlight {
+			highlight = true
+		}
+		if c.UseBG && c.Tint == tintShadow && c.Rank == 0 {
+			shadow = true
+		}
+	}
+	if !highlight || !shadow {
+		t.Fatalf("full frame is missing the highlight/shadow bevel: %+v", full)
+	}
+	if paperDrop.Tint != tintDrop || paperDrop.DX != 1 || paperDrop.DY != 1 {
+		t.Fatalf("unexpected drop shadow: %+v", paperDrop)
+	}
+	if len(sparkFrame) != 5 {
+		t.Fatalf("spark frame has %d cells, want 5", len(sparkFrame))
+	}
+	center := false
+	for _, c := range sparkFrame {
+		if c.DX == 0 && c.DY == 0 {
+			center = c.Tint == tintWhite && c.Rank == 1
+		} else if c.Rank != 0 {
+			t.Fatalf("spark arm %+v should disappear before the center", c)
+		}
+	}
+	if !center {
+		t.Fatal("spark frame is missing its white center")
+	}
+}
+
+func TestConfettiDissolve(t *testing.T) {
+	th := theme.Get("midnight")
+	c := NewCelebration(7, 80, 24, th.Confetti, false)
+	c.particles = []particle{{
+		X: 40, Y: 12, Age: 0, Life: 10, Placed: true, Active: true,
+		Color: th.Confetti[0], Kind: burstCenter,
+	}}
+
+	cv := canvas.New(80, 24)
+	c.elapsed = c.fadeStart
+	c.Draw(cv)
+	if got := cv.At(40, 12).Ch; got != '▘' {
+		t.Fatalf("left cell = %q, want the highlight cell", got)
+	}
+	if got := cv.At(41, 12).Ch; got != '▄' {
+		t.Fatalf("right cell = %q, want the shadow cell", got)
+	}
+	if got := cv.At(41, 13).Ch; got != '▀' {
+		t.Fatalf("drop shadow = %q, want the projected shadow", got)
+	}
+
+	cv = canvas.New(80, 24)
+	c.elapsed = c.fadeStart + (c.fadeEnd-c.fadeStart)*0.5
+	c.Draw(cv)
+	if got := cv.At(40, 12).Ch; got != '▘' {
+		t.Fatalf("left cell after dissolve = %q, want the highlight cell", got)
+	}
+	if got := cv.At(41, 12); got.Ch != ' ' || got.HasFG || got.HasBG {
+		t.Fatalf("right cell should disappear first, got %+v", got)
+	}
+	if got := cv.At(41, 13); got.Ch != ' ' || got.HasFG || got.HasBG {
+		t.Fatalf("drop shadow should disappear first, got %+v", got)
+	}
+
+	cv = canvas.New(80, 24)
+	c.elapsed = c.fadeEnd - 0.01
+	c.Draw(cv)
+	if got := cv.At(40, 12); got.Ch != ' ' || got.HasFG || got.HasBG {
+		t.Fatalf("piece should be gone at the end of the fade, got %+v", got)
 	}
 }
 
 func TestConfettiDraw(t *testing.T) {
 	th := theme.Get("midnight")
-	c := NewCelebration(6, 80, 24, th.Confetti, th.BG, false)
+	c := NewCelebration(6, 80, 24, th.Confetti, false)
 	cv := canvas.New(80, 24)
 	cv.Clear(th.BG)
 	for i := 0; i < 30; i++ {

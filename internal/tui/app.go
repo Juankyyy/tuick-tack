@@ -1078,7 +1078,7 @@ func (m *Model) startCelebration(short bool) {
 	m.inputErr = ""
 	w, h := m.viewSize()
 	seed := m.seed + m.state.FinishSeq*7919
-	m.confetti = fx.NewCelebration(seed, w, h, m.pal.Confetti, m.pal.BG, short)
+	m.confetti = fx.NewCelebration(seed, w, h, m.pal.Confetti, short)
 	m.dust = fx.NewDust(seed, w, h)
 }
 
