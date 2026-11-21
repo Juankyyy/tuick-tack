@@ -132,10 +132,6 @@ const (
 	LabelFocus       = Key("label.focus")
 	RepeatHint       = Key("hint.repeat")
 	CloseHint        = Key("hint.close")
-	HelpFormats      = Key("help.formats")
-	HelpFinished     = Key("help.finished")
-	HelpSound        = Key("help.sound")
-	HelpPresets      = Key("help.presets")
 
 	StatsTitle       = Key("stats.title")
 	StatsOverview    = Key("stats.overview")
@@ -223,14 +219,43 @@ const (
 	Save     = Key("action.save")
 	Back     = Key("action.back")
 
-	HelpTitle    = Key("help.title")
-	HelpIdle     = Key("help.idle")
-	HelpTimer    = Key("help.timer")
-	HelpModal    = Key("help.modal")
-	HelpClose    = Key("help.close")
-	HelpQuit     = Key("help.quit")
-	HelpUpdate   = Key("help.update")
-	HelpReadable = Key("help.readable")
+	HelpTitle = Key("help.title")
+
+	HelpSectionTimer    = Key("help.section.timer")
+	HelpSectionDuration = Key("help.section.duration")
+	HelpSectionPanels   = Key("help.section.panels")
+	HelpSectionDisplay  = Key("help.section.display")
+	HelpSectionApp      = Key("help.section.app")
+
+	HelpStart        = Key("help.start")
+	HelpPause        = Key("help.pause")
+	HelpCancel       = Key("help.cancel")
+	HelpAdjust       = Key("help.adjust")
+	HelpRepeat       = Key("help.repeat")
+	HelpFormats      = Key("help.formats")
+	HelpPickPreset   = Key("help.pick.preset")
+	HelpPresets      = Key("help.presets")
+	HelpSound        = Key("help.sound")
+	HelpMute         = Key("help.mute")
+	HelpStats        = Key("help.stats")
+	HelpUpdate       = Key("help.update")
+	HelpTheme        = Key("help.theme")
+	HelpBackground   = Key("help.background")
+	HelpReadable     = Key("help.readable")
+	HelpReadableNote = Key("help.readable.note")
+	HelpQuit         = Key("help.quit")
+	HelpTrayNote     = Key("help.tray.note")
+	HelpClose        = Key("help.close")
+
+	// The compact help used below the wide two-column layout.
+	HelpNarrowStartPause   = Key("help.narrow.startpause")
+	HelpNarrowCancelAdjust = Key("help.narrow.canceladjust")
+	HelpNarrowRepeat       = Key("help.narrow.repeat")
+	HelpNarrowPanels       = Key("help.narrow.panels")
+	HelpNarrowPanelsMore   = Key("help.narrow.panels.more")
+	HelpNarrowDisplay      = Key("help.narrow.display")
+	HelpNarrowReadable     = Key("help.narrow.readable")
+	HelpNarrowQuit         = Key("help.narrow.quit")
 
 	PresetsTitle      = Key("presets.title")
 	PresetsEmpty      = Key("presets.empty")
@@ -459,10 +484,6 @@ var texts = map[Key]string{
 	LabelFocus:       "Focus",
 	RepeatHint:       "r repeat",
 	CloseHint:        "enter close",
-	HelpFormats:      "25 min · 12:30 · 90s · 1h30m",
-	HelpFinished:     "finished: [r] repeat · [Enter] close",
-	HelpSound:        "sound: [v] settings · [m] mute · [Space] preview",
-	HelpPresets:      "presets: [a] add · [e] edit · [d] delete · [r] defaults",
 
 	StatsTitle:       "Statistics",
 	StatsOverview:    "overview",
@@ -550,14 +571,42 @@ var texts = map[Key]string{
 	Save:     "save",
 	Back:     "back",
 
-	HelpTitle:    "Help",
-	HelpIdle:     "type a duration · [Enter] start · [←→] select preset",
-	HelpTimer:    "[Space] pause/resume · [Esc] cancel · [+/-] adjust 1 min",
-	HelpModal:    "[p] presets · [t] theme · [v] sound · [s] stats · [b] background",
-	HelpClose:    "[Esc] or [Enter] to close",
-	HelpQuit:     "[q] closes the TUI; the tray keeps running",
-	HelpUpdate:   "updates: [u] check · dialog: [Tab] type · [↑/↓] notes",
-	HelpReadable: "readable text: [n] black bands on/off · only with none",
+	HelpTitle: "Help",
+
+	HelpSectionTimer:    "TIMER",
+	HelpSectionDuration: "DURATION",
+	HelpSectionPanels:   "PANELS",
+	HelpSectionDisplay:  "DISPLAY",
+	HelpSectionApp:      "APP",
+
+	HelpStart:        "[Enter] start the duration",
+	HelpPause:        "[Space] pause or resume",
+	HelpCancel:       "[Esc] cancel (asks first)",
+	HelpAdjust:       "[+/-] adjust one minute",
+	HelpRepeat:       "[r] repeat when it finishes",
+	HelpFormats:      "25 · 12:30 · 90s · 1h30m",
+	HelpPickPreset:   "[←/→] pick a preset",
+	HelpPresets:      "[p] presets",
+	HelpSound:        "[v] sound",
+	HelpMute:         "[m] mute or unmute",
+	HelpStats:        "[s] statistics",
+	HelpUpdate:       "[u] check for updates",
+	HelpTheme:        "[t] theme",
+	HelpBackground:   "[b] background",
+	HelpReadable:     "[n] readable bands",
+	HelpReadableNote: "only with None background",
+	HelpQuit:         "[q] close the TUI",
+	HelpTrayNote:     "the tray keeps running",
+	HelpClose:        "[Esc] or [Enter] closes this help",
+
+	HelpNarrowStartPause:   "[Enter] start · [Space] pause",
+	HelpNarrowCancelAdjust: "[Esc] cancel · [+/-] 1 min",
+	HelpNarrowRepeat:       "[r] repeat",
+	HelpNarrowPanels:       "[p] presets · [v] sound",
+	HelpNarrowPanelsMore:   "[s] stats · [u] update · [m] mute",
+	HelpNarrowDisplay:      "[t] theme · [b] background",
+	HelpNarrowReadable:     "[n] readable bands",
+	HelpNarrowQuit:         "[q] quit · [Esc] close help",
 
 	PresetsTitle:      "Presets",
 	PresetsEmpty:      "No presets yet. Press [a] to add one.",

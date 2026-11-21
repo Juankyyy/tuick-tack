@@ -1381,14 +1381,19 @@ func TestModalsOpenAndClose(t *testing.T) {
 		t.Fatalf("modal = %v, want help", m.modal)
 	}
 	plain := assertFrame(t, m, 80, 24)
-	for _, want := range []string{
-		copy.T(copy.HelpIdle), copy.T(copy.HelpTimer), copy.T(copy.HelpModal),
-		copy.T(copy.HelpSound), copy.T(copy.HelpPresets),
-		copy.T(copy.HelpFormats), copy.T(copy.HelpFinished), copy.T(copy.HelpUpdate),
+	for _, key := range []copy.Key{
+		copy.HelpStart, copy.HelpPause, copy.HelpCancel, copy.HelpRepeat,
+		copy.HelpPickPreset, copy.HelpPresets, copy.HelpSound, copy.HelpMute,
+		copy.HelpStats, copy.HelpUpdate, copy.HelpTheme, copy.HelpBackground,
+		copy.HelpReadable, copy.HelpQuit,
 	} {
-		if !strings.Contains(plain, want) {
-			t.Errorf("help is missing %q", want)
+		k, desc := splitHelpKey(copy.T(key))
+		if !strings.Contains(plain, k) || !strings.Contains(plain, desc) {
+			t.Errorf("help is missing %q", copy.T(key))
 		}
+	}
+	if !strings.Contains(plain, copy.T(copy.HelpFormats)) {
+		t.Errorf("help is missing %q", copy.T(copy.HelpFormats))
 	}
 	press(m, tea.KeyEnter, "")
 	if m.modal != modalNone {
@@ -2125,8 +2130,86 @@ func TestHelpShowsReadableBands(t *testing.T) {
 	m, _ := testModel(80, 24)
 	press(m, '?', "?")
 	plain := assertFrame(t, m, 80, 24)
-	if !strings.Contains(plain, copy.T(copy.HelpReadable)) {
+	key, desc := splitHelpKey(copy.T(copy.HelpReadable))
+	if !strings.Contains(plain, key) || !strings.Contains(plain, desc) {
 		t.Fatalf("help is missing the readable-bands hint:\n%s", plain)
+	}
+}
+
+func TestHelpWideLayoutAlignsDescriptions(t *testing.T) {
+	for _, size := range [][2]int{{80, 24}, {120, 40}} {
+		m, _ := testModel(size[0], size[1])
+		press(m, '?', "?")
+		lines := render(m)
+		columnX := func(needle string) int {
+			t.Helper()
+			for _, line := range lines {
+				if i := strings.Index(line, needle); i >= 0 {
+					return canvas.Width(line[:i])
+				}
+			}
+			t.Fatalf("%dx%d help is missing %q", size[0], size[1], needle)
+			return 0
+		}
+		left := []string{
+			"start the duration", "pause or resume", "cancel (asks first)",
+			"adjust one minute", "repeat when it finishes", "pick a preset",
+		}
+		wantLeft := columnX(left[0])
+		for _, desc := range left[1:] {
+			if got := columnX(desc); got != wantLeft {
+				t.Errorf("%dx%d %q starts at x=%d, want %d", size[0], size[1], desc, got, wantLeft)
+			}
+		}
+		right := []string{"presets", "sound", "mute or unmute", "statistics", "check for updates"}
+		wantRight := columnX(right[0])
+		for _, desc := range right[1:] {
+			if got := columnX(desc); got != wantRight {
+				t.Errorf("%dx%d %q starts at x=%d, want %d", size[0], size[1], desc, got, wantRight)
+			}
+		}
+		if wantRight <= wantLeft {
+			t.Errorf("%dx%d right column x=%d should follow the left column x=%d", size[0], size[1], wantRight, wantLeft)
+		}
+		assertFrame(t, m, size[0], size[1])
+	}
+}
+
+func TestHelpNarrowFallbackAtMinimumWindow(t *testing.T) {
+	m, _ := testModel(48, 22)
+	press(m, '?', "?")
+	plain := assertFrame(t, m, 48, 22)
+	for _, want := range []string{
+		copy.T(copy.HelpNarrowStartPause),
+		copy.T(copy.HelpNarrowCancelAdjust),
+		copy.T(copy.HelpNarrowPanelsMore),
+		copy.T(copy.HelpNarrowQuit),
+	} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("narrow help is missing %q", want)
+		}
+	}
+	if strings.Contains(plain, copy.T(copy.HelpFormats)) {
+		t.Error("narrow help should not render the wide duration examples")
+	}
+}
+
+func TestHelpCopyComplete(t *testing.T) {
+	check := func(line helpLine) {
+		if line.kind == helpLineBlank || line.text == "" {
+			return
+		}
+		if got := copy.T(line.text); got == "" || got == string(line.text) {
+			t.Errorf("help copy key %q has no text", line.text)
+		}
+	}
+	for _, col := range helpColumns {
+		for _, line := range col {
+			check(line)
+		}
+	}
+	for _, line := range helpNarrow {
+		check(line)
 	}
 }
 

@@ -1130,40 +1130,195 @@ func (m *Model) drawOverlay(c *canvas.Canvas, r rect, title string) {
 	c.Text(r.x+4, r.y+1, title, canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
 }
 
+// helpLineKind is what one row of the help overlay paints.
+type helpLineKind int
+
+const (
+	helpLineBlank helpLineKind = iota
+	helpLineHeading
+	helpLineRow     // one [key] and its description, aligned
+	helpLineNote    // muted text at the key column
+	helpLineSubNote // muted text under the description column
+	helpLineHint    // compact line that may hold several [keys]
+)
+
+type helpLine struct {
+	kind helpLineKind
+	text copy.Key
+}
+
+// helpColumns is the wide help, left column first. Rows carry their own blanks
+// so both columns keep the same height without a scrolling state.
+var helpColumns = [2][]helpLine{
+	{
+		{helpLineHeading, copy.HelpSectionTimer},
+		{helpLineRow, copy.HelpStart},
+		{helpLineRow, copy.HelpPause},
+		{helpLineRow, copy.HelpCancel},
+		{helpLineRow, copy.HelpAdjust},
+		{helpLineRow, copy.HelpRepeat},
+		{helpLineBlank, ""},
+		{helpLineHeading, copy.HelpSectionDuration},
+		{helpLineNote, copy.HelpFormats},
+		{helpLineRow, copy.HelpPickPreset},
+		{helpLineHeading, copy.HelpSectionApp},
+		{helpLineRow, copy.HelpQuit},
+		{helpLineSubNote, copy.HelpTrayNote},
+	},
+	{
+		{helpLineHeading, copy.HelpSectionPanels},
+		{helpLineRow, copy.HelpPresets},
+		{helpLineRow, copy.HelpSound},
+		{helpLineRow, copy.HelpMute},
+		{helpLineRow, copy.HelpStats},
+		{helpLineRow, copy.HelpUpdate},
+		{helpLineBlank, ""},
+		{helpLineHeading, copy.HelpSectionDisplay},
+		{helpLineRow, copy.HelpTheme},
+		{helpLineRow, copy.HelpBackground},
+		{helpLineRow, copy.HelpReadable},
+		{helpLineSubNote, copy.HelpReadableNote},
+	},
+}
+
+// helpNarrow is the single-column fallback below 80 columns. Each line pairs
+// two or three keys so the whole overlay still fits the 48x22 minimum.
+var helpNarrow = []helpLine{
+	{helpLineHeading, copy.HelpSectionTimer},
+	{helpLineHint, copy.HelpNarrowStartPause},
+	{helpLineHint, copy.HelpNarrowCancelAdjust},
+	{helpLineHint, copy.HelpNarrowRepeat},
+	{helpLineHeading, copy.HelpSectionPanels},
+	{helpLineHint, copy.HelpNarrowPanels},
+	{helpLineHint, copy.HelpNarrowPanelsMore},
+	{helpLineHeading, copy.HelpSectionDisplay},
+	{helpLineHint, copy.HelpNarrowDisplay},
+	{helpLineHint, copy.HelpNarrowReadable},
+	{helpLineHint, copy.HelpNarrowQuit},
+}
+
+const (
+	helpWideW    = 76
+	helpWideH    = 20
+	helpLeftCol  = 3
+	helpRightCol = 39
+	helpKeyGap   = 9
+	helpNarrowW  = 44
+	helpNarrowH  = 18
+)
+
 func (m *Model) drawHelp(c *canvas.Canvas, base rect) {
-	r := m.modalRect(base, 70, 17)
-	m.drawOverlay(c, r, copy.T(copy.HelpTitle))
-	lines := []struct {
-		text string
-		col  canvasColor
-	}{
-		{copy.T(copy.HelpIdle), m.pal.Text},
-		{copy.T(copy.HelpTimer), m.pal.Text},
-		{copy.T(copy.HelpModal), m.pal.Text},
-		{copy.T(copy.HelpSound), m.pal.Muted},
-		{copy.T(copy.HelpPresets), m.pal.Muted},
-		{"", m.pal.Muted},
-		{copy.T(copy.HelpFormats), m.pal.Muted},
-		{copy.T(copy.HelpFinished), m.pal.Muted},
-		{copy.T(copy.HelpUpdate), m.pal.Muted},
-		{copy.T(copy.HelpReadable), m.pal.Muted},
-		{copy.T(copy.HelpQuit), m.pal.Muted},
+	if base.w >= 80 {
+		m.drawHelpWide(c, base)
+		return
 	}
+	m.drawHelpNarrow(c, base)
+}
+
+func (m *Model) drawHelpWide(c *canvas.Canvas, base rect) {
+	r := m.modalRect(base, helpWideW, helpWideH)
+	m.drawOverlay(c, r, copy.T(copy.HelpTitle))
+	xs := [2]int{r.x + helpLeftCol, r.x + helpRightCol}
+	limits := [2]int{
+		xs[1] - (xs[0] + helpKeyGap) - 2,
+		r.x + r.w - 1 - (xs[1] + helpKeyGap) + 1,
+	}
+	for col, lines := range helpColumns {
+		x := xs[col]
+		descX := x + helpKeyGap
+		y := r.y + 3
+		for _, line := range lines {
+			m.drawHelpLine(c, line, x, descX, y, limits[col])
+			y++
+		}
+	}
+	by := r.y + r.h - 3
+	bx := m.drawHelpClose(c, r, by)
+	hint := copy.T(copy.HelpClose)
+	c.Text(r.x+helpLeftCol, by, fitText(hint, bx-(r.x+helpLeftCol)-2), canvas.Fg(m.pal.Muted))
+}
+
+func (m *Model) drawHelpNarrow(c *canvas.Canvas, base rect) {
+	r := m.modalRect(base, helpNarrowW, helpNarrowH)
+	m.drawOverlay(c, r, copy.T(copy.HelpTitle))
+	x := r.x + 2
+	limit := r.w - 4
 	y := r.y + 3
-	for _, line := range lines {
-		if line.text != "" {
-			m.drawCenteredIn(c, r.x+2, y, r.w-4, line.text, canvas.Fg(line.col))
+	for _, line := range helpNarrow {
+		text := copy.T(line.text)
+		if line.kind == helpLineHeading {
+			c.Text(x, y, fitText(text, limit), canvas.Style{FG: m.pal.Muted, HasFG: true, Bold: true})
+		} else {
+			m.drawHelpHint(c, x, y, limit, text)
 		}
 		y++
 	}
+	m.drawHelpClose(c, r, r.y+r.h-3)
+}
+
+func (m *Model) drawHelpLine(c *canvas.Canvas, line helpLine, x, descX, y, limit int) {
+	switch line.kind {
+	case helpLineHeading:
+		c.Text(x, y, fitText(copy.T(line.text), descX+limit-x), canvas.Style{FG: m.pal.Muted, HasFG: true, Bold: true})
+	case helpLineRow:
+		key, desc := splitHelpKey(copy.T(line.text))
+		if key == "" {
+			c.Text(x, y, fitText(desc, descX+limit-x), canvas.Style{FG: m.pal.Text, HasFG: true})
+			return
+		}
+		c.Text(x, y, key, canvas.Style{FG: m.pal.Accent, HasFG: true, Bold: true})
+		c.Text(descX, y, fitText(desc, limit), canvas.Style{FG: m.pal.Text, HasFG: true})
+	case helpLineNote:
+		c.Text(x, y, fitText(copy.T(line.text), descX+limit-x), canvas.Fg(m.pal.Muted))
+	case helpLineSubNote:
+		c.Text(descX, y, fitText(copy.T(line.text), limit), canvas.Fg(m.pal.Muted))
+	}
+}
+
+// drawHelpHint paints a compact line, switching to the accent color for every
+// bracketed key so the fallback keeps the hierarchy of the wide layout.
+func (m *Model) drawHelpHint(c *canvas.Canvas, x, y, limit int, s string) {
+	s = fitText(s, limit)
+	inKey := false
+	col := x
+	for _, r := range s {
+		if r == '[' {
+			inKey = true
+		}
+		st := canvas.Style{FG: m.pal.Text, HasFG: true}
+		if inKey {
+			st = canvas.Style{FG: m.pal.Accent, HasFG: true, Bold: true}
+		}
+		c.Set(col, y, r, st)
+		if r == ']' {
+			inKey = false
+		}
+		col++
+	}
+}
+
+func splitHelpKey(s string) (key, desc string) {
+	if !strings.HasPrefix(s, "[") {
+		return "", s
+	}
+	end := strings.IndexByte(s, ']')
+	if end < 0 {
+		return "", s
+	}
+	return s[:end+1], strings.TrimPrefix(s[end+1:], " ")
+}
+
+// drawHelpClose paints the close button and returns its left column so the
+// footer hint can stop before it.
+func (m *Model) drawHelpClose(c *canvas.Canvas, r rect, by int) int {
 	bw := canvas.Width(copy.T(copy.Close)) + 4
-	bx := r.x + (r.w-bw)/2
-	by := r.y + r.h - 3
+	bx := r.x + r.w - 2 - bw
 	c.Fill(bx, by, bw, 1, canvas.Full(m.pal.Accent, theme.Lerp(m.pal.Panel, m.pal.Accent, 0.18)))
 	c.Set(bx, by, '[', canvas.Fg(m.pal.Muted))
 	c.Set(bx+bw-1, by, ']', canvas.Fg(m.pal.Muted))
 	c.Text(bx+2, by, copy.T(copy.Close), canvas.Style{FG: m.pal.Accent, HasFG: true, Bold: true})
 	m.addHit(bx, by, bw, 1, hitClose, 0)
+	return bx
 }
 
 func (m *Model) drawConfirm(c *canvas.Canvas, base rect, title string, yes hitAction) {
