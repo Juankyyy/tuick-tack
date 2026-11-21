@@ -3,6 +3,7 @@ package copy
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"tuick-tack/internal/config"
 	"tuick-tack/internal/tui/bigfont"
@@ -171,7 +172,7 @@ func TestKeyHintsUseBracketFormat(t *testing.T) {
 		UpdateHint,
 		SoundHint, SoundActionHint,
 		PresetFormHint, PresetsEmpty, PresetsHint, PresetsActionHint,
-		StatsHint, StatsHintShort,
+		StatsHint, StatsHintSection, StatsHintNarrow, StatsHintShort,
 	}
 	for _, key := range keys {
 		text := T(key)
@@ -186,16 +187,19 @@ func TestStatsCopyExists(t *testing.T) {
 		StatsTitle, StatsOverview, StatsActivity, StatsPresets, StatsRecent,
 		StatsRange7, StatsRange30, StatsRange90, StatsRangeAll,
 		StatsLoading, StatsUnavailable,
-		StatsFocused, StatsSessions, StatsCompleted, StatsVsPrev,
+		StatsFocused, StatsSessions, StatsCompleted, StatsOfFinished, StatsVsPrev,
 		StatsStreak, StatsBestStreak, StatsLongest, StatsBusiest,
-		StatsFocusPerDay, StatsMax, StatsHeatLess, StatsHeatMore,
+		StatsFocusPerDay, StatsLastDays, StatsRecordsHead,
+		StatsMax, StatsHeatLess, StatsHeatMore,
 		StatsByHour, StatsByWeekday, StatsInsight, StatsWeeks,
 		StatsPresetsHead, StatsRuns, StatsMostUsed, StatsAvgSession,
 		StatsWhen, StatsPlanned, StatsLabel, StatsOutcome,
 		StatsDone, StatsStopped, StatsReplaced,
-		StatsToday, StatsYesterday, StatsShowing,
-		StatsEmptyTitle, StatsEmptyBody, StatsHint, StatsHintShort,
+		StatsToday, StatsYesterday, StatsYesterdayShort, StatsShowing,
+		StatsEmptyTitle, StatsEmptyBody, StatsHint, StatsHintSection, StatsHintNarrow, StatsHintShort,
 		WeekdayMon, WeekdayTue, WeekdayWed, WeekdayThu, WeekdayFri, WeekdaySat, WeekdaySun,
+		MonthJan, MonthFeb, MonthMar, MonthApr, MonthMay, MonthJun,
+		MonthJul, MonthAug, MonthSep, MonthOct, MonthNov, MonthDec,
 	}
 	for _, key := range keys {
 		if T(key) == "" || T(key) == string(key) {
@@ -218,5 +222,17 @@ func TestStatsCopyExists(t *testing.T) {
 	}
 	if got := WeekdayShort(9); got != "" {
 		t.Errorf("WeekdayShort(9) = %q, want empty", got)
+	}
+	if got := WeekdayNarrow(0); got != "Mo" {
+		t.Errorf("WeekdayNarrow(0) = %q", got)
+	}
+	if got := WeekdayNarrow(9); got != "" {
+		t.Errorf("WeekdayNarrow(9) = %q, want empty", got)
+	}
+	if got := MonthShort(time.January); got != "Jan" {
+		t.Errorf("MonthShort(January) = %q", got)
+	}
+	if got := MonthShort(time.Month(13)); got != "" {
+		t.Errorf("MonthShort(13) = %q, want empty", got)
 	}
 }

@@ -131,7 +131,9 @@ func (m *Model) handleStatsKey(key tea.Key) tea.Cmd {
 		m.setStatsTab((m.statsTab + statsTabCount - 1) % statsTabCount)
 	case key.Code == tea.KeyRight, key.Code == tea.KeyTab:
 		m.setStatsTab((m.statsTab + 1) % statsTabCount)
-	case text == "t":
+	case text == "t" && m.statsTab == statsTabOverview:
+		// The range only summarizes the overview; on the other sections it
+		// would change a value that is not on screen.
 		m.statsRange = (m.statsRange + 1) % statsRangeCount
 		m.statsScroll = 0
 	case len(text) == 1 && text[0] >= '1' && text[0] <= '4':
@@ -334,7 +336,7 @@ func (m *Model) statsRows(w, h int) []statLine {
 	}
 	switch m.statsTab {
 	case statsTabActivity:
-		return m.statsActivityRows(w)
+		return m.statsActivityRows(w, h)
 	case statsTabPresets:
 		return m.statsPresetsRows(w)
 	case statsTabRecent:
@@ -360,16 +362,27 @@ func (m *Model) statsHeader(left, right string, w int) statLine {
 
 func (m *Model) statsOverviewRows(w, h int) []statLine {
 	p := m.statsData
-	rows := []statLine{m.statsKPILine(w), {}}
+	kpi := m.statsKPILines(w)
+	rows := []statLine{
+		m.statsHeader(copy.T(copy.StatsOverview), m.statsRangeLabel(), w),
+	}
+	rows = append(rows, kpi...)
+	rows = append(rows, statLine{})
 
 	days := 7
 	barW := 2
+	gap := 1
+	weekdays := true
 	if m.statsRange != statsRange7 {
 		days = 30
 		barW = 1
+		weekdays = false
+	} else if fit := (w+gap)/7 - gap; fit > barW {
+		// Give the seven daily bars the room the terminal offers.
+		barW = minInt(8, fit)
 	}
 	cols := days
-	if fit := (w + 1) / (barW + 1); cols > fit {
+	if fit := (w + gap) / (barW + gap); cols > fit {
 		cols = fit
 	}
 	if cols < 1 {
@@ -391,44 +404,58 @@ func (m *Model) statsOverviewRows(w, h int) []statLine {
 		max = 1
 	}
 
-	note := copy.T(copy.StatsMax, statDuration(max)) + " · " + m.statsRangeLabel()
+	// The bars are always the recent daily window; the section header shows
+	// the range the KPI above them summarizes.
+	note := copy.T(copy.StatsMax, statDuration(max)) + " · " + copy.T(copy.StatsLastDays, len(window))
 	rows = append(rows, m.statsHeader(copy.T(copy.StatsFocusPerDay), note, w))
-	chartH := 6
-	switch {
-	case h >= 19:
+
+	// Reserve the fixed rows so the chart grows into whatever the terminal
+	// leaves without pushing the records off the sheet.
+	fixed := 1 + len(kpi) + 1 + 1 + 1 + 1 + 1
+	chartH := h - fixed
+	if chartH > 10 {
 		chartH = 10
-	case h >= 15:
-		chartH = 8
 	}
-	rows = append(rows, statChart(m, vals, max, chartH, barW, m.pal.Accent, m.pal.Accent2)...)
-	rows = append(rows, m.statsDayLabels(window, barW))
-	rows = append(rows, statLine{})
+	if chartH < 3 {
+		chartH = 3
+	}
+	rows = append(rows, statChart(m, statBars{
+		values:   vals,
+		max:      max,
+		height:   chartH,
+		barW:     barW,
+		gap:      gap,
+		accent:   m.pal.Accent,
+		last:     m.pal.Accent2,
+		markLast: true,
+	})...)
+	rows = append(rows, m.statsDayLabels(window, barW, gap, weekdays))
+	rows = append(rows, m.statsHeader(copy.T(copy.StatsRecordsHead), copy.T(copy.StatsRangeAll), w))
 	if rec := m.statsRecordsLine(w); len(rec) > 0 {
 		rows = append(rows, rec)
 	}
 	return rows
 }
 
-func (m *Model) statsKPILine(w int) statLine {
+// statsKPILines packs the summary into one line when it fits and into two when
+// the sheet is narrow, instead of letting the last figure get clipped.
+func (m *Model) statsKPILines(w int) []statLine {
 	tr := m.statsRangeTotals()
-	line := statLine{statPad(1)}
-	line = append(line,
+	line := statLine{
+		statPad(1),
 		statBold(statDuration(tr.MS), m.pal.Text),
 		statTxt(" "+copy.T(copy.StatsFocused), m.pal.Muted),
 		statTxt(" · ", m.pal.Muted),
 		statBold(fmt.Sprintf("%d", tr.Sessions), m.pal.Text),
 		statTxt(" "+copy.T(copy.StatsSessions), m.pal.Muted),
-	)
+	}
+	var parts []statLine
 	if done := tr.Completed + tr.Stopped; done > 0 {
 		pct := int(math.Round(100 * float64(tr.Completed) / float64(done)))
-		candidate := statLine{
-			statTxt(" · ", m.pal.Muted),
+		parts = append(parts, statLine{
 			statBold(fmt.Sprintf("%d%%", pct), m.pal.Text),
-			statTxt(" "+copy.T(copy.StatsCompleted), m.pal.Muted),
-		}
-		if lineWidth(line)+lineWidth(candidate) <= w {
-			line = append(line, candidate...)
-		}
+			statTxt(" "+copy.T(copy.StatsOfFinished), m.pal.Muted),
+		})
 	}
 	if m.statsRange != statsRangeAll {
 		days := m.statsRangeDays()
@@ -438,48 +465,91 @@ func (m *Model) statsKPILine(w int) statLine {
 			if delta < 0 {
 				col = m.pal.Warn
 			}
-			candidate := statLine{
-				statTxt(" · ", m.pal.Muted),
+			parts = append(parts, statLine{
 				statBold(fmt.Sprintf("%+d%%", delta), col),
 				statTxt(" "+copy.T(copy.StatsVsPrev, m.statsRangeLabel()), m.pal.Muted),
-			}
-			if lineWidth(line)+lineWidth(candidate) <= w {
-				line = append(line, candidate...)
+			})
+		}
+	}
+	lines := []statLine{line}
+	for _, part := range parts {
+		last := len(lines) - 1
+		candidate := append(append(statLine{}, lines[last]...), statTxt(" · ", m.pal.Muted))
+		candidate = append(candidate, part...)
+		if lineWidth(candidate) <= w {
+			lines[last] = candidate
+			continue
+		}
+		if len(lines) == 1 {
+			next := append(statLine{statPad(1)}, part...)
+			if lineWidth(next) <= w {
+				lines = append(lines, next)
 			}
 		}
 	}
-	return line
+	return lines
 }
 
-// statChart draws vertical bars with half-block resolution. Each bar is barW
-// cells wide and the newest column uses the quieter accent as "today".
-func statChart(m *Model, vals []int64, max int64, height, barW int, accent, outer color.RGBA) []statLine {
-	rows := make([]statLine, 0, height)
-	last := len(vals) - 1
-	for r := 0; r < height; r++ {
+// statBars describes one vertical bar chart. gap is the number of empty cells
+// between bars; the hour chart uses none so its 24 columns line up with the
+// 24-character axis.
+type statBars struct {
+	values   []int64
+	max      int64
+	height   int
+	barW     int
+	gap      int
+	accent   color.RGBA
+	last     color.RGBA
+	markLast bool
+}
+
+func statBarsWidth(n, barW, gap int) int {
+	if n <= 0 {
+		return 0
+	}
+	return n*barW + (n-1)*gap
+}
+
+// statChart draws vertical bars with half-block resolution. Bars are barW cells
+// wide and separated by gap cells. markLast paints the newest column with last,
+// which only the daily chart uses for "today".
+func statChart(m *Model, c statBars) []statLine {
+	if c.height <= 0 || len(c.values) == 0 {
+		return nil
+	}
+	rows := make([]statLine, 0, c.height)
+	last := len(c.values) - 1
+	for r := 0; r < c.height; r++ {
 		line := statLine{}
-		for i, v := range vals {
-			if i > 0 {
-				line = append(line, statCell{text: " "})
+		for i, v := range c.values {
+			if i > 0 && c.gap > 0 {
+				line = append(line, statCell{text: strings.Repeat(" ", c.gap)})
 			}
 			halves := 0
-			if max > 0 {
-				halves = int(math.Round(float64(v) / float64(max) * float64(height*2)))
+			if c.max > 0 {
+				halves = int(math.Round(float64(v) / float64(c.max) * float64(c.height*2)))
 			}
-			need := 2 * (height - r)
-			text := strings.Repeat(" ", barW)
-			col := accent
+			// A day with a little focus must not look empty; rounding a small
+			// share down to zero would hide it completely.
+			if v > 0 && halves < 1 {
+				halves = 1
+			}
+			need := 2 * (c.height - r)
+			text := strings.Repeat(" ", c.barW)
+			col := c.accent
 			switch {
 			case halves >= need:
-				text = strings.Repeat("█", barW)
+				text = strings.Repeat("█", c.barW)
 			case halves == need-1:
-				text = strings.Repeat("▄", barW)
-			case r == height-1 && v == 0:
-				text = "·" + strings.Repeat(" ", maxInt(0, barW-1))
+				text = strings.Repeat("▄", c.barW)
+			case r == c.height-1 && v == 0:
+				left := maxInt(0, (c.barW-1)/2)
+				text = strings.Repeat(" ", left) + "·" + strings.Repeat(" ", maxInt(0, c.barW-1-left))
 				col = theme.Lerp(m.pal.Panel, m.pal.Muted, 0.5)
 			}
-			if i == last {
-				col = outer
+			if c.markLast && i == last {
+				col = c.last
 			}
 			line = append(line, statTxt(text, col))
 		}
@@ -488,61 +558,106 @@ func statChart(m *Model, vals []int64, max int64, height, barW int, accent, oute
 	return rows
 }
 
-func (m *Model) statsDayLabels(window []protocol.StatsDay, barW int) statLine {
-	line := statLine{}
-	slotStep := 1
-	if barW == 1 {
-		slotStep = 7
+// statsDayLabels builds a label row with the exact width of the bar chart. The
+// labels are stamped at their bar's column; appending them would drift because
+// a day number is wider than a one-cell bar.
+func (m *Model) statsDayLabels(window []protocol.StatsDay, barW, gap int, weekdays bool) statLine {
+	width := statBarsWidth(len(window), barW, gap)
+	if width <= 0 {
+		return nil
 	}
+	cells := make([]statCell, width)
 	loc := m.statsLocation()
+	var lastMonth time.Month
 	for i, day := range window {
-		if i > 0 {
-			line = append(line, statCell{text: " "})
+		t, err := time.ParseInLocation("2006-01-02", day.Date, loc)
+		if err != nil {
+			continue
 		}
 		label := ""
-		if t, err := time.ParseInLocation("2006-01-02", day.Date, loc); err == nil {
-			if barW == 2 {
-				short := copy.WeekdayShort((int(t.Weekday()) + 6) % 7)
-				if canvas.Width(short) >= 2 {
-					label = short[:2]
-				}
-			} else if i%slotStep == 0 {
-				label = fmt.Sprintf("%02d", t.Day())
+		if weekdays {
+			label = copy.WeekdayNarrow((int(t.Weekday()) + 6) % 7)
+		} else if i%7 == 0 {
+			label = fmt.Sprintf("%02d", t.Day())
+			if lastMonth == 0 || t.Month() != lastMonth {
+				label = copy.MonthShort(t.Month()) + " " + label
+				lastMonth = t.Month()
 			}
 		}
 		if label == "" {
-			line = append(line, statPad(barW))
-		} else {
-			line = append(line, statTxt(label, m.pal.Muted))
+			continue
+		}
+		col := i * (barW + gap)
+		off := (barW - canvas.Width(label)) / 2
+		if off < 0 {
+			off = 0
+		}
+		for k, r := range []rune(label) {
+			pos := col + off + k
+			if pos < 0 || pos >= width {
+				continue
+			}
+			cells[pos] = statCell{text: string(r), fg: m.pal.Muted, hasFG: true}
 		}
 	}
+	line := make(statLine, 0, width)
+	for _, cell := range cells {
+		if cell.text == "" {
+			cell = statCell{text: " "}
+		}
+		line = append(line, cell)
+	}
 	return line
+}
+
+func firstRunes(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) > n {
+		runes = runes[:n]
+	}
+	return string(runes)
 }
 
 func (m *Model) statsRecordsLine(w int) statLine {
 	rec := m.statsData.Records
 	line := statLine{statPad(1)}
 	added := 0
-	appendPart := func(part statLine) {
-		candidate := append(statLine{}, line...)
-		if added > 0 {
-			candidate = append(candidate, statTxt(" · ", m.pal.Muted))
-		}
-		candidate = append(candidate, part...)
-		if lineWidth(candidate) > w {
+	// appendPart adds the first candidate that fits, so a long detail can fall
+	// back to its compact form instead of dropping the whole value.
+	appendPart := func(parts ...statLine) {
+		for _, part := range parts {
+			candidate := append(statLine{}, line...)
+			if added > 0 {
+				candidate = append(candidate, statTxt(" · ", m.pal.Muted))
+			}
+			candidate = append(candidate, part...)
+			if lineWidth(candidate) > w {
+				continue
+			}
+			line = candidate
+			added++
 			return
 		}
-		line = candidate
-		added++
 	}
 	if rec.StreakDays > 0 {
 		appendPart(statLine{statBold(copy.T(copy.StatsStreak, rec.StreakDays), m.pal.Accent)})
 	}
 	appendPart(statLine{statTxt(copy.T(copy.StatsBestStreak, rec.BestStreakDays), m.pal.Muted)})
-	appendPart(statLine{statTxt(copy.T(copy.StatsLongest, statDuration(rec.LongestMS)), m.pal.Muted)})
 	if rec.BusiestWeekday >= 0 && rec.BusiestHour >= 0 {
 		appendPart(statLine{statTxt(copy.T(copy.StatsBusiest,
 			copy.WeekdayShort(rec.BusiestWeekday), rec.BusiestHour), m.pal.Muted)})
+	}
+	longest := copy.T(copy.StatsLongest, statDuration(rec.LongestMS))
+	if rec.LongestLabel != "" {
+		appendPart(
+			statLine{statTxt(longest+" ("+fitText(rec.LongestLabel, 12)+")", m.pal.Muted)},
+			statLine{statTxt(longest, m.pal.Muted)},
+		)
+	} else {
+		appendPart(statLine{statTxt(longest, m.pal.Muted)})
 	}
 	if added == 0 {
 		return nil
@@ -550,10 +665,9 @@ func (m *Model) statsRecordsLine(w int) statLine {
 	return line
 }
 
-func (m *Model) statsActivityRows(w int) []statLine {
+func (m *Model) statsActivityRows(w, h int) []statLine {
 	p := m.statsData
 	loc := m.statsLocation()
-	rows := []statLine{m.statsHeader(copy.T(copy.StatsActivity), copy.T(copy.StatsWeeks, 26), w)}
 
 	byDate := make(map[string]int64, len(p.Daily))
 	for _, day := range p.Daily {
@@ -570,6 +684,8 @@ func (m *Model) statsActivityRows(w int) []statLine {
 	}
 	thisMonday := today.AddDate(0, 0, -((int(today.Weekday()) + 6) % 7))
 	firstMonday := thisMonday.AddDate(0, 0, -7*(weeks-1))
+
+	rows := []statLine{m.statsHeader(copy.T(copy.StatsActivity), copy.T(copy.StatsWeeks, weeks), w)}
 
 	var maxMS int64
 	for i := 0; i < weeks; i++ {
@@ -590,7 +706,7 @@ func (m *Model) statsActivityRows(w int) []statLine {
 		months[i] = ' '
 	}
 	placeMonth := func(at int, label string) {
-		for k, r := range label {
+		for k, r := range []rune(label) {
 			if at+k < weeks {
 				months[at+k] = r
 			}
@@ -599,7 +715,7 @@ func (m *Model) statsActivityRows(w int) []statLine {
 	lastMonth := ""
 	lastCol := -10
 	for i := 0; i < weeks; i++ {
-		label := firstMonday.AddDate(0, 0, 7*i).Format("Jan")
+		label := copy.MonthShort(firstMonday.AddDate(0, 0, 7*i).Month())
 		if label == lastMonth {
 			continue
 		}
@@ -621,7 +737,10 @@ func (m *Model) statsActivityRows(w int) []statLine {
 	}
 	rows = append(rows, statLine{statPad(3), statTxt(string(months), m.pal.Muted)})
 
-	dayLabels := [7]string{"M", "", "W", "", "F", "", ""}
+	dayLabels := [7]string{}
+	for _, d := range []int{0, 2, 4} {
+		dayLabels[d] = firstRunes(copy.WeekdayShort(d), 1)
+	}
 	for d := 0; d < 7; d++ {
 		line := statLine{statTxt(" "+dayLabels[d]+" ", m.pal.Muted)}
 		for i := 0; i < weeks; i++ {
@@ -644,16 +763,21 @@ func (m *Model) statsActivityRows(w int) []statLine {
 		rows = append(rows, line)
 	}
 
-	legend := statLine{statPad(1), statTxt(copy.T(copy.StatsHeatLess)+" ", m.pal.Muted)}
-	for level := 0; level <= 4; level++ {
-		bg := theme.Lerp(m.pal.Panel, m.pal.BG, 0.55)
-		if level > 0 {
-			bg = theme.Lerp(m.pal.Panel, m.pal.Accent, 0.18+0.2*float64(level))
+	if h >= 15 {
+		legend := statLine{statPad(1), statTxt(copy.T(copy.StatsHeatLess)+" ", m.pal.Muted)}
+		for level := 0; level <= 4; level++ {
+			bg := theme.Lerp(m.pal.Panel, m.pal.BG, 0.55)
+			if level > 0 {
+				bg = theme.Lerp(m.pal.Panel, m.pal.Accent, 0.18+0.2*float64(level))
+			}
+			legend = append(legend, statBG(" ", m.pal.Text, bg))
 		}
-		legend = append(legend, statBG(" ", m.pal.Text, bg))
+		legend = append(legend, statTxt(" "+copy.T(copy.StatsHeatMore), m.pal.Muted))
+		rows = append(rows, legend)
 	}
-	legend = append(legend, statTxt(" "+copy.T(copy.StatsHeatMore), m.pal.Muted))
-	rows = append(rows, legend, statLine{})
+	if h >= 17 {
+		rows = append(rows, statLine{})
+	}
 
 	hourVals := make([]int64, len(p.Hourly))
 	for i := range p.Hourly {
@@ -666,35 +790,74 @@ func (m *Model) statsActivityRows(w int) []statLine {
 	hourMax := maxValue(hourVals)
 	weekdayMax := maxValue(weekdayVals)
 
-	if w >= 58 {
-		header := statLine{statTxt(" "+copy.T(copy.StatsByHour), m.pal.Text)}
-		if pad := 26 - lineWidth(header); pad > 0 {
+	const (
+		hourBarW    = 1
+		hourGap     = 0
+		weekdayBarW = 2
+		weekdayGap  = 1
+		columnGap   = 2
+	)
+	hourW := statBarsWidth(len(hourVals), hourBarW, hourGap)
+	weekdayW := statBarsWidth(len(weekdayVals), weekdayBarW, weekdayGap)
+
+	hourTitle := statLine{
+		statTxt(" "+copy.T(copy.StatsByHour), m.pal.Text),
+		statTxt(" · "+copy.T(copy.StatsRangeAll), m.pal.Muted),
+	}
+	weekdayTitle := statLine{
+		statTxt(copy.T(copy.StatsByWeekday), m.pal.Text),
+		statTxt(" · "+copy.T(copy.StatsRangeAll), m.pal.Muted),
+	}
+
+	// The header can be one cell wider than the chart block because the
+	// weekday title carries its "all time" note.
+	headerW := hourW + columnGap + maxInt(weekdayW, lineWidth(weekdayTitle))
+	if w >= headerW {
+		header := append(statLine{}, hourTitle...)
+		if pad := hourW + columnGap - lineWidth(header); pad > 0 {
 			header = append(header, statPad(pad))
 		}
-		header = append(header, statTxt(copy.T(copy.StatsByWeekday), m.pal.Text))
+		header = append(header, weekdayTitle...)
 		rows = append(rows, header)
-		hourRows := statChart(m, hourVals, hourMax, 3, 1, m.pal.Accent, m.pal.Accent2)
-		weekdayRows := statChart(m, weekdayVals, weekdayMax, 3, 2, m.pal.Accent, m.pal.Accent2)
+		hourRows := statChart(m, statBars{
+			values: hourVals, max: hourMax, height: 3,
+			barW: hourBarW, gap: hourGap, accent: m.pal.Accent,
+		})
+		weekdayRows := statChart(m, statBars{
+			values: weekdayVals, max: weekdayMax, height: 3,
+			barW: weekdayBarW, gap: weekdayGap, accent: m.pal.Accent,
+		})
 		for i := 0; i < 3; i++ {
 			line := append(statLine{}, hourRows[i]...)
-			line = append(line, statPad(2))
+			line = append(line, statPad(columnGap))
 			line = append(line, weekdayRows[i]...)
 			rows = append(rows, line)
 		}
 		axis := statLine{statTxt(hourAxis(), m.pal.Muted)}
-		axis = append(axis, statPad(2), statTxt(weekdayAxis(), m.pal.Muted))
+		axis = append(axis, statPad(columnGap), statTxt(weekdayAxis(), m.pal.Muted))
 		rows = append(rows, axis)
 	} else {
-		rows = append(rows, statLine{statTxt(" "+copy.T(copy.StatsByHour), m.pal.Text)})
-		rows = append(rows, statChart(m, hourVals, hourMax, 3, 1, m.pal.Accent, m.pal.Accent2)...)
+		rows = append(rows, hourTitle)
+		rows = append(rows, statChart(m, statBars{
+			values: hourVals, max: hourMax, height: 3,
+			barW: hourBarW, gap: hourGap, accent: m.pal.Accent,
+		})...)
 		rows = append(rows, statLine{statTxt(hourAxis(), m.pal.Muted)})
-		rows = append(rows, statLine{statTxt(" "+copy.T(copy.StatsByWeekday), m.pal.Text)})
-		rows = append(rows, statChart(m, weekdayVals, weekdayMax, 3, 2, m.pal.Accent, m.pal.Accent2)...)
+		rows = append(rows, weekdayTitle)
+		rows = append(rows, statChart(m, statBars{
+			values: weekdayVals, max: weekdayMax, height: 3,
+			barW: weekdayBarW, gap: weekdayGap, accent: m.pal.Accent,
+		})...)
 		rows = append(rows, statLine{statTxt(weekdayAxis(), m.pal.Muted)})
 	}
 
 	if insight := m.statsInsightLine(w); insight != nil {
-		rows = append(rows, statLine{}, insight)
+		switch room := h - len(rows); {
+		case room >= 2:
+			rows = append(rows, statLine{}, insight)
+		case room == 1:
+			rows = append(rows, insight)
+		}
 	}
 	return rows
 }
@@ -720,10 +883,18 @@ func hourAxis() string {
 	runes[13] = '2'
 	runes[18] = '1'
 	runes[19] = '8'
+	runes[22] = '2'
+	runes[23] = '3'
 	return string(runes)
 }
 
-func weekdayAxis() string { return "Mo Tu We Th Fr Sa Su" }
+func weekdayAxis() string {
+	parts := make([]string, 7)
+	for i := range parts {
+		parts[i] = padRight(copy.WeekdayNarrow(i), 2)
+	}
+	return strings.Join(parts, " ")
+}
 
 func (m *Model) statsInsightLine(w int) statLine {
 	rec := m.statsData.Records
@@ -753,9 +924,15 @@ func (m *Model) statsPresetsRows(w int) []statLine {
 	}
 	max := maxValue(labelMS(p.Labels))
 	track := theme.Lerp(m.pal.Panel, m.pal.Border, 0.7)
-	showRuns := w >= 52
-	showPct := w >= 60
-	const labelW = 10
+	showRuns := w >= 46
+	showPct := w >= 58
+	labelW := 10
+	if w >= 60 {
+		labelW = 14
+	}
+	if w >= 80 {
+		labelW = 18
+	}
 	for _, label := range p.Labels {
 		line := statLine{
 			statPad(1),
@@ -772,11 +949,15 @@ func (m *Model) statsPresetsRows(w int) []statLine {
 		if showPct {
 			if done := label.Completed + label.Stopped; done > 0 {
 				pct := int(math.Round(100 * float64(label.Completed) / float64(done)))
-				col := m.pal.Text
+				col := m.pal.Accent
 				if pct < 60 {
 					col = m.pal.Warn
 				}
-				right = append(right, statTxt(" · ", m.pal.Muted), statTxt(fmt.Sprintf("%d%%", pct), col))
+				right = append(right,
+					statTxt(" · ", m.pal.Muted),
+					statTxt(fmt.Sprintf("%d%%", pct), col),
+					statTxt(" "+copy.T(copy.StatsOfFinished), m.pal.Muted),
+				)
 			}
 		}
 		barW := w - 1 - labelW - 1 - lineWidth(right)
@@ -830,8 +1011,22 @@ func (m *Model) statsRecentRows(w int) []statLine {
 		{},
 	}
 	// The label column is the first to go at narrow widths; the outcome tells
-	// more than the label when there is only room for one.
-	const whenW, plannedW, labelW = 12, 7, 10
+	// more than the label when there is only room for one. The start column
+	// only grows when "yesterday" fits.
+	const plannedW = 7
+	whenW := 12
+	longWhen := false
+	if w >= 66 {
+		whenW = 15
+		longWhen = true
+	}
+	labelW := 10
+	if w >= 70 {
+		labelW = 16
+	}
+	if w >= 86 {
+		labelW = 20
+	}
 	showLabel := w >= 54
 	header := statLine{statPad(1)}
 	header = append(header,
@@ -845,12 +1040,22 @@ func (m *Model) statsRecentRows(w int) []statLine {
 	}
 	header = append(header, statTxt(copy.T(copy.StatsOutcome), m.pal.Muted))
 	rows = append(rows, header)
+	outcomeW := w - 1 - whenW - 1 - plannedW - 1
+	if showLabel {
+		outcomeW -= labelW + 1
+	}
+	appendOutcome := func(line *statLine, text string, col color.RGBA) {
+		if outcomeW > 0 {
+			text = fitText(text, outcomeW)
+		}
+		*line = append(*line, statTxt(text, col))
+	}
 	for _, ev := range p.Recent {
 		line := statLine{statPad(1)}
 		line = append(line,
-			statTxt(padRight(m.statsWhen(ev.StartedMS), whenW), m.pal.Text),
+			statTxt(padRight(m.statsWhen(ev.StartedMS, longWhen), whenW), m.pal.Text),
 			statPad(1),
-			statTxt(padLeft(statDuration(ev.PlannedMS), plannedW), m.pal.Text),
+			statTxt(padLeft(fitText(statDuration(ev.PlannedMS), plannedW), plannedW), m.pal.Text),
 			statPad(1),
 		)
 		if showLabel {
@@ -859,11 +1064,11 @@ func (m *Model) statsRecentRows(w int) []statLine {
 		elapsed := statDuration(ev.ElapsedMS)
 		switch ev.Outcome {
 		case string(stats.Completed):
-			line = append(line, statTxt(copy.T(copy.StatsDone), m.pal.Accent))
+			appendOutcome(&line, copy.T(copy.StatsDone), m.pal.Accent)
 		case string(stats.Stopped):
-			line = append(line, statTxt(copy.T(copy.StatsStopped, elapsed), m.pal.Warn))
+			appendOutcome(&line, copy.T(copy.StatsStopped, elapsed), m.pal.Warn)
 		default:
-			line = append(line, statTxt(copy.T(copy.StatsReplaced, elapsed), m.pal.Accent2))
+			appendOutcome(&line, copy.T(copy.StatsReplaced, elapsed), m.pal.Accent2)
 		}
 		rows = append(rows, line)
 	}
@@ -872,7 +1077,7 @@ func (m *Model) statsRecentRows(w int) []statLine {
 	return rows
 }
 
-func (m *Model) statsWhen(startedMS int64) string {
+func (m *Model) statsWhen(startedMS int64, long bool) string {
 	loc := m.statsLocation()
 	t := time.UnixMilli(startedMS).In(loc)
 	now := m.now().In(loc)
@@ -882,9 +1087,12 @@ func (m *Model) statsWhen(startedMS int64) string {
 	case day.Equal(today):
 		return copy.T(copy.StatsToday, t.Format("15:04"))
 	case day.Equal(today.AddDate(0, 0, -1)):
-		return copy.T(copy.StatsYesterday, t.Format("15:04"))
+		if long {
+			return copy.T(copy.StatsYesterday, t.Format("15:04"))
+		}
+		return copy.T(copy.StatsYesterdayShort, t.Format("15:04"))
 	default:
-		return t.Format("02 Jan 15:04")
+		return fmt.Sprintf("%02d %s %s", t.Day(), copy.MonthShort(t.Month()), t.Format("15:04"))
 	}
 }
 
@@ -920,8 +1128,13 @@ func (m *Model) drawStats(c *canvas.Canvas, base rect) {
 
 	m.drawStatsTabs(c, x, r.y+r.h-3, w)
 	hint := copy.T(copy.StatsHint)
+	narrow := copy.StatsHintShort
+	if m.statsTab != statsTabOverview {
+		hint = copy.T(copy.StatsHintSection)
+		narrow = copy.StatsHintNarrow
+	}
 	if canvas.Width(hint) > w {
-		hint = copy.T(copy.StatsHintShort)
+		hint = copy.T(narrow)
 	}
 	hintCol := m.pal.Muted
 	if !m.connected {

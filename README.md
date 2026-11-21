@@ -49,7 +49,7 @@ countdown, the sound and the tray icon keep running.
 | **Full control** | Pause, resume, add or subtract a minute, and repeat. |
 | **Always running** | The daemon owns the timer, so closing the TUI never stops a countdown. |
 | **Tray menu** | Start a preset, pause, stop, change the sound or volume, and open the TUI. |
-| **Statistics** | `s` opens a full-screen view with focus per day, a 26-week heatmap, time by hour and weekday, per-preset totals and the latest sessions. |
+| **Statistics** | `s` opens a full-screen view with a range summary and recent daily focus, a 26-week heatmap, time by start hour and weekday, per-preset totals and the latest sessions. |
 | **At zero** | The selected sound at the chosen volume, an alert tray icon and full-screen pixel-art confetti. |
 | **Sound pack** | Chime, Marimba, Digital and Deep; 0–100% volume in 5% steps, with preview and mute. |
 | **Three themes** | Midnight, Ember and Mono. |
@@ -71,7 +71,7 @@ countdown, the sound and the tray icon keep running.
 | Running | `Space` pause; `Esc` confirm cancel; `+` / `-` ±1 min; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `?` help; `q` close |
 | Paused | `Space` resume; `Esc` confirm cancel; `+` / `-` ±1 min; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `?` help |
 | Finished | `r` repeat; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `Enter` / `Esc` close the celebration (it also closes itself after 10 s) |
-| Statistics | `←` `→` or `Tab` switch section; `1`–`4` jump; `t` range (7/30/90 days or all time); `↑` `↓` `PgUp` `PgDn` `Home` `End` or the wheel scroll; `Esc` or `s` close |
+| Statistics | `←` `→` or `Tab` switch section; `1`–`4` jump; `t` range in the overview (7/30/90 days or all time); `↑` `↓` `PgUp` `PgDn` `Home` `End` or the wheel scroll; `Esc` or `s` close |
 | Sound panel | `↑` `↓` select the sound; `←` `→` volume ±5%; `Space` preview; `m` mute; `Esc` close |
 | Presets panel | `↑` `↓` move; `Tab` actions; `←` `→` choose an action; `Enter` start or run; `a` add; `e` edit; `d` delete; `r` restore defaults; `Esc` close |
 | Form | `Tab` next field; `Enter` save; `Esc` cancel |

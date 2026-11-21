@@ -145,7 +145,7 @@ func TestStatsOpensWithSAndMutesWithM(t *testing.T) {
 }
 
 func TestStatsTabKeys(t *testing.T) {
-	m, _, _ := openTestStats(t, 80, 24)
+	m, _, _ := openTestStats(t, 48, 22)
 	if m.statsTab != statsTabOverview || m.statsRange != statsRange7 {
 		t.Fatalf("initial tab/range = %d/%d", m.statsTab, m.statsRange)
 	}
@@ -167,6 +167,13 @@ func TestStatsTabKeys(t *testing.T) {
 		t.Fatalf("tab moved to %d", m.statsTab)
 	}
 
+	// The range only belongs to the overview; changing it on another section
+	// would alter a value that is not on screen.
+	press(m, 't', "t")
+	if m.statsRange != statsRange7 {
+		t.Fatalf("t on recent changed the range to %d", m.statsRange)
+	}
+	press(m, '1', "1")
 	press(m, 't', "t")
 	if m.statsRange != statsRange30 {
 		t.Fatalf("range = %d, want 30 days", m.statsRange)
@@ -209,6 +216,8 @@ func TestStatsSectionsRender(t *testing.T) {
 				t.Fatalf("%dx%d tab %d missing the title:\n%s", w, h, tab, plain)
 			}
 			if !strings.Contains(plain, copy.T(copy.StatsHint)) &&
+				!strings.Contains(plain, copy.T(copy.StatsHintSection)) &&
+				!strings.Contains(plain, copy.T(copy.StatsHintNarrow)) &&
 				!strings.Contains(plain, copy.T(copy.StatsHintShort)) {
 				t.Fatalf("%dx%d tab %d missing the hint:\n%s", w, h, tab, plain)
 			}
@@ -405,6 +414,253 @@ func TestStatsRangesRender(t *testing.T) {
 		plain := assertFrame(t, m, 80, 24)
 		if !strings.Contains(plain, m.statsRangeLabel()) {
 			t.Fatalf("range %d missing its label %q:\n%s", r, m.statsRangeLabel(), plain)
+		}
+		// The bars are always the recent daily window; the note must say how
+		// many days it actually paints, not the selected range.
+		shown := 7
+		if r != statsRange7 {
+			shown = 30
+		}
+		if !strings.Contains(plain, copy.T(copy.StatsLastDays, shown)) {
+			t.Fatalf("range %d chart note does not say %d days:\n%s", r, shown, plain)
+		}
+	}
+}
+
+func statLineText(line statLine) string {
+	var b strings.Builder
+	for _, cell := range line {
+		b.WriteString(cell.text)
+	}
+	return b.String()
+}
+
+func TestStatsRowsFitContent(t *testing.T) {
+	for _, size := range [][2]int{{48, 22}, {56, 22}, {80, 24}, {120, 40}} {
+		w, h := size[0], size[1]
+		for tab := 0; tab < statsTabCount; tab++ {
+			for r := 0; r < statsRangeCount; r++ {
+				m, _, _ := openTestStats(t, w, h)
+				m.setStatsTab(tab)
+				m.statsRange = r
+				_, cw, _, ch := m.statsContentArea()
+				for i, line := range m.statsRows(cw, ch) {
+					if got := lineWidth(line); got > cw {
+						t.Fatalf("%dx%d tab %d range %d row %d width %d > %d: %q",
+							w, h, tab, r, i, got, cw, statLineText(line))
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestStatsActivityColumnsAlign(t *testing.T) {
+	m, _, _ := openTestStats(t, 80, 24)
+	m.setStatsTab(statsTabActivity)
+	_, w, _, h := m.statsContentArea()
+	rows := m.statsRows(w, h)
+
+	hourW := statBarsWidth(24, 1, 0)
+	weekdayW := statBarsWidth(7, 2, 1)
+	blockW := hourW + 2 + weekdayW
+	if w < blockW {
+		t.Fatalf("test width %d cannot show both charts", w)
+	}
+	var header, axis, chart statLine
+	for _, row := range rows {
+		text := statLineText(row)
+		switch {
+		case strings.Contains(text, copy.T(copy.StatsByHour)) &&
+			strings.Contains(text, copy.T(copy.StatsByWeekday)):
+			header = row
+		case strings.Contains(text, weekdayAxis()):
+			axis = row
+		case chart == nil && strings.ContainsAny(text, "█▄·") && lineWidth(row) == blockW:
+			chart = row
+		}
+	}
+	if header == nil || axis == nil || chart == nil {
+		t.Fatalf("activity rows missing header/axis/chart: header=%v axis=%v chart=%v",
+			header != nil, axis != nil, chart != nil)
+	}
+	headerText := statLineText(header)
+	if at := strings.Index(headerText, copy.T(copy.StatsByWeekday)); at < 0 || canvas.Width(headerText[:at]) != hourW+2 {
+		t.Fatalf("weekday header starts at %d, want %d: %q", canvas.Width(headerText[:maxInt(0, at)]), hourW+2, headerText)
+	}
+	axisText := statLineText(axis)
+	if at := strings.Index(axisText, copy.WeekdayNarrow(0)); at < 0 || canvas.Width(axisText[:at]) != hourW+2 {
+		t.Fatalf("weekday axis starts at %d, want %d: %q", canvas.Width(axisText[:maxInt(0, at)]), hourW+2, axisText)
+	}
+	if got := lineWidth(chart); got != blockW {
+		t.Fatalf("chart block width = %d, want %d", got, blockW)
+	}
+	if got := hourAxis(); canvas.Width(got) != hourW || !strings.HasSuffix(got, "23") {
+		t.Fatalf("hour axis = %q, want width %d ending in 23", got, hourW)
+	}
+}
+
+func TestStatsDayLabelsMatchChartWidth(t *testing.T) {
+	for _, size := range [][2]int{{48, 22}, {80, 24}} {
+		m, _, _ := openTestStats(t, size[0], size[1])
+		m.statsRange = statsRange30
+		_, w, _, h := m.statsContentArea()
+		rows := m.statsRows(w, h)
+		var labels, chart statLine
+		for _, row := range rows {
+			text := statLineText(row)
+			if !strings.Contains(text, copy.T(copy.StatsFocusPerDay)) &&
+				(strings.Contains(text, copy.MonthShort(time.October)) ||
+					strings.Contains(text, copy.MonthShort(time.November))) {
+				labels = row
+			}
+			if chart == nil && strings.ContainsAny(text, "█▄") {
+				chart = row
+			}
+		}
+		if labels == nil || chart == nil {
+			t.Fatalf("%dx%d missing day labels or chart", size[0], size[1])
+		}
+		if got, want := lineWidth(labels), lineWidth(chart); got != want {
+			t.Fatalf("%dx%d labels width %d, chart width %d", size[0], size[1], got, want)
+		}
+		text := statLineText(labels)
+		novAt := 42
+		if size[0] == 48 {
+			novAt = 28
+		}
+		if got := strings.Index(text, copy.MonthShort(time.October)); got != 0 {
+			t.Fatalf("%dx%d October label at %d: %q", size[0], size[1], got, text)
+		}
+		if got := strings.Index(text, copy.MonthShort(time.November)); got != novAt {
+			t.Fatalf("%dx%d November label at %d, want %d: %q", size[0], size[1], got, novAt, text)
+		}
+	}
+}
+
+func TestStatsMinimumSizeKeepsTheKPI(t *testing.T) {
+	m, _, _ := openTestStats(t, 48, 22)
+	_, w, _, h := m.statsContentArea()
+	lines := m.statsKPILines(w)
+	if len(lines) != 2 {
+		t.Fatalf("48x22 KPI lines = %d, want 2", len(lines))
+	}
+	var joined string
+	for _, line := range lines {
+		if lineWidth(line) > w {
+			t.Fatalf("KPI line width %d > %d: %q", lineWidth(line), w, statLineText(line))
+		}
+		joined += statLineText(line)
+	}
+	if !strings.Contains(joined, copy.T(copy.StatsOfFinished)) {
+		t.Fatalf("48x22 KPI lost the completion rate: %q", joined)
+	}
+	if rows := m.statsRows(w, h); len(rows) > h {
+		t.Fatalf("overview needs %d rows at 48x22, only %d visible", len(rows), h)
+	}
+}
+
+func TestStatsTinyDayStillDraws(t *testing.T) {
+	m, clock := testModel(80, 24)
+	m.openStats()
+	payload := testStatsPayload(clock.Now())
+	for i := range payload.Daily {
+		payload.Daily[i].MS = 0
+	}
+	payload.Daily[len(payload.Daily)-1].MS = 60 * 60000
+	payload.Daily[len(payload.Daily)-6].MS = 1
+	m.handleServerEvent(serverEventMsg{msg: protocol.NewStats(payload)})
+	m.statsRange = statsRange7
+	_, w, _, h := m.statsContentArea()
+	var chart string
+	for _, row := range m.statsRows(w, h) {
+		chart += statLineText(row) + "\n"
+	}
+	if !strings.Contains(chart, "▄") {
+		t.Fatalf("a nonzero day with almost no focus drew nothing:\n%s", chart)
+	}
+}
+
+func TestStatsRecentUsesLongYesterdayAtWideSizes(t *testing.T) {
+	for _, tc := range []struct {
+		w, h int
+		want string
+	}{
+		{80, 24, "yesterday 12:00"},
+		{48, 22, "yest 12:00"},
+	} {
+		m, _, _ := openTestStats(t, tc.w, tc.h)
+		m.setStatsTab(statsTabRecent)
+		plain := assertFrame(t, m, tc.w, tc.h)
+		if !strings.Contains(plain, tc.want) {
+			t.Fatalf("%dx%d recent missing %q:\n%s", tc.w, tc.h, tc.want, plain)
+		}
+	}
+}
+
+func TestStatsRecentLongOutcomeFits(t *testing.T) {
+	m, clock := testModel(48, 22)
+	m.openStats()
+	payload := testStatsPayload(clock.Now())
+	payload.Recent[1].PlannedMS = (2 * time.Hour).Milliseconds()
+	payload.Recent[1].ElapsedMS = (time.Hour + 5*time.Minute).Milliseconds()
+	m.handleServerEvent(serverEventMsg{msg: protocol.NewStats(payload)})
+	m.setStatsTab(statsTabRecent)
+	_, w, _, h := m.statsContentArea()
+	for _, row := range m.statsRows(w, h) {
+		if got := lineWidth(row); got > w {
+			t.Fatalf("recent row width %d > %d: %q", got, w, statLineText(row))
+		}
+	}
+	plain := assertFrame(t, m, 48, 22)
+	if !strings.Contains(plain, "stopped at 1h…") {
+		t.Fatalf("long stopped outcome was not shortened:\n%s", plain)
+	}
+}
+
+func TestStatsPresetsClarifyCompletion(t *testing.T) {
+	m, _, _ := openTestStats(t, 80, 24)
+	m.setStatsTab(statsTabPresets)
+	plain := assertFrame(t, m, 80, 24)
+	for _, want := range []string{
+		"93% of finished", "14 sessions", "top: 5 min",
+	} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("presets missing %q:\n%s", want, plain)
+		}
+	}
+}
+
+func TestStatsHintDependsOnSection(t *testing.T) {
+	m, _, _ := openTestStats(t, 80, 24)
+	plain := assertFrame(t, m, 80, 24)
+	if !strings.Contains(plain, copy.T(copy.StatsHint)) {
+		t.Fatalf("overview missing the range hint:\n%s", plain)
+	}
+	m.setStatsTab(statsTabActivity)
+	plain = assertFrame(t, m, 80, 24)
+	if strings.Contains(plain, "[t] range") {
+		t.Fatalf("activity hint advertises the overview range key:\n%s", plain)
+	}
+	if !strings.Contains(plain, copy.T(copy.StatsHintSection)) {
+		t.Fatalf("activity missing its section hint:\n%s", plain)
+	}
+}
+
+func TestFirstRunesDoesNotSplit(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		n    int
+		want string
+	}{
+		{"Mon", 2, "Mo"},
+		{"mié", 2, "mi"},
+		{"sáb", 2, "sá"},
+		{"M", 2, "M"},
+		{"", 2, ""},
+	} {
+		if got := firstRunes(tc.in, tc.n); got != tc.want {
+			t.Fatalf("firstRunes(%q, %d) = %q, want %q", tc.in, tc.n, got, tc.want)
 		}
 	}
 }

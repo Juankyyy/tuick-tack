@@ -4,6 +4,7 @@ package copy
 
 import (
 	"fmt"
+	"time"
 
 	"tuick-tack/internal/config"
 )
@@ -133,51 +134,57 @@ const (
 	RepeatHint       = Key("hint.repeat")
 	CloseHint        = Key("hint.close")
 
-	StatsTitle       = Key("stats.title")
-	StatsOverview    = Key("stats.overview")
-	StatsActivity    = Key("stats.activity")
-	StatsPresets     = Key("stats.presets")
-	StatsRecent      = Key("stats.recent")
-	StatsRange7      = Key("stats.range.7")
-	StatsRange30     = Key("stats.range.30")
-	StatsRange90     = Key("stats.range.90")
-	StatsRangeAll    = Key("stats.range.all")
-	StatsLoading     = Key("stats.loading")
-	StatsUnavailable = Key("stats.unavailable")
-	StatsFocused     = Key("stats.focused")
-	StatsSessions    = Key("stats.sessions")
-	StatsCompleted   = Key("stats.completed")
-	StatsVsPrev      = Key("stats.vs.prev")
-	StatsStreak      = Key("stats.streak")
-	StatsBestStreak  = Key("stats.best.streak")
-	StatsLongest     = Key("stats.longest")
-	StatsBusiest     = Key("stats.busiest")
-	StatsFocusPerDay = Key("stats.focus.day")
-	StatsMax         = Key("stats.max")
-	StatsHeatLess    = Key("stats.heat.less")
-	StatsHeatMore    = Key("stats.heat.more")
-	StatsByHour      = Key("stats.by.hour")
-	StatsByWeekday   = Key("stats.by.weekday")
-	StatsInsight     = Key("stats.insight")
-	StatsWeeks       = Key("stats.weeks")
-	StatsPresetsHead = Key("stats.presets.header")
-	StatsRuns        = Key("stats.runs")
-	StatsMostUsed    = Key("stats.most.used")
-	StatsAvgSession  = Key("stats.avg")
-	StatsWhen        = Key("stats.when")
-	StatsPlanned     = Key("stats.planned")
-	StatsLabel       = Key("stats.label")
-	StatsOutcome     = Key("stats.outcome")
-	StatsDone        = Key("stats.done")
-	StatsStopped     = Key("stats.stopped")
-	StatsReplaced    = Key("stats.replaced")
-	StatsToday       = Key("stats.today")
-	StatsYesterday   = Key("stats.yesterday")
-	StatsShowing     = Key("stats.showing")
-	StatsEmptyTitle  = Key("stats.empty.title")
-	StatsEmptyBody   = Key("stats.empty.body")
-	StatsHint        = Key("stats.hint")
-	StatsHintShort   = Key("stats.hint.short")
+	StatsTitle          = Key("stats.title")
+	StatsOverview       = Key("stats.overview")
+	StatsActivity       = Key("stats.activity")
+	StatsPresets        = Key("stats.presets")
+	StatsRecent         = Key("stats.recent")
+	StatsRange7         = Key("stats.range.7")
+	StatsRange30        = Key("stats.range.30")
+	StatsRange90        = Key("stats.range.90")
+	StatsRangeAll       = Key("stats.range.all")
+	StatsLoading        = Key("stats.loading")
+	StatsUnavailable    = Key("stats.unavailable")
+	StatsFocused        = Key("stats.focused")
+	StatsSessions       = Key("stats.sessions")
+	StatsCompleted      = Key("stats.completed")
+	StatsOfFinished     = Key("stats.of.finished")
+	StatsVsPrev         = Key("stats.vs.prev")
+	StatsStreak         = Key("stats.streak")
+	StatsBestStreak     = Key("stats.best.streak")
+	StatsLongest        = Key("stats.longest")
+	StatsBusiest        = Key("stats.busiest")
+	StatsFocusPerDay    = Key("stats.focus.day")
+	StatsLastDays       = Key("stats.last.days")
+	StatsRecordsHead    = Key("stats.records")
+	StatsMax            = Key("stats.max")
+	StatsHeatLess       = Key("stats.heat.less")
+	StatsHeatMore       = Key("stats.heat.more")
+	StatsByHour         = Key("stats.by.hour")
+	StatsByWeekday      = Key("stats.by.weekday")
+	StatsInsight        = Key("stats.insight")
+	StatsWeeks          = Key("stats.weeks")
+	StatsPresetsHead    = Key("stats.presets.header")
+	StatsRuns           = Key("stats.runs")
+	StatsMostUsed       = Key("stats.most.used")
+	StatsAvgSession     = Key("stats.avg")
+	StatsWhen           = Key("stats.when")
+	StatsPlanned        = Key("stats.planned")
+	StatsLabel          = Key("stats.label")
+	StatsOutcome        = Key("stats.outcome")
+	StatsDone           = Key("stats.done")
+	StatsStopped        = Key("stats.stopped")
+	StatsReplaced       = Key("stats.replaced")
+	StatsToday          = Key("stats.today")
+	StatsYesterday      = Key("stats.yesterday")
+	StatsYesterdayShort = Key("stats.yesterday.short")
+	StatsShowing        = Key("stats.showing")
+	StatsEmptyTitle     = Key("stats.empty.title")
+	StatsEmptyBody      = Key("stats.empty.body")
+	StatsHint           = Key("stats.hint")
+	StatsHintSection    = Key("stats.hint.section")
+	StatsHintNarrow     = Key("stats.hint.narrow")
+	StatsHintShort      = Key("stats.hint.short")
 
 	WeekdayMon = Key("weekday.mon")
 	WeekdayTue = Key("weekday.tue")
@@ -186,6 +193,19 @@ const (
 	WeekdayFri = Key("weekday.fri")
 	WeekdaySat = Key("weekday.sat")
 	WeekdaySun = Key("weekday.sun")
+
+	MonthJan = Key("month.jan")
+	MonthFeb = Key("month.feb")
+	MonthMar = Key("month.mar")
+	MonthApr = Key("month.apr")
+	MonthMay = Key("month.may")
+	MonthJun = Key("month.jun")
+	MonthJul = Key("month.jul")
+	MonthAug = Key("month.aug")
+	MonthSep = Key("month.sep")
+	MonthOct = Key("month.oct")
+	MonthNov = Key("month.nov")
+	MonthDec = Key("month.dec")
 
 	SoundTitle      = Key("sound.title")
 	SoundOn         = Key("sound.on")
@@ -485,51 +505,57 @@ var texts = map[Key]string{
 	RepeatHint:       "r repeat",
 	CloseHint:        "enter close",
 
-	StatsTitle:       "Statistics",
-	StatsOverview:    "overview",
-	StatsActivity:    "activity",
-	StatsPresets:     "presets",
-	StatsRecent:      "recent",
-	StatsRange7:      "7 days",
-	StatsRange30:     "30 days",
-	StatsRange90:     "90 days",
-	StatsRangeAll:    "all time",
-	StatsLoading:     "Loading…",
-	StatsUnavailable: "Statistics are not available",
-	StatsFocused:     "focused",
-	StatsSessions:    "sessions",
-	StatsCompleted:   "completed",
-	StatsVsPrev:      "vs prev %s",
-	StatsStreak:      "%d-day streak",
-	StatsBestStreak:  "best %d days",
-	StatsLongest:     "longest %s",
-	StatsBusiest:     "busiest %s %02d:00",
-	StatsFocusPerDay: "focus per day",
-	StatsMax:         "max %s",
-	StatsHeatLess:    "less",
-	StatsHeatMore:    "more",
-	StatsByHour:      "by hour",
-	StatsByWeekday:   "by weekday",
-	StatsInsight:     "you start most timers on %s around %02d:00",
-	StatsWeeks:       "%d weeks",
-	StatsPresetsHead: "presets by total focus",
-	StatsRuns:        "runs",
-	StatsMostUsed:    "most used: %s",
-	StatsAvgSession:  "avg session %s",
-	StatsWhen:        "when",
-	StatsPlanned:     "planned",
-	StatsLabel:       "label",
-	StatsOutcome:     "outcome",
-	StatsDone:        "✓ completed",
-	StatsStopped:     "· stopped at %s",
-	StatsReplaced:    "· replaced at %s",
-	StatsToday:       "today %s",
-	StatsYesterday:   "yest %s",
-	StatsShowing:     "showing %d of %d sessions",
-	StatsEmptyTitle:  "No sessions yet",
-	StatsEmptyBody:   "Finish or stop a countdown and it lands here.",
-	StatsHint:        "[←/→] section · [t] range · [↑/↓] scroll · [Esc] close",
-	StatsHintShort:   "[←/→] section · [Esc] close",
+	StatsTitle:          "Statistics",
+	StatsOverview:       "overview",
+	StatsActivity:       "activity",
+	StatsPresets:        "presets",
+	StatsRecent:         "recent",
+	StatsRange7:         "7 days",
+	StatsRange30:        "30 days",
+	StatsRange90:        "90 days",
+	StatsRangeAll:       "all time",
+	StatsLoading:        "Loading…",
+	StatsUnavailable:    "Statistics are not available",
+	StatsFocused:        "focused",
+	StatsSessions:       "sessions",
+	StatsCompleted:      "completed",
+	StatsOfFinished:     "of finished",
+	StatsVsPrev:         "vs prev %s",
+	StatsStreak:         "%d-day streak",
+	StatsBestStreak:     "best %d",
+	StatsLongest:        "longest %s",
+	StatsBusiest:        "busiest day %s · hour %02d:00",
+	StatsFocusPerDay:    "focus per day",
+	StatsLastDays:       "last %d days",
+	StatsRecordsHead:    "records",
+	StatsMax:            "max %s",
+	StatsHeatLess:       "less",
+	StatsHeatMore:       "more",
+	StatsByHour:         "by start hour",
+	StatsByWeekday:      "by weekday",
+	StatsInsight:        "your busiest day is %s · hour %02d:00",
+	StatsWeeks:          "%d weeks",
+	StatsPresetsHead:    "presets by total focus",
+	StatsRuns:           "sessions",
+	StatsMostUsed:       "top: %s",
+	StatsAvgSession:     "avg session %s",
+	StatsWhen:           "started",
+	StatsPlanned:        "planned",
+	StatsLabel:          "label",
+	StatsOutcome:        "outcome",
+	StatsDone:           "✓ completed",
+	StatsStopped:        "· stopped at %s",
+	StatsReplaced:       "· replaced at %s",
+	StatsToday:          "today %s",
+	StatsYesterday:      "yesterday %s",
+	StatsYesterdayShort: "yest %s",
+	StatsShowing:        "showing %d of %d sessions",
+	StatsEmptyTitle:     "No sessions yet",
+	StatsEmptyBody:      "Finish or stop a countdown and it lands here.",
+	StatsHint:           "[←/→] section · [t] range · [↑/↓] scroll · [Esc] close",
+	StatsHintSection:    "[←/→] section · [↑/↓] scroll · [Esc] close",
+	StatsHintNarrow:     "[←/→] · [↑/↓] scroll · [Esc] close",
+	StatsHintShort:      "[←/→] section · [Esc] close",
 
 	WeekdayMon: "Mon",
 	WeekdayTue: "Tue",
@@ -538,6 +564,19 @@ var texts = map[Key]string{
 	WeekdayFri: "Fri",
 	WeekdaySat: "Sat",
 	WeekdaySun: "Sun",
+
+	MonthJan: "Jan",
+	MonthFeb: "Feb",
+	MonthMar: "Mar",
+	MonthApr: "Apr",
+	MonthMay: "May",
+	MonthJun: "Jun",
+	MonthJul: "Jul",
+	MonthAug: "Aug",
+	MonthSep: "Sep",
+	MonthOct: "Oct",
+	MonthNov: "Nov",
+	MonthDec: "Dec",
 
 	SoundTitle:      "Sound",
 	SoundOn:         "Sound on",
@@ -762,6 +801,48 @@ func WeekdayShort(index int) string {
 		return T(WeekdaySat)
 	case 6:
 		return T(WeekdaySun)
+	default:
+		return ""
+	}
+}
+
+// WeekdayNarrow returns the two-letter weekday abbreviation for
+// Monday=0..Sunday=6.
+func WeekdayNarrow(index int) string {
+	runes := []rune(WeekdayShort(index))
+	if len(runes) > 2 {
+		runes = runes[:2]
+	}
+	return string(runes)
+}
+
+// MonthShort returns the short month name.
+func MonthShort(month time.Month) string {
+	switch month {
+	case time.January:
+		return T(MonthJan)
+	case time.February:
+		return T(MonthFeb)
+	case time.March:
+		return T(MonthMar)
+	case time.April:
+		return T(MonthApr)
+	case time.May:
+		return T(MonthMay)
+	case time.June:
+		return T(MonthJun)
+	case time.July:
+		return T(MonthJul)
+	case time.August:
+		return T(MonthAug)
+	case time.September:
+		return T(MonthSep)
+	case time.October:
+		return T(MonthOct)
+	case time.November:
+		return T(MonthNov)
+	case time.December:
+		return T(MonthDec)
 	default:
 		return ""
 	}
