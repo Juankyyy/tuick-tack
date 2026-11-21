@@ -147,13 +147,24 @@ func TestBackgroundCopyCoversConfig(t *testing.T) {
 	}
 }
 
+func TestReadableTextCopyExists(t *testing.T) {
+	for _, key := range []Key{HelpReadable, ToastReadableOn, ToastReadableOff} {
+		if T(key) == "" || T(key) == string(key) {
+			t.Errorf("readable text copy key %q has no text", key)
+		}
+	}
+	if !strings.Contains(T(HelpReadable), "[n]") {
+		t.Errorf("HelpReadable does not advertise [n]: %q", T(HelpReadable))
+	}
+}
+
 func TestKeyHintsUseBracketFormat(t *testing.T) {
 	keys := []Key{
 		ControlsIdle, ControlsRunning, ControlsPaused, ControlsFinished,
 		CompactIdle, CompactRunning, CompactPaused, CompactFinished, CompactStopHint,
 		FinishedMeta, PausedMeta,
 		HelpIdle, HelpTimer, HelpModal, HelpSound, HelpFinished, HelpClose, HelpPresets,
-		HelpUpdate, HelpQuit, UpdateHint,
+		HelpUpdate, HelpReadable, HelpQuit, UpdateHint,
 		SoundHint, SoundActionHint,
 		PresetFormHint, PresetsEmpty, PresetsHint, PresetsActionHint,
 		StatsHint, StatsHintShort,

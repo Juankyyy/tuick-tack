@@ -24,6 +24,9 @@ func TestDefault(t *testing.T) {
 	if c.Background != DefaultBackground {
 		t.Fatalf("background = %q, want %q", c.Background, DefaultBackground)
 	}
+	if !c.ReadableText {
+		t.Fatal("readable bands should start enabled")
+	}
 	if c.Version != Version || c.SoundName != DefaultSound || c.Volume != DefaultVolume {
 		t.Fatalf("unexpected sound defaults: %+v", c)
 	}
@@ -167,6 +170,9 @@ func TestLoadMigratesV1(t *testing.T) {
 	if c.Background != DefaultBackground {
 		t.Fatalf("v1 background = %q, want %q", c.Background, DefaultBackground)
 	}
+	if !c.ReadableText {
+		t.Fatal("v1 migration should enable readable bands")
+	}
 	if c.Theme != ThemeEmber || c.Sound || len(c.Presets) != 1 {
 		t.Fatalf("migration lost settings: %+v", c)
 	}
@@ -177,10 +183,11 @@ func TestLoadMigratesV1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"version": 5`) ||
+	if !strings.Contains(string(data), `"version": 6`) ||
 		!strings.Contains(string(data), `"background": "aurora"`) ||
+		!strings.Contains(string(data), `"readable_text": true`) ||
 		!strings.Contains(string(data), `"sound_name": "digital"`) {
-		t.Fatalf("migrated file not written as v5: %s", data)
+		t.Fatalf("migrated file not written as v6: %s", data)
 	}
 }
 
@@ -277,6 +284,38 @@ func TestLoadMigratesV4(t *testing.T) {
 	if c.WindowPosition == nil || c.WindowPosition.X != 93 || c.WindowPosition.Y != 100 {
 		t.Fatalf("v4 migration lost the window position: %+v", c.WindowPosition)
 	}
+	if !c.ReadableText {
+		t.Fatal("v4 migration should enable readable bands")
+	}
+}
+
+func TestLoadMigratesV5(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	v5 := `{
+  "version": 5,
+  "theme": "mono",
+  "background": "none",
+  "sound": true,
+  "sound_name": "digital",
+  "volume": 80,
+  "presets": [
+    { "id": "p5", "label": "5 min", "seconds": 300 }
+  ]
+}`
+	if err := os.WriteFile(path, []byte(v5), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := NewStore(path).Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Version != Version || c.Background != BackgroundNone ||
+		c.Theme != ThemeMono || len(c.Presets) != 1 {
+		t.Fatalf("v5 migration lost settings: %+v", c)
+	}
+	if !c.ReadableText {
+		t.Fatal("v5 migration should enable readable bands")
+	}
 }
 
 func TestSaveLoadRoundTrip(t *testing.T) {
@@ -285,6 +324,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	c := Default()
 	c.Theme = ThemeEmber
 	c.Background = BackgroundStars
+	c.ReadableText = false
 	c.Sound = false
 	c.SoundName = SoundMarimba
 	c.Volume = 35
@@ -303,7 +343,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	if got.Theme != ThemeEmber || got.Sound || len(got.Presets) != 4 ||
-		got.Background != BackgroundStars ||
+		got.Background != BackgroundStars || got.ReadableText ||
 		got.SoundName != SoundMarimba || got.Volume != 35 ||
 		got.WindowWidth != 140 || got.WindowHeight != 45 ||
 		got.WindowPosition == nil || got.WindowPosition.X != -120 ||

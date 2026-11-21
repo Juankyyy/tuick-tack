@@ -254,6 +254,40 @@ func TestSetBackgroundPersists(t *testing.T) {
 	}
 }
 
+func TestSetReadableTextPersists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	store := config.NewStore(path)
+	cfg := config.Default()
+	if err := store.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	d := &Daemon{
+		logger: log.New(io.Discard, "", 0),
+		store:  store,
+		cfg:    cfg,
+		server: ipc.NewServer("", "test", nil),
+	}
+
+	d.setReadableText(nil, false)
+	if got := d.Config().ReadableText; got {
+		t.Fatal("readable text did not turn off")
+	}
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.ReadableText {
+		t.Fatalf("readable text not persisted: %+v", loaded)
+	}
+
+	// Setting the same value is a no-op, and true turns the bands back on.
+	d.setReadableText(nil, false)
+	d.setReadableText(nil, true)
+	if got := d.Config().ReadableText; !got {
+		t.Fatal("readable text did not turn back on")
+	}
+}
+
 func TestQuitIsIdempotentAndUserInitiated(t *testing.T) {
 	d := &Daemon{quitCh: make(chan struct{})}
 	d.Quit()

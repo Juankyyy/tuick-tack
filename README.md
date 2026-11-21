@@ -54,6 +54,7 @@ countdown, the sound and the tray icon keep running.
 | **Sound pack** | Chime, Marimba, Digital and Deep; 0–100% volume in 5% steps, with preview and mute. |
 | **Three themes** | Midnight, Ember and Mono. |
 | **Seven backgrounds** | Aurora (the original), Stars, Fireflies, Rain, Tide, Sunset and none. Press `b` to cycle; the daemon remembers the choice. |
+| **Readable `none`** | With `none`, the text that floats over the terminal gets a tight black backing, so it stays legible on white, acrylic or a background image. Press `n` to turn the bands off; they only exist with `none`. |
 | **Remembers the window placement** | Move or resize the terminal and the next TUI opens at the same screen position with the same columns and rows. |
 | **Single instance** | Running the executable again focuses the open TUI instead of opening a second one. |
 | **Installer** | Per-user install in `Documents\tuick-tack`, Start Menu shortcut, uninstaller; no admin. |
@@ -66,10 +67,10 @@ countdown, the sound and the tray icon keep running.
 | Context | Keys |
 |---|---|
 | Idle | Digits, `:`, `h`, `m`, `s` type a duration; `Backspace` deletes; `Enter` starts |
-| Idle | `←` `→` select a preset; `p` presets; `t` theme; `b` background; `v` sound settings; `m` mute; `s` statistics; `u` check/install update; `?` help; `q` close |
-| Running | `Space` pause; `Esc` confirm cancel; `+` / `-` ±1 min; `b` background; `v` sound settings; `m` mute; `s` statistics; `?` help; `q` close |
-| Paused | `Space` resume; `Esc` confirm cancel; `+` / `-` ±1 min; `b` background; `v` sound settings; `m` mute; `s` statistics; `?` help |
-| Finished | `r` repeat; `b` background; `v` sound settings; `m` mute; `s` statistics; `Enter` / `Esc` close the celebration (it also closes itself after 10 s) |
+| Idle | `←` `→` select a preset; `p` presets; `t` theme; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `u` check/install update; `?` help; `q` close |
+| Running | `Space` pause; `Esc` confirm cancel; `+` / `-` ±1 min; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `?` help; `q` close |
+| Paused | `Space` resume; `Esc` confirm cancel; `+` / `-` ±1 min; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `?` help |
+| Finished | `r` repeat; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `Enter` / `Esc` close the celebration (it also closes itself after 10 s) |
 | Statistics | `←` `→` or `Tab` switch section; `1`–`4` jump; `t` range (7/30/90 days or all time); `↑` `↓` `PgUp` `PgDn` `Home` `End` or the wheel scroll; `Esc` or `s` close |
 | Sound panel | `↑` `↓` select the sound; `←` `→` volume ±5%; `Space` preview; `m` mute; `Esc` close |
 | Presets panel | `↑` `↓` move; `Tab` actions; `←` `→` choose an action; `Enter` start or run; `a` add; `e` edit; `d` delete; `r` restore defaults; `Esc` close |
@@ -125,9 +126,10 @@ countdown; persistence is future work.
 
 ```json
 {
-  "version": 5,
+  "version": 6,
   "theme": "midnight",
   "background": "aurora",
+  "readable_text": true,
   "sound": true,
   "sound_name": "digital",
   "volume": 80,
@@ -143,9 +145,13 @@ countdown; persistence is future work.
 ```
 
 The daemon is the only writer and writes atomically. A corrupt config is backed up as
-`config.bad-<timestamp>.json` and replaced with defaults. A version 1 config is migrated to
-version 5 with Digital at 80%; versions 2 and 3 keep their sound, volume and size; versions 1–4
-start with the original Aurora background. The window position stays unset until you move the TUI.
+`config.bad-<timestamp>.json` and replaced with defaults. Older configs are migrated to version 6:
+version 1 gets Digital at 80%; versions 2 and 3 keep their sound, volume and size; versions 1–4
+start with the original Aurora background; versions 1–5 enable `readable_text`. The window position
+stays unset until you move the TUI.
+
+`readable_text` defaults to `true` and controls the black reading bands used by `none`; `n`
+toggles it.
 
 The remembered size is columns by rows and the position is the window's top-left in screen
 pixels. Both are restored when the TUI starts, including in Windows Terminal; terminals that
@@ -164,13 +170,15 @@ Sunset and none are clean or carry their own particles.
 the terminal background or foreground color, so a custom background, image or acrylic shows
 through. UI panels, buttons, the progress bar, modals and the countdown block shadow keep their own
 backgrounds; the shadow turns light gray when the terminal background is light, so the dark digits
-never sit on a near-black shadow. The finish flash is skipped while the confetti still plays. With `none`, the TUI
-asks the terminal for its real background color (OSC 11); when it is light, the text that floats
-directly on the terminal (brand, version, state, header subline, countdown and ghost digits,
-label, meta, input, hints, update notice, status and compact fallback) switches to a dark ink
-derived from the theme with WCAG contrast targets. Panels and controls stay dark. If the terminal
-does not answer the query or its background is dark, the active palette is kept; any other
-background disables the adaptation. The compact fallback itself is transparent too.
+never sit on a near-black shadow. The finish flash is skipped while the confetti still plays.
+
+With `none`, the text that floats directly on the terminal (wordmark, version, state, subline,
+label, meta, input, key hints, update notice, status and compact fallback) gets a tight black
+backing with one cell of margin and light theme ink. Press `n` to turn the bands off; the daemon
+remembers the choice. The countdown, progress bar, chips, buttons and modals never get a band.
+With the bands off, the TUI asks the terminal for its real background color (OSC 11) and adapts
+the stage text and countdown to a light background; a dark terminal, no reply or any other
+ambient background keeps the active palette.
 
 The daemon appends one line per finished countdown to `history.jsonl` (local time, planned and
 real elapsed time, label and outcome: completed, stopped or replaced). It keeps the newest 2000

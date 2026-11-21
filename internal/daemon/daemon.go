@@ -570,6 +570,10 @@ func (d *Daemon) Command(c *ipc.Session, msg protocol.ClientMessage) {
 		d.setTheme(c, msg.Name)
 	case protocol.TypeSetBackground:
 		d.setBackground(c, msg.Name)
+	case protocol.TypeSetReadableText:
+		if msg.Enabled != nil {
+			d.setReadableText(c, *msg.Enabled)
+		}
 	case protocol.TypeSetSound:
 		if msg.Enabled != nil {
 			if err := d.changeSound(*msg.Enabled); err != nil {
@@ -736,6 +740,17 @@ func (d *Daemon) setBackground(c *ipc.Session, name string) {
 		return
 	}
 	cfg.Background = name
+	d.commitConfig(c, cfg)
+}
+
+// setReadableText stores the black readable-text bands used by the transparent
+// "none" background and lets every connected TUI repaint.
+func (d *Daemon) setReadableText(c *ipc.Session, enabled bool) {
+	cfg := d.Config()
+	if cfg.ReadableText == enabled {
+		return
+	}
+	cfg.ReadableText = enabled
 	d.commitConfig(c, cfg)
 }
 

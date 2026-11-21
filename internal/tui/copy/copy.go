@@ -223,13 +223,14 @@ const (
 	Save     = Key("action.save")
 	Back     = Key("action.back")
 
-	HelpTitle  = Key("help.title")
-	HelpIdle   = Key("help.idle")
-	HelpTimer  = Key("help.timer")
-	HelpModal  = Key("help.modal")
-	HelpClose  = Key("help.close")
-	HelpQuit   = Key("help.quit")
-	HelpUpdate = Key("help.update")
+	HelpTitle    = Key("help.title")
+	HelpIdle     = Key("help.idle")
+	HelpTimer    = Key("help.timer")
+	HelpModal    = Key("help.modal")
+	HelpClose    = Key("help.close")
+	HelpQuit     = Key("help.quit")
+	HelpUpdate   = Key("help.update")
+	HelpReadable = Key("help.readable")
 
 	PresetsTitle      = Key("presets.title")
 	PresetsEmpty      = Key("presets.empty")
@@ -264,6 +265,8 @@ const (
 	ToastRestored    = Key("toast.restored")
 	ToastTheme       = Key("toast.theme")
 	ToastBackground  = Key("toast.background")
+	ToastReadableOn  = Key("toast.readable.on")
+	ToastReadableOff = Key("toast.readable.off")
 	ToastSoundOn     = Key("toast.sound.on")
 	ToastSoundOff    = Key("toast.sound.off")
 	ToastReplaced    = Key("toast.replaced")
@@ -547,13 +550,14 @@ var texts = map[Key]string{
 	Save:     "save",
 	Back:     "back",
 
-	HelpTitle:  "Help",
-	HelpIdle:   "type a duration · [Enter] start · [←→] select preset",
-	HelpTimer:  "[Space] pause/resume · [Esc] cancel · [+/-] adjust 1 min",
-	HelpModal:  "[p] presets · [t] theme · [v] sound · [s] stats · [b] background",
-	HelpClose:  "[Esc] or [Enter] to close",
-	HelpQuit:   "[q] closes the TUI; the tray keeps running",
-	HelpUpdate: "updates: [u] check · dialog: [Tab] type · [↑/↓] notes",
+	HelpTitle:    "Help",
+	HelpIdle:     "type a duration · [Enter] start · [←→] select preset",
+	HelpTimer:    "[Space] pause/resume · [Esc] cancel · [+/-] adjust 1 min",
+	HelpModal:    "[p] presets · [t] theme · [v] sound · [s] stats · [b] background",
+	HelpClose:    "[Esc] or [Enter] to close",
+	HelpQuit:     "[q] closes the TUI; the tray keeps running",
+	HelpUpdate:   "updates: [u] check · dialog: [Tab] type · [↑/↓] notes",
+	HelpReadable: "readable text: [n] black bands on/off · only with none",
 
 	PresetsTitle:      "Presets",
 	PresetsEmpty:      "No presets yet. Press [a] to add one.",
@@ -588,6 +592,8 @@ var texts = map[Key]string{
 	ToastRestored:    "Default presets restored",
 	ToastTheme:       "%s theme",
 	ToastBackground:  "%s background",
+	ToastReadableOn:  "Readable bands on",
+	ToastReadableOff: "Readable bands off",
 	ToastSoundOn:     "Sound on",
 	ToastSoundOff:    "Sound off",
 	ToastReplaced:    "Countdown replaced",

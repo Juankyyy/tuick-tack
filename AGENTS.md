@@ -70,7 +70,7 @@ winres/                 go-winres metadata
 - Localization: all user-facing copy lives in `internal/tui/copy`; UI code reads it via `copy.T(...)`. Do not hardcode labels, tooltips, dialogs or toasts in widgets. The v1 UI is English; if Spanish is added later, its messages live in the same package.
 - Dependencies pinned for a reason keep a comment next to them; do not bump until the packages are compatible. Bubble Tea/Lipgloss v2 use the `charm.land/...` module paths and the v2 API; `systray` v1.12.2 is the Fyne fork with left/right-click callbacks and package-level menu state.
 - Keep time-dependent logic testable by injecting a clock; never call `time.Now()` in domain logic that has tests. `time.Now()` belongs in `main`/wiring; tests use a fake clock. The engine relies on the monotonic reading inside `time.Time`.
-- Config schema version is `5`. Bump it and add a migration before adding/changing fields; back up a corrupt config and fall back to defaults.
+- Config schema version is `6`. Bump it and add a migration before adding/changing fields; back up a corrupt config and fall back to defaults.
 - No cgo: build with `CGO_ENABLED=0`. `systray` and `go-winio` are pure Go on Windows.
 - No wide runes or emoji in the TUI. Every glyph must be one terminal cell; test layouts at 80×24 and 120×40.
 - All TUI rendering goes through `internal/tui/canvas`; do not scatter raw ANSI outside the canvas serializer.

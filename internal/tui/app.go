@@ -182,6 +182,9 @@ type Model struct {
 	// background, so set_background is safe to send. An older daemon leaves it
 	// empty and the TUI keeps the choice local for this session.
 	backgroundSupported bool
+	// readableSupported is true when the daemon's config carries readable_text,
+	// so set_readable_text is safe to send.
+	readableSupported bool
 
 	width, height int
 	hits          []hitbox
@@ -578,14 +581,20 @@ func (m *Model) applyConfig(cfg protocol.ConfigMessage) {
 			background = config.DefaultBackground
 		}
 	}
+	readable := m.cfg.ReadableText
+	readableSupported := cfg.ReadableText != nil
+	if cfg.ReadableText != nil {
+		readable = *cfg.ReadableText
+	}
 	c := config.Config{
-		Version:    config.Version,
-		Theme:      cfg.Theme,
-		Background: background,
-		Sound:      cfg.Sound,
-		SoundName:  cfg.SoundName,
-		Volume:     cfg.Volume,
-		Presets:    append([]config.Preset(nil), cfg.Presets...),
+		Version:      config.Version,
+		Theme:        cfg.Theme,
+		Background:   background,
+		ReadableText: readable,
+		Sound:        cfg.Sound,
+		SoundName:    cfg.SoundName,
+		Volume:       cfg.Volume,
+		Presets:      append([]config.Preset(nil), cfg.Presets...),
 	}
 	if !config.ValidTheme(c.Theme) {
 		c.Theme = "midnight"
@@ -601,6 +610,7 @@ func (m *Model) applyConfig(cfg protocol.ConfigMessage) {
 		c.Volume = config.DefaultVolume
 	}
 	m.backgroundSupported = supported
+	m.readableSupported = readableSupported
 	m.cfg = c
 	m.pal = theme.Get(c.Theme)
 	m.setBackdrop(c.Background)
@@ -1253,6 +1263,8 @@ func (m *Model) handleIdleKey(key tea.Key) tea.Cmd {
 			return nil
 		}
 		return m.cycleBackground()
+	case text == "n":
+		return m.toggleReadableText()
 	case text == "u":
 		return m.updateKey()
 	case text == "s":
@@ -1294,6 +1306,8 @@ func (m *Model) handleTimerKey(key tea.Key) tea.Cmd {
 		return nil
 	case text == "b":
 		return m.cycleBackground()
+	case text == "n":
+		return m.toggleReadableText()
 	case text == "s":
 		return m.openStats()
 	case text == "m":
@@ -1321,6 +1335,8 @@ func (m *Model) handleFinishedKey(key tea.Key) tea.Cmd {
 		return nil
 	case text == "b":
 		return m.cycleBackground()
+	case text == "n":
+		return m.toggleReadableText()
 	case text == "s":
 		return m.openStats()
 	case text == "m":
@@ -1815,6 +1831,23 @@ func (m *Model) cycleBackground() tea.Cmd {
 		cmds = append(cmds, tea.RequestBackgroundColor)
 	}
 	return tea.Batch(cmds...)
+}
+
+// toggleReadableText switches the black bands that make stage text legible over
+// any terminal background. The setting only has an effect with "none"; it is
+// persisted by the daemon when the daemon knows the command.
+func (m *Model) toggleReadableText() tea.Cmd {
+	m.cfg.ReadableText = !m.cfg.ReadableText
+	if m.cfg.ReadableText {
+		m.showToast(copy.T(copy.ToastReadableOn))
+	} else {
+		m.showToast(copy.T(copy.ToastReadableOff))
+	}
+	if m.connected && m.client != nil && m.readableSupported {
+		enabled := m.cfg.ReadableText
+		return m.send(protocol.ClientMessage{Type: protocol.TypeSetReadableText, Enabled: &enabled})
+	}
+	return nil
 }
 
 func (m *Model) openSound() {

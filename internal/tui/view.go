@@ -294,7 +294,8 @@ func (m *Model) drawContent(c *canvas.Canvas, l viewLayout) {
 		m.drawMeta(c, l.metaY, l.x, l.w)
 	}
 
-	hintStyle := canvas.Fg(m.stageInk(theme.Lerp(m.pal.BG, m.pal.Muted, 0.8), stageDimContrast))
+	hintColor := m.stageColor(theme.Lerp(m.pal.BG, m.pal.Muted, 0.8), m.pal.Text, stageDimContrast)
+	hintStyle := canvas.Fg(hintColor)
 	switch m.status() {
 	case engine.Running, engine.Paused:
 		if l.controlsY > l.metaY {
@@ -304,46 +305,49 @@ func (m *Model) drawContent(c *canvas.Canvas, l viewLayout) {
 		if m.status() == engine.Paused {
 			hint = copy.T(copy.ControlsPaused)
 		}
-		m.drawCentered(c, l.hintY, hint, hintStyle, l.x, l.w)
+		m.drawCenteredBand(c, l.hintY, hint, hintStyle, l.x, l.w)
 	case engine.Finished:
 		if l.controlsY > l.metaY {
 			m.drawFinishedControls(c, l.controlsY, l.x, l.w)
 		}
-		m.drawCentered(c, l.hintY, copy.T(copy.ControlsFinished), hintStyle, l.x, l.w)
+		m.drawCenteredBand(c, l.hintY, copy.T(copy.ControlsFinished), hintStyle, l.x, l.w)
 	default:
 		if l.inputY > l.metaY {
 			m.drawInput(c, l.inputY, l.x, l.w)
 		}
 		if m.inputErr != "" {
-			m.drawCentered(c, l.chipsY, m.inputErr, canvas.Fg(m.stageInk(m.pal.Danger, stageAccentContrast)), l.x, l.w)
+			col := m.stageColor(m.pal.Danger, m.pal.Danger, stageAccentContrast)
+			m.drawCenteredBand(c, l.chipsY, m.inputErr, canvas.Fg(col), l.x, l.w)
 		} else if l.chipsY > l.labelY {
 			m.drawChips(c, l.chipsY, l.x, l.w)
 		}
-		m.drawCentered(c, l.hintY, copy.T(copy.ControlsIdle), hintStyle, l.x, l.w)
+		m.drawCenteredBand(c, l.hintY, copy.T(copy.ControlsIdle), hintStyle, l.x, l.w)
 	}
 
 	// Secondary hint, quieter than the key line above it and below it on screen.
 	if l.subHintY >= 0 {
-		dim := m.stageInk(theme.Lerp(m.pal.BG, m.pal.Muted, 0.5), stageDimContrast)
+		dim := m.stageColor(theme.Lerp(m.pal.BG, m.pal.Muted, 0.5), m.pal.Muted, stageDimContrast)
 		hint := copy.T(copy.UpdateHint)
 		if m.update != nil {
 			hint = copy.T(copy.UpdateHintNew, m.update.Latest)
 		}
-		m.drawCentered(c, l.subHintY, hint, canvas.Fg(dim), l.x, l.w)
+		m.drawCenteredBand(c, l.subHintY, hint, canvas.Fg(dim), l.x, l.w)
 	}
 
 	if !m.connected {
 		msg := copy.T(copy.Connecting)
-		col := m.stageInk(m.pal.Muted, stageMutedContrast)
+		col := m.stageColor(m.pal.Muted, m.pal.Muted, stageMutedContrast)
 		if !m.connecting {
 			msg = copy.T(copy.Disconnected)
-			col = m.stageInk(m.pal.Danger, stageAccentContrast)
+			col = m.stageColor(m.pal.Danger, m.pal.Danger, stageAccentContrast)
 		}
-		m.drawCentered(c, l.statusY, msg, canvas.Fg(col), l.x, l.w)
+		m.drawCenteredBand(c, l.statusY, msg, canvas.Fg(col), l.x, l.w)
 	} else if m.checkingUpdate {
-		m.drawCentered(c, l.statusY, copy.T(copy.UpdateChecking), canvas.Fg(m.stageInk(m.pal.Muted, stageMutedContrast)), l.x, l.w)
+		col := m.stageColor(m.pal.Muted, m.pal.Muted, stageMutedContrast)
+		m.drawCenteredBand(c, l.statusY, copy.T(copy.UpdateChecking), canvas.Fg(col), l.x, l.w)
 	} else if m.toastActive() {
-		m.drawCentered(c, l.statusY, m.toast, canvas.Fg(m.stageInk(m.pal.Warn, stageAccentContrast)), l.x, l.w)
+		col := m.stageColor(m.pal.Warn, m.pal.Warn, stageAccentContrast)
+		m.drawCenteredBand(c, l.statusY, m.toast, canvas.Fg(col), l.x, l.w)
 	}
 }
 
@@ -364,7 +368,8 @@ func (m *Model) drawCompact(c *canvas.Canvas, w, h int) {
 		y = 0
 	}
 	for _, line := range lines {
-		m.drawCenteredIn(c, 0, y, w, line, canvas.Fg(m.stageInk(m.pal.Text, stageTextContrast)))
+		style := canvas.Fg(m.stageColor(m.pal.Text, m.pal.Text, stageTextContrast))
+		m.drawCenteredBand(c, y, line, style, 0, w)
 		y++
 	}
 }
@@ -497,32 +502,44 @@ func (m *Model) drawHeader(c *canvas.Canvas, x, y, w int) {
 	}
 
 	brand := copy.T(copy.Brand)
-	c.Set(x, y, '●', canvas.Fg(dot))
-	c.Text(x+2, y, brand, canvas.Style{FG: m.stageInk(m.pal.Text, stageTextContrast), HasFG: true, Bold: true})
 	next := x + 2 + canvas.Width(brand)
 	// The running version follows the wordmark as a quiet suffix. When an
 	// update notice is showing, the version leaves room for its shortest form:
 	// the notice is actionable and the version is also in the update dialog.
+	suffix := ""
 	if version := buildinfo.Version; version != "" {
-		label := " " + version
-		need := canvas.Width(label)
+		candidate := " " + version
+		need := canvas.Width(candidate)
 		if m.update != nil {
 			short := "[" + copy.T(copy.UpdateShort) + " " + copy.T(copy.UpdateArrow) + "]"
 			need += canvas.Width(short) + 2
 		}
 		if next+need < dotX {
-			c.Text(next, y, label, canvas.Fg(m.stageInk(headerVersionColor(m.pal), stageDimContrast)))
-			next += canvas.Width(label)
+			suffix = candidate
 		}
+	}
+	brandEnd := next + canvas.Width(suffix)
+	m.band(c, x, y, brandEnd-x)
+	c.Set(x, y, '●', canvas.Fg(dot))
+	brandColor := m.stageColor(m.pal.Text, m.pal.Text, stageTextContrast)
+	c.Text(x+2, y, brand, canvas.Style{FG: brandColor, HasFG: true, Bold: true})
+	if suffix != "" {
+		versionColor := m.stageColor(headerVersionColor(m.pal), m.pal.Muted, stageDimContrast)
+		c.Text(next, y, suffix, canvas.Fg(versionColor))
+		next = brandEnd
 	}
 	if m.update != nil {
 		m.drawUpdateLink(c, next+2, y, dotX)
 	}
+	statusEnd := lx + canvas.Width(label)
+	m.band(c, dotX, y, statusEnd-dotX)
 	c.Set(dotX, y, '●', canvas.Fg(dot))
 	c.Text(lx, y, label, canvas.Style{FG: col, HasFG: true, Bold: true})
 	if sub := m.headerSubline(); sub != "" {
 		sx := right - canvas.Width(sub) + 1
-		c.Text(sx, y+1, sub, canvas.Fg(m.stageInk(m.pal.Muted, stageMutedContrast)))
+		m.band(c, sx, y+1, canvas.Width(sub))
+		subColor := m.stageColor(m.pal.Muted, m.pal.Muted, stageMutedContrast)
+		c.Text(sx, y+1, sub, canvas.Fg(subColor))
 	}
 }
 
@@ -553,8 +570,11 @@ func (m *Model) drawUpdateLink(c *canvas.Canvas, x, y, limit int) {
 		return
 	}
 	colors := m.updateColors(len([]rune(text)))
+	m.band(c, x, y, canvas.Width(text))
 	hoverBG := theme.Lerp(m.pal.BG, m.pal.Text, 0.12)
-	if m.lightStage() {
+	if m.readableBands() {
+		hoverBG = theme.Lerp(readableBandBG, m.pal.Text, 0.10)
+	} else if m.lightStage() {
 		hoverBG = theme.Lerp(m.termBG, m.stageInk(m.pal.Text, stageTextContrast), 0.12)
 	}
 	cx := x
@@ -581,23 +601,29 @@ func (m *Model) updateColors(n int) []color.RGBA {
 			t = float64(i) / float64(n-1)
 		}
 		if m.pal.Name == "mono" {
-			colors[i] = m.stageInk(theme.Lerp(m.pal.Muted, m.pal.Text, t), stageMutedContrast)
+			raw := theme.Lerp(m.pal.Muted, m.pal.Text, t)
+			colors[i] = m.stageColor(raw, raw, stageMutedContrast)
 			continue
 		}
-		colors[i] = m.stageInk(theme.HSL(updateHueSpan*t+m.animTime*updateHueSpeed, updateSat, updateLight), stageMutedContrast)
+		raw := theme.HSL(updateHueSpan*t+m.animTime*updateHueSpeed, updateSat, updateLight)
+		colors[i] = m.stageColor(raw, raw, stageMutedContrast)
 	}
 	return colors
 }
 
 func (m *Model) headerDot(col color.RGBA) color.RGBA {
 	phase := m.animTime * 2.4
+	accent := m.stageColor(m.pal.Accent, m.pal.Accent, stageAccentContrast)
+	accent2 := m.stageColor(m.pal.Accent2, m.pal.Accent2, stageAccentContrast)
+	warn := m.stageColor(m.pal.Warn, m.pal.Warn, stageAccentContrast)
+	danger := m.stageColor(m.pal.Danger, m.pal.Danger, stageAccentContrast)
 	switch m.status() {
 	case engine.Running:
-		return theme.Pulse(m.stageInk(m.pal.Accent, stageAccentContrast), m.stageInk(m.pal.Accent2, stageAccentContrast), phase)
+		return theme.Pulse(accent, accent2, phase)
 	case engine.Paused:
-		return m.stageInk(m.pal.Warn, stageAccentContrast)
+		return warn
 	case engine.Finished:
-		return theme.Pulse(m.stageInk(m.pal.Warn, stageAccentContrast), m.stageInk(m.pal.Danger, stageAccentContrast), phase)
+		return theme.Pulse(warn, danger, phase)
 	default:
 		return col
 	}
@@ -628,19 +654,19 @@ func (m *Model) headerSubline() string {
 func (m *Model) statusInfo() (string, color.RGBA) {
 	if !m.connected {
 		if m.connecting {
-			return copy.T(copy.StatusConnecting), m.stageInk(m.pal.Muted, stageMutedContrast)
+			return copy.T(copy.StatusConnecting), m.stageColor(m.pal.Muted, m.pal.Muted, stageMutedContrast)
 		}
-		return copy.T(copy.StatusOffline), m.stageInk(m.pal.Danger, stageAccentContrast)
+		return copy.T(copy.StatusOffline), m.stageColor(m.pal.Danger, m.pal.Danger, stageAccentContrast)
 	}
 	switch m.status() {
 	case engine.Running:
-		return copy.T(copy.StatusRunning), m.stageInk(m.pal.Accent, stageAccentContrast)
+		return copy.T(copy.StatusRunning), m.stageColor(m.pal.Accent, m.pal.Accent, stageAccentContrast)
 	case engine.Paused:
-		return copy.T(copy.StatusPaused), m.stageInk(m.pal.Warn, stageAccentContrast)
+		return copy.T(copy.StatusPaused), m.stageColor(m.pal.Warn, m.pal.Warn, stageAccentContrast)
 	case engine.Finished:
-		return copy.T(copy.StatusFinished), m.stageInk(m.pal.Warn, stageAccentContrast)
+		return copy.T(copy.StatusFinished), m.stageColor(m.pal.Warn, m.pal.Warn, stageAccentContrast)
 	default:
-		return copy.T(copy.StatusReady), m.stageInk(m.pal.Accent, stageAccentContrast)
+		return copy.T(copy.StatusReady), m.stageColor(m.pal.Accent, m.pal.Accent, stageAccentContrast)
 	}
 }
 
@@ -752,16 +778,16 @@ func (m *Model) heroColors(ghost bool) (canvasColor, canvasColor) {
 
 func (m *Model) drawLabel(c *canvas.Canvas, y, x, w int) {
 	text := copy.T(copy.ReadyTitle)
-	col := m.stageInk(m.pal.Muted, stageMutedContrast)
+	col := m.stageColor(m.pal.Muted, m.pal.Muted, stageMutedContrast)
 	switch m.status() {
 	case engine.Running, engine.Paused:
 		text = m.currentLabel()
-		col = m.stageInk(m.pal.Text, stageTextContrast)
+		col = m.stageColor(m.pal.Text, m.pal.Text, stageTextContrast)
 	case engine.Finished:
 		text = copy.T(copy.FinishedTitle, m.finishLabel())
-		col = m.stageInk(m.pal.Text, stageTextContrast)
+		col = m.stageColor(m.pal.Text, m.pal.Text, stageTextContrast)
 	}
-	m.drawCentered(c, y, text, canvas.Style{FG: col, HasFG: true, Bold: true}, x, w)
+	m.drawCenteredBand(c, y, text, canvas.Style{FG: col, HasFG: true, Bold: true}, x, w)
 }
 
 // currentLabel is the goal shown under the countdown, with a neutral fallback
@@ -831,19 +857,19 @@ func (m *Model) drawProgress(c *canvas.Canvas, y, x, w int) {
 
 func (m *Model) drawMeta(c *canvas.Canvas, y, x, w int) {
 	text := copy.T(copy.ReadyMeta)
-	col := m.stageInk(m.pal.Muted, stageMutedContrast)
+	col := m.stageColor(m.pal.Muted, m.pal.Muted, stageMutedContrast)
 	switch m.status() {
 	case engine.Running:
 		text = copy.T(copy.RunningMeta, duration.Format(m.remaining()))
-		col = m.stageInk(m.pal.Muted, stageMutedContrast)
+		col = m.stageColor(m.pal.Muted, m.pal.Muted, stageMutedContrast)
 	case engine.Paused:
 		text = copy.T(copy.PausedMeta, duration.Format(m.remaining()))
-		col = m.stageInk(m.pal.Warn, stageAccentContrast)
+		col = m.stageColor(m.pal.Warn, m.pal.Warn, stageAccentContrast)
 	case engine.Finished:
 		text = copy.T(copy.FinishedMeta)
-		col = m.stageInk(m.pal.Muted, stageMutedContrast)
+		col = m.stageColor(m.pal.Muted, m.pal.Muted, stageMutedContrast)
 	}
-	m.drawCentered(c, y, text, canvas.Fg(col), x, w)
+	m.drawCenteredBand(c, y, text, canvas.Fg(col), x, w)
 }
 
 func (m *Model) endClock() string {
@@ -856,12 +882,12 @@ func (m *Model) endClock() string {
 func (m *Model) drawInput(c *canvas.Canvas, y, x, w int) {
 	text := m.input
 	prompt := "› "
-	col := m.stageInk(m.pal.Text, stageTextContrast)
+	col := m.stageColor(m.pal.Text, m.pal.Text, stageTextContrast)
 	if text == "" {
 		text = copy.T(copy.InputPlaceholder)
-		col = m.stageInk(m.pal.Muted, stageMutedContrast)
+		col = m.stageColor(m.pal.Muted, m.pal.Muted, stageMutedContrast)
 	}
-	promptCol := m.stageInk(m.pal.Accent, stageAccentContrast)
+	promptCol := m.stageColor(m.pal.Accent, m.pal.Accent, stageAccentContrast)
 	line := prompt + text
 	lineW := canvas.Width(line)
 	if text == m.input {
@@ -875,6 +901,7 @@ func (m *Model) drawInput(c *canvas.Canvas, y, x, w int) {
 	if sx < x {
 		sx = x
 	}
+	m.band(c, sx, y, lineW)
 	c.Text(sx, y, prompt, canvas.Style{FG: promptCol, HasFG: true, Bold: true})
 	c.Text(sx+canvas.Width(prompt), y, text, canvas.Fg(col))
 	if text == m.input {
@@ -1119,6 +1146,7 @@ func (m *Model) drawHelp(c *canvas.Canvas, base rect) {
 		{copy.T(copy.HelpFormats), m.pal.Muted},
 		{copy.T(copy.HelpFinished), m.pal.Muted},
 		{copy.T(copy.HelpUpdate), m.pal.Muted},
+		{copy.T(copy.HelpReadable), m.pal.Muted},
 		{copy.T(copy.HelpQuit), m.pal.Muted},
 	}
 	y := r.y + 3
@@ -1776,10 +1804,6 @@ func (m *Model) addHit(x, y, w, h int, action hitAction, index int) {
 		return
 	}
 	m.hits = append(m.hits, hitbox{x: x, y: y, w: w, h: h, action: action, index: index})
-}
-
-func (m *Model) drawCentered(c *canvas.Canvas, y int, s string, st canvas.Style, x, w int) {
-	m.drawCenteredIn(c, x, y, w, s, st)
 }
 
 func (m *Model) drawCenteredIn(c *canvas.Canvas, x, y, w int, s string, st canvas.Style) {

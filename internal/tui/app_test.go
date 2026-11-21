@@ -1730,13 +1730,14 @@ func TestCompactNoneIsTransparent(t *testing.T) {
 	m, _ := testModel(40, 12)
 	cfg := config.Default()
 	cfg.Background = config.BackgroundNone
+	cfg.ReadableText = false
 	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.NewConfigPayload(cfg)})
 	c := canvas.New(40, 12)
 	m.drawCompact(c, 40, 12)
 	for y := 0; y < c.H; y++ {
 		for x := 0; x < c.W; x++ {
 			if c.At(x, y).HasBG {
-				t.Fatalf("compact none painted a background at %d,%d", x, y)
+				t.Fatalf("compact none without bands painted a background at %d,%d", x, y)
 			}
 		}
 	}
@@ -1746,7 +1747,7 @@ func TestCompactNoneIsTransparent(t *testing.T) {
 			v.BackgroundColor, v.ForegroundColor)
 	}
 
-	// On a light terminal the compact copy switches to dark ink as well.
+	// Without bands, the light stage still darkens the compact copy.
 	m.termBGKnown = true
 	m.termLight = true
 	m.termBG = color.RGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}
@@ -1767,6 +1768,30 @@ func TestCompactNoneIsTransparent(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("compact light stage painted no text")
+	}
+
+	// With bands, every compact glyph sits on solid black and remains light.
+	m.cfg.ReadableText = true
+	c = canvas.New(40, 12)
+	m.drawCompact(c, 40, 12)
+	found = false
+	for y := 0; y < c.H; y++ {
+		for x := 0; x < c.W; x++ {
+			cell := c.At(x, y)
+			if !cell.HasFG || cell.Ch == ' ' {
+				continue
+			}
+			found = true
+			if !cell.HasBG || cell.BG != readableBandBG {
+				t.Fatalf("compact glyph at %d,%d has no black band: %+v", x, y, cell)
+			}
+			if got := theme.Contrast(cell.FG, readableBandBG); got < stageTextContrast {
+				t.Fatalf("compact band ink at %d,%d has contrast %.2f", x, y, got)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("compact bands painted no text")
 	}
 }
 
@@ -1858,12 +1883,14 @@ func TestLightStagePalette(t *testing.T) {
 			t.Errorf("%s ink %+v has contrast %.2f, want %.1f", tc.name, ink, got, tc.min)
 		}
 	}
+	// The update notice is tested on the adaptive path; bands have their own
+	// tests and use the raw theme colors.
+	m.cfg.ReadableText = false
 	for i, c := range m.updateColors(12) {
 		if got := theme.Contrast(c, white); got < stageMutedContrast {
 			t.Errorf("update color %d has contrast %.2f, want %.1f", i, got, stageMutedContrast)
 		}
 	}
-
 	// A dark terminal and a themed backdrop keep the active palette verbatim.
 	m.termLight = false
 	if got := m.stageInk(m.pal.Text, stageTextContrast); got != m.pal.Text {
@@ -1907,6 +1934,8 @@ func rowMinContrast(t *testing.T, c *canvas.Canvas, y int, bg color.RGBA) float6
 
 func TestLightStageFrame(t *testing.T) {
 	m := lightStageModel(t)
+	// This test covers the adaptive ink used when the bands are off.
+	m.cfg.ReadableText = false
 	l := m.layout(80, 24)
 	c := canvas.New(80, 24)
 	m.drawContent(c, l)
@@ -1975,11 +2004,175 @@ func TestLightStageFrame(t *testing.T) {
 	}
 }
 
+func rowHasBand(c *canvas.Canvas, y int) bool {
+	for x := 0; x < c.W; x++ {
+		cell := c.At(x, y)
+		if cell.HasBG && cell.BG == readableBandBG {
+			return true
+		}
+	}
+	return false
+}
+
+func assertBandRow(t *testing.T, c *canvas.Canvas, y int) {
+	t.Helper()
+	found := false
+	for x := 0; x < c.W; x++ {
+		cell := c.At(x, y)
+		if !cell.HasFG || cell.Ch == ' ' {
+			continue
+		}
+		found = true
+		if !cell.HasBG || cell.BG != readableBandBG {
+			t.Fatalf("row %d glyph at %d has no black band: %+v", y, x, cell)
+		}
+		if got := theme.Contrast(cell.FG, readableBandBG); got < stageDimContrast {
+			t.Fatalf("row %d glyph at %d has contrast %.2f on its band", y, x, got)
+		}
+	}
+	if !found {
+		t.Fatalf("row %d has no glyphs to check", y)
+	}
+}
+
+func TestReadableBandsOnlyWithNone(t *testing.T) {
+	m := lightStageModel(t)
+	l := m.layout(80, 24)
+	c := canvas.New(80, 24)
+	m.drawContent(c, l)
+	for _, y := range []int{l.headerY, l.labelY, l.inputY, l.metaY, l.hintY, l.subHintY} {
+		if !rowHasBand(c, y) {
+			t.Fatalf("none should paint a black band on row %d", y)
+		}
+		assertBandRow(t, c, y)
+	}
+	// The band adds exactly one cell of margin on each side of the run.
+	b := canvas.New(20, 1)
+	m.band(b, 5, 0, 3)
+	for x := 4; x <= 8; x++ {
+		if cell := b.At(x, 0); !cell.HasBG || cell.BG != readableBandBG {
+			t.Fatalf("band margin at %d is missing: %+v", x, cell)
+		}
+	}
+	for _, x := range []int{3, 9} {
+		if cell := b.At(x, 0); cell.HasBG {
+			t.Fatalf("band leaked beyond its margin at %d: %+v", x, cell)
+		}
+	}
+
+	// The hero keeps its own shadow and never gets a readable band.
+	for y := l.heroY; y < l.heroY+bigfont.GlyphH; y++ {
+		for x := 0; x < c.W; x++ {
+			if cell := c.At(x, y); cell.HasBG && cell.BG == readableBandBG {
+				t.Fatalf("hero row %d got a readable band at %d", y, x)
+			}
+		}
+	}
+
+	// Disabling the bands returns to the transparent adaptive path.
+	m.cfg.ReadableText = false
+	c = canvas.New(80, 24)
+	m.drawContent(c, l)
+	for y := 0; y < c.H; y++ {
+		if rowHasBand(c, y) {
+			t.Fatalf("disabled bands still painted row %d", y)
+		}
+	}
+
+	// A themed backdrop never gets readable bands, even when enabled.
+	m.cfg.ReadableText = true
+	cfg := config.Default()
+	cfg.Background = config.BackgroundAurora
+	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.NewConfigPayload(cfg)})
+	c = canvas.New(80, 24)
+	m.drawContent(c, m.layout(80, 24))
+	for y := 0; y < c.H; y++ {
+		if rowHasBand(c, y) {
+			t.Fatalf("aurora should not paint a black band on row %d", y)
+		}
+	}
+}
+
+func TestReadableBandsFrame(t *testing.T) {
+	for _, size := range [][2]int{{80, 24}, {120, 40}} {
+		m, _ := testModel(size[0], size[1])
+		cfg := config.Default()
+		cfg.Background = config.BackgroundNone
+		m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.NewConfigPayload(cfg)})
+		assertFrame(t, m, size[0], size[1])
+		l := m.layout(size[0], size[1])
+		c := canvas.New(size[0], size[1])
+		m.drawContent(c, l)
+		if !rowHasBand(c, l.hintY) {
+			t.Fatalf("%dx%d hint row has no black band", size[0], size[1])
+		}
+		for x := 0; x < c.W; x++ {
+			cell := c.At(x, l.hintY)
+			if !cell.HasFG || cell.Ch == ' ' {
+				continue
+			}
+			if !cell.HasBG || cell.BG != readableBandBG {
+				t.Fatalf("%dx%d hint glyph at %d has no black band: %+v", size[0], size[1], x, cell)
+			}
+			if got := theme.Contrast(cell.FG, readableBandBG); got < stageMutedContrast {
+				t.Fatalf("%dx%d hint ink at %d has contrast %.2f", size[0], size[1], x, got)
+			}
+		}
+	}
+}
+
+func TestHelpShowsReadableBands(t *testing.T) {
+	m, _ := testModel(80, 24)
+	press(m, '?', "?")
+	plain := assertFrame(t, m, 80, 24)
+	if !strings.Contains(plain, copy.T(copy.HelpReadable)) {
+		t.Fatalf("help is missing the readable-bands hint:\n%s", plain)
+	}
+}
+
+func TestToggleReadableText(t *testing.T) {
+	m, _ := testModel(80, 24)
+	if !m.cfg.ReadableText || !m.readableSupported {
+		t.Fatalf("readable bands should start on and supported: %+v", m.cfg)
+	}
+	press(m, 'n', "n")
+	if m.cfg.ReadableText {
+		t.Fatal("n did not turn the bands off")
+	}
+	if m.toast != copy.T(copy.ToastReadableOff) {
+		t.Fatalf("toast = %q, want %q", m.toast, copy.T(copy.ToastReadableOff))
+	}
+	press(m, 'n', "n")
+	if !m.cfg.ReadableText || m.toast != copy.T(copy.ToastReadableOn) {
+		t.Fatalf("n did not turn the bands back on: %+v toast=%q", m.cfg, m.toast)
+	}
+}
+
+func TestApplyConfigReadableText(t *testing.T) {
+	m, _ := testModel(80, 24)
+	cfg := config.Default()
+	cfg.ReadableText = false
+	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.NewConfigPayload(cfg)})
+	if m.cfg.ReadableText || !m.readableSupported {
+		t.Fatalf("new daemon readable_text not applied: %+v supported=%v", m.cfg, m.readableSupported)
+	}
+
+	// An older daemon omits the pointer: keep the local choice and mark the
+	// command unsupported.
+	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.ConfigPayload{
+		Theme: config.ThemeMidnight, Background: config.BackgroundNone,
+		Sound: true, SoundName: config.DefaultSound, Volume: config.DefaultVolume,
+	}})
+	if m.cfg.ReadableText || m.readableSupported {
+		t.Fatalf("old daemon reset the local choice: %+v supported=%v", m.cfg, m.readableSupported)
+	}
+}
+
 func TestNoTextShadow(t *testing.T) {
 	m := lightStageModel(t)
 	c := canvas.New(80, 24)
 	style := canvas.Fg(m.pal.Text)
-	m.drawCentered(c, 5, "abc", style, 0, 80)
+	m.drawCenteredIn(c, 0, 5, 80, "abc", style)
 	for x := 0; x < c.W; x++ {
 		cell := c.At(x, 6)
 		if cell.HasFG || cell.HasBG {

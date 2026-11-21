@@ -41,9 +41,13 @@ const (
 	// background, and a TUI that receives an empty value (an older daemon) keeps
 	// the change local instead of sending a command that daemon does not know.
 	TypeSetBackground = "set_background"
-	TypeSetSound      = "set_sound"
-	TypeGetState      = "get_state"
-	TypeQuitDaemon    = "quit_daemon"
+	// TypeSetReadableText toggles the black readable-text bands used by the
+	// transparent "none" background. It is additive: the config payload's
+	// readable_text pointer tells the TUI whether the daemon knows the command.
+	TypeSetReadableText = "set_readable_text"
+	TypeSetSound        = "set_sound"
+	TypeGetState        = "get_state"
+	TypeQuitDaemon      = "quit_daemon"
 
 	TypeSetSoundName = "set_sound_name"
 	TypeSetVolume    = "set_volume"
@@ -132,12 +136,13 @@ type ClientMessage struct {
 // ConfigPayload is the shared preset, theme, background, sound and volume
 // shape.
 type ConfigPayload struct {
-	Presets    []config.Preset `json:"presets"`
-	Theme      string          `json:"theme"`
-	Background string          `json:"background"`
-	Sound      bool            `json:"sound"`
-	SoundName  string          `json:"sound_name"`
-	Volume     int             `json:"volume"`
+	Presets      []config.Preset `json:"presets"`
+	Theme        string          `json:"theme"`
+	Background   string          `json:"background"`
+	ReadableText *bool           `json:"readable_text,omitempty"`
+	Sound        bool            `json:"sound"`
+	SoundName    string          `json:"sound_name"`
+	Volume       int             `json:"volume"`
 }
 
 // ServerMessage is implemented by every daemon-to-client message.
@@ -432,13 +437,15 @@ func NewState(st engine.State) StateMessage {
 
 // NewConfigPayload copies the configuration into the wire shape.
 func NewConfigPayload(c config.Config) ConfigPayload {
+	readable := c.ReadableText
 	return ConfigPayload{
-		Presets:    append([]config.Preset(nil), c.Presets...),
-		Theme:      c.Theme,
-		Background: c.Background,
-		Sound:      c.Sound,
-		SoundName:  c.SoundName,
-		Volume:     c.Volume,
+		Presets:      append([]config.Preset(nil), c.Presets...),
+		Theme:        c.Theme,
+		Background:   c.Background,
+		ReadableText: &readable,
+		Sound:        c.Sound,
+		SoundName:    c.SoundName,
+		Volume:       c.Volume,
 	}
 }
 
@@ -597,6 +604,11 @@ func (m ClientMessage) Validate() *ErrorMessage {
 	case TypeSetBackground:
 		if !config.ValidBackground(m.Name) {
 			return invalid(CodeInvalidBackground, fmt.Sprintf("unknown background %q", m.Name))
+		}
+		return nil
+	case TypeSetReadableText:
+		if m.Enabled == nil {
+			return invalid(CodeInvalidCommand, "set_readable_text requires enabled")
 		}
 		return nil
 	case TypeSetSound:

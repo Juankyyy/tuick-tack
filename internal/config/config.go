@@ -18,7 +18,7 @@ import (
 
 const (
 	// Version is the schema version understood by this build.
-	Version = 5
+	Version = 6
 	// MaxPresets is the maximum number of stored presets.
 	MaxPresets = 16
 	// MinSeconds and MaxSeconds bound a preset or countdown.
@@ -122,6 +122,7 @@ type Config struct {
 	Version        int             `json:"version"`
 	Theme          string          `json:"theme"`
 	Background     string          `json:"background"`
+	ReadableText   bool            `json:"readable_text"`
 	Sound          bool            `json:"sound"`
 	SoundName      string          `json:"sound_name"`
 	Volume         int             `json:"volume"`
@@ -134,12 +135,13 @@ type Config struct {
 // Default returns a fresh default configuration.
 func Default() Config {
 	return Config{
-		Version:    Version,
-		Theme:      ThemeMidnight,
-		Background: DefaultBackground,
-		Sound:      true,
-		SoundName:  DefaultSound,
-		Volume:     DefaultVolume,
+		Version:      Version,
+		Theme:        ThemeMidnight,
+		Background:   DefaultBackground,
+		ReadableText: true,
+		Sound:        true,
+		SoundName:    DefaultSound,
+		Volume:       DefaultVolume,
 		Presets: []Preset{
 			{ID: "p5", Label: "5 min", Seconds: 300},
 			{ID: "p10", Label: "10 min", Seconds: 600},
@@ -248,8 +250,9 @@ func ValidPresetID(id string) bool {
 // had no sound selection or volume, so both take the v2 defaults. Version 3
 // adds the optional window size and version 4 the optional window position;
 // both stay unset until the TUI records them. Version 5 adds the ambient
-// background, which starts as the original aurora. It returns the migrated
-// config and whether anything changed.
+// background, which starts as the original aurora. Version 6 adds the black
+// readable-text bands used by the transparent "none" background; they start
+// enabled. It returns the migrated config and whether anything changed.
 func Migrate(c Config) (Config, bool) {
 	if c.Version >= Version {
 		return c, false
@@ -260,6 +263,9 @@ func Migrate(c Config) (Config, bool) {
 	}
 	if c.Version < 5 {
 		c.Background = DefaultBackground
+	}
+	if c.Version < 6 {
+		c.ReadableText = true
 	}
 	c.Version = Version
 	return c, true

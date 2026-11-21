@@ -22,6 +22,7 @@ func TestClientRoundTrip(t *testing.T) {
 		{Type: TypePresetDelete, ID: "abc"},
 		{Type: TypeSetTheme, Name: config.ThemeEmber},
 		{Type: TypeSetBackground, Name: config.BackgroundStars},
+		{Type: TypeSetReadableText, Enabled: &enabled},
 		{Type: TypeSetSound, Enabled: &enabled},
 		{Type: TypeSetSoundName, SoundName: config.SoundMarimba},
 		{Type: TypeSetVolume, Volume: &volume},
@@ -106,6 +107,7 @@ func TestHelloAndConfigRoundTrip(t *testing.T) {
 	c := config.Default()
 	c.Theme = config.ThemeMono
 	c.Background = config.BackgroundWaves
+	c.ReadableText = false
 	c.WindowWidth, c.WindowHeight = 140, 45
 	c.WindowPosition = &config.WindowPosition{X: -120, Y: 100}
 	upd := &UpdatePayload{Latest: "v0.2.0", URL: "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0", Notes: "## What's new\n\n- Faster\n"}
@@ -118,6 +120,7 @@ func TestHelloAndConfigRoundTrip(t *testing.T) {
 	h, ok := back.(HelloMessage)
 	if !ok || h.Protocol != Version || h.Config.Theme != config.ThemeMono ||
 		h.Config.Background != config.BackgroundWaves ||
+		h.Config.ReadableText == nil || *h.Config.ReadableText ||
 		len(h.Config.Presets) != 3 || h.Config.SoundName != c.SoundName ||
 		h.Config.Volume != c.Volume || h.Update == nil || h.Update.Latest != "v0.2.0" ||
 		h.Update.URL != upd.URL || h.Update.Notes != upd.Notes {
@@ -158,6 +161,9 @@ func TestConfigWithoutBackgroundDecodesEmpty(t *testing.T) {
 	}
 	if cm.Background != "" {
 		t.Fatalf("missing background decoded as %q, want empty", cm.Background)
+	}
+	if cm.ReadableText != nil {
+		t.Fatalf("missing readable_text decoded as %v, want nil", *cm.ReadableText)
 	}
 }
 
@@ -341,6 +347,8 @@ func TestValidate(t *testing.T) {
 		{"background", ClientMessage{Type: TypeSetBackground, Name: config.BackgroundStars}, ""},
 		{"bad background", ClientMessage{Type: TypeSetBackground, Name: "neon"}, CodeInvalidBackground},
 		{"missing background", ClientMessage{Type: TypeSetBackground}, CodeInvalidBackground},
+		{"readable text", ClientMessage{Type: TypeSetReadableText, Enabled: &disabled}, ""},
+		{"readable text missing", ClientMessage{Type: TypeSetReadableText}, CodeInvalidCommand},
 		{"sound on", ClientMessage{Type: TypeSetSound, Enabled: &enabled}, ""},
 		{"sound off", ClientMessage{Type: TypeSetSound, Enabled: &disabled}, ""},
 		{"sound missing", ClientMessage{Type: TypeSetSound}, CodeInvalidCommand},
