@@ -1833,21 +1833,27 @@ func TestBackgroundColorMsgNil(t *testing.T) {
 	}
 }
 
-func TestViewBackgroundColorTransitions(t *testing.T) {
+func TestViewNeverSetsTerminalColors(t *testing.T) {
 	m, _ := testModel(80, 24)
-	if v := m.View(); v.BackgroundColor == nil || v.ForegroundColor == nil {
-		t.Fatal("a themed background should set terminal colors")
+	// The app paints its own background cell by cell. It must never change the
+	// terminal's default colors: that would alter the user's profile and can
+	// drop its acrylic or background image.
+	if v := m.View(); v.BackgroundColor != nil || v.ForegroundColor != nil {
+		t.Fatalf("a themed background changed terminal colors: bg=%v fg=%v",
+			v.BackgroundColor, v.ForegroundColor)
 	}
 	cfg := config.Default()
 	cfg.Background = config.BackgroundNone
 	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.NewConfigPayload(cfg)})
 	if v := m.View(); v.BackgroundColor != nil || v.ForegroundColor != nil {
-		t.Fatal("none should clear terminal colors")
+		t.Fatalf("none changed terminal colors: bg=%v fg=%v",
+			v.BackgroundColor, v.ForegroundColor)
 	}
 	cfg.Background = config.BackgroundAurora
 	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.NewConfigPayload(cfg)})
-	if v := m.View(); v.BackgroundColor == nil || v.ForegroundColor == nil {
-		t.Fatal("returning to a themed background should restore terminal colors")
+	if v := m.View(); v.BackgroundColor != nil || v.ForegroundColor != nil {
+		t.Fatalf("returning to a themed background changed terminal colors: bg=%v fg=%v",
+			v.BackgroundColor, v.ForegroundColor)
 	}
 }
 

@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"tuick-tack/internal/config"
 	"tuick-tack/internal/protocol"
 )
@@ -98,6 +100,28 @@ func TestHelloBeforeStartupDefersApply(t *testing.T) {
 	if m.windowApplyPending || !m.windowArmed || m.windowDirty {
 		t.Fatalf("pending=%v armed=%v dirty=%v",
 			m.windowApplyPending, m.windowArmed, m.windowDirty)
+	}
+}
+
+func TestResizeAfterStoredPlacementClearsScreen(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.sizeKnown = true
+	m.windowOwned = true
+	m.applyWindow = func(int, int) {}
+	m.moveWindow = func(int, int) bool { return true }
+	m.windowMaximizedFn = func() bool { return false }
+
+	m.noteHelloWindow(&protocol.WindowSizePayload{Width: 140, Height: 45})
+	if !m.windowClearPending {
+		t.Fatal("applying the stored size should arm a clear")
+	}
+
+	_, cmd := m.Update(tea.WindowSizeMsg{Width: 140, Height: 45})
+	if cmd == nil {
+		t.Fatal("the resize after the stored placement should force a clear")
+	}
+	if m.windowClearPending {
+		t.Fatal("the clear should be consumed by the resize")
 	}
 }
 
@@ -233,6 +257,95 @@ func TestPositionBaselineIsNotSaved(t *testing.T) {
 	if m.posDirty || m.windowSavedX != 200 || m.windowSavedY != 300 {
 		t.Fatalf("position not marked saved: dirty=%v saved=%d,%d",
 			m.posDirty, m.windowSavedX, m.windowSavedY)
+	}
+}
+
+func TestPositionSettleReappliesHostMove(t *testing.T) {
+	m, clock := testModel(80, 24)
+	m.sizeKnown = true
+	m.windowSupported = true
+	m.windowConnected = true
+	m.windowOwned = true
+	m.windowSavedW, m.windowSavedH = 80, 24
+	m.windowMaximizedFn = func() bool { return false }
+	hostX, hostY := 93, 100
+	m.windowPositionFn = func() (int, int, bool) { return hostX, hostY, true }
+	moves := 0
+	m.moveWindow = func(x, y int) bool {
+		moves++
+		hostX, hostY = x, y
+		return true
+	}
+
+	m.noteHelloPosition(&config.WindowPosition{X: 93, Y: 100}, true)
+	if moves != 1 {
+		t.Fatalf("initial placement moves = %d, want 1", moves)
+	}
+	if m.posSettleUntil.IsZero() {
+		t.Fatal("a successful placement should arm the settle window")
+	}
+
+	// Windows Terminal can finish the handoff by cascading the fresh window.
+	hostX, hostY = 200, 208
+	clock.Advance(windowPosSampleInterval + time.Millisecond)
+	if cmd := m.sampleWindow(); cmd != nil {
+		t.Fatal("a host move during the settle must not be saved")
+	}
+	if moves != 2 || hostX != 93 || hostY != 100 {
+		t.Fatalf("settle did not reapply: moves=%d host=%d,%d", moves, hostX, hostY)
+	}
+	if m.posDirty {
+		t.Fatal("the settle marked the position dirty")
+	}
+
+	// Once settled, a real user move is still recorded.
+	clock.Advance(windowPosSettle + windowPosSampleInterval)
+	hostX, hostY = 300, 400
+	if cmd := m.sampleWindow(); cmd == nil {
+		t.Fatal("a move after the settle should schedule a save")
+	}
+	if !m.posDirty || m.windowX != 300 || m.windowY != 400 {
+		t.Fatalf("unexpected move state: dirty=%v pos=%d,%d", m.posDirty, m.windowX, m.windowY)
+	}
+}
+
+func TestFlushDuringPositionSettleKeepsStoredPosition(t *testing.T) {
+	m, clock := testModel(80, 24)
+	m.sizeKnown = true
+	m.windowSupported = true
+	m.windowConnected = true
+	m.windowOwned = true
+	m.windowSavedW, m.windowSavedH = 80, 24
+	m.windowSavedX, m.windowSavedY = 93, 100
+	m.windowHasPos = true
+	m.posKnown = true
+	m.posValid = true
+	m.posArmed = true
+	m.windowX, m.windowY = 93, 100
+	m.posSettleUntil = clock.Now().Add(time.Second)
+	m.windowPositionFn = func() (int, int, bool) { return 200, 208, true }
+	m.windowDirty = true
+	m.width, m.height = 90, 28
+
+	var sentSize [2]int
+	var sentPos *config.WindowPosition
+	m.sendWindow = func(w, h int, pos *config.WindowPosition) error {
+		sentSize = [2]int{w, h}
+		sentPos = pos
+		return nil
+	}
+	m.flushWindow()
+	if sentPos != nil {
+		t.Fatalf("closing during the settle saved the host cascade: %+v", sentPos)
+	}
+	if sentSize != [2]int{90, 28} {
+		t.Fatalf("flushed size = %v, want 90x28", sentSize)
+	}
+	if m.windowSavedW != 90 || m.windowSavedH != 28 {
+		t.Fatalf("saved size = %dx%d, want 90x28", m.windowSavedW, m.windowSavedH)
+	}
+	if m.windowSavedX != 93 || m.windowSavedY != 100 {
+		t.Fatalf("stored position changed to %d,%d", m.windowSavedX, m.windowSavedY)
 	}
 }
 

@@ -22,6 +22,10 @@ const (
 	// windowPosApplyWindow bounds the startup retries while the terminal sets
 	// the window title and the real host window can be located.
 	windowPosApplyWindow = 2 * time.Second
+	// windowPosSettle is how long a host may still reposition a freshly created
+	// window after the stored placement succeeded. Moves in that window are
+	// corrected instead of being saved as a user move.
+	windowPosSettle = 2 * time.Second
 )
 
 type windowSaveMsg struct {
@@ -67,6 +71,7 @@ func (m *Model) handleWindowSize(w, h int) tea.Cmd {
 			m.windowArmed = true
 			if w != m.windowSavedW || h != m.windowSavedH {
 				m.applyWindow(m.windowSavedW, m.windowSavedH)
+				m.windowClearPending = true
 				m.posReapply = m.canPlaceWindow() && m.windowHasPos
 			}
 		}
@@ -122,6 +127,7 @@ func (m *Model) noteHelloWindow(win *protocol.WindowSizePayload) tea.Cmd {
 			if m.sizeKnown {
 				if m.width != win.Width || m.height != win.Height {
 					m.applyWindow(win.Width, win.Height)
+					m.windowClearPending = true
 					m.posReapply = m.canPlaceWindow() && m.windowHasPos
 				}
 			} else {
@@ -186,7 +192,9 @@ func (m *Model) noteHelloPosition(pos *config.WindowPosition, apply bool) {
 	}
 	m.posApplyPending = true
 	m.posApplyUntil = m.now().Add(windowPosApplyWindow)
-	m.tryPlaceWindow()
+	if m.tryPlaceWindow() {
+		m.posSettleUntil = m.now().Add(windowPosSettle)
+	}
 }
 
 // tryPlaceWindow moves the window to the stored position. It returns whether
@@ -246,8 +254,25 @@ func (m *Model) sampleWindow() tea.Cmd {
 			m.posArmed = false
 		} else if !m.tryPlaceWindow() {
 			return nil
+		} else {
+			m.posSettleUntil = now.Add(windowPosSettle)
 		}
 	}
+
+	if !m.posSettleUntil.IsZero() {
+		if now.Before(m.posSettleUntil) {
+			// The host can move a freshly created window after our first
+			// SetWindowPos (for example while it finishes a Windows Terminal
+			// new-tab handoff). Put it back instead of saving that as a user
+			// move.
+			if x, y, ok := m.windowPositionFn(); ok && (x != m.windowSavedX || y != m.windowSavedY) {
+				m.tryPlaceWindow()
+			}
+			return nil
+		}
+		m.posSettleUntil = time.Time{}
+	}
+
 	if !m.connected || !m.windowSupported || m.windowMaximized() {
 		return nil
 	}
@@ -337,7 +362,8 @@ func (m *Model) flushWindow() {
 	if !m.connected || !m.windowSupported || !m.sizeKnown || m.windowMaximized() {
 		return
 	}
-	if m.windowOwned && m.windowPositionFn != nil {
+	settling := !m.posSettleUntil.IsZero() && m.now().Before(m.posSettleUntil)
+	if m.windowOwned && m.windowPositionFn != nil && !settling {
 		if x, y, ok := m.windowPositionFn(); ok {
 			m.posValid = true
 			if !m.posArmed {
@@ -369,7 +395,7 @@ func (m *Model) flushWindow() {
 		return
 	}
 	var pos *config.WindowPosition
-	if m.windowHasPos && m.windowOwned && m.posValid {
+	if m.windowHasPos && m.windowOwned && m.posValid && !settling {
 		pos = &config.WindowPosition{X: m.windowX, Y: m.windowY}
 	}
 	if err := m.sendWindow(m.width, m.height, pos); err != nil {

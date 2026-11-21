@@ -101,11 +101,6 @@ func rgb(v uint32) color.RGBA {
 	return color.RGBA{R: uint8(v >> 16), G: uint8(v >> 8), B: uint8(v), A: 0xFF}
 }
 
-// Hex renders a color as #RRGGBB for Lipgloss and Bubble Tea.
-func Hex(c color.RGBA) string {
-	return fmt.Sprintf("#%02X%02X%02X", c.R, c.G, c.B)
-}
-
 // RGBA parses #RRGGBB. Invalid input returns midnight's background.
 func RGBA(hex string) color.RGBA {
 	hex = strings.TrimPrefix(hex, "#")

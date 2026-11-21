@@ -42,11 +42,8 @@ func TestLerpAndScale(t *testing.T) {
 	}
 }
 
-func TestHexRoundTrip(t *testing.T) {
+func TestRGBAParsing(t *testing.T) {
 	c := color.RGBA{R: 0x6E, G: 0xE7, B: 0xB7, A: 0xFF}
-	if got := Hex(c); got != "#6EE7B7" {
-		t.Fatalf("Hex = %q", got)
-	}
 	if got := RGBA("#6EE7B7"); got != c {
 		t.Fatalf("RGBA = %+v", got)
 	}

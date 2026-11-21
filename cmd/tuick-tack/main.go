@@ -34,6 +34,7 @@ func main() {
 	checkUpdates := flag.Bool("check-updates", false, "check GitHub for a newer release and exit")
 	daemonMode := flag.Bool("daemon", false, "run the background daemon in this process")
 	hidden := flag.Bool("hidden", false, "hide the console when running the daemon (used by autostart)")
+	launchHandled := flag.Bool(daemon.TUILaunchFlag, false, "internal: the launcher already chose the TUI window")
 	installStartup := flag.Bool("install-startup", false, "start the tray daemon at sign-in")
 	uninstallStartup := flag.Bool("uninstall-startup", false, "do not start the tray daemon at sign-in")
 	flag.Parse()
@@ -76,6 +77,20 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "pipe:", err)
 		os.Exit(1)
+	}
+
+	// A direct launch (shortcut, Explorer, installer) gets a console window
+	// that Windows Terminal hosts with its "Defaults" profile, losing the
+	// user's acrylic. Reopen it in a new Windows Terminal window with the
+	// user's default profile when that is possible; the tray passes the marker
+	// to skip this, and a shared shell tab is left untouched.
+	if !*launchHandled {
+		if handled, err := daemon.RelaunchTUI(pipe); handled {
+			if err != nil {
+				fmt.Println(copy.T(copy.AlreadyOpen))
+			}
+			return
+		}
 	}
 
 	release, already, err := daemon.AcquireTUIInstance(pipe)

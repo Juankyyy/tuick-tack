@@ -202,12 +202,14 @@ type Model struct {
 	windowApplyPending   bool
 	windowDirty          bool
 	windowChangedOffline bool
+	windowClearPending   bool
 	windowSavedW         int
 	windowSavedH         int
 	windowOwned          bool
 	posArmed             bool
 	posApplyPending      bool
 	posApplyUntil        time.Time
+	posSettleUntil       time.Time
 	posReapply           bool
 	posDirty             bool
 	posKnown             bool
@@ -338,7 +340,20 @@ func (m *Model) Init() tea.Cmd {
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		return m, m.handleWindowSize(msg.Width, msg.Height)
+		// A stored placement is applied by asking the terminal to resize its
+		// window. When the host reports the resulting size, transparent "none"
+		// cells can still hold glyphs from the previous grid; force one full
+		// repaint after the resize has settled.
+		clear := m.windowClearPending
+		m.windowClearPending = false
+		cmd := m.handleWindowSize(msg.Width, msg.Height)
+		if clear {
+			if cmd == nil {
+				return m, tea.ClearScreen
+			}
+			return m, tea.Batch(cmd, tea.ClearScreen)
+		}
+		return m, cmd
 	case tea.BackgroundColorMsg:
 		if msg.Color == nil {
 			// A malformed OSC 11 reply can carry a nil color; RGBA would

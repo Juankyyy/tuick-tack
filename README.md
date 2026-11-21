@@ -90,6 +90,8 @@ The accepted range is one second to 24 hours.
 
 Left click opens the TUI, or brings the open one to the front. Right click opens the menu.
 
+When Windows Terminal is your default terminal, **Open** starts the TUI in a new Windows Terminal window with your default profile, so the `none` background keeps your acrylic, opacity or background image. The app only reads that profile; it never writes `settings.json` or changes your terminal colors. If Windows Terminal is not the default, it uses a normal console window. Opening `tuick-tack.exe` or the Start Menu shortcut directly does the same: the first console window is replaced by one with your default profile (a brief window may appear first).
+
 ```text
 Tuick-Tack · 04:32 remaining
 Check for updates
@@ -166,7 +168,7 @@ open TUI picks it up. The theme only changes the palette, so any background work
 Ember and Mono. Aurora keeps the original dust field and Tide shares it; Stars, Fireflies, Rain,
 Sunset and none are clean or carry their own particles.
 
-`none` leaves the terminal background untouched: the app paints no empty cells and does not set
+`none` leaves the terminal background untouched: the app paints no empty cells and never sets
 the terminal background or foreground color, so a custom background, image or acrylic shows
 through. UI panels, buttons, the progress bar, modals and the countdown block shadow keep their own
 backgrounds; the shadow turns light gray when the terminal background is light, so the dark digits

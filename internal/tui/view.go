@@ -8,7 +8,6 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"tuick-tack/internal/buildinfo"
 	"tuick-tack/internal/config"
@@ -96,10 +95,6 @@ func (m *Model) View() tea.View {
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeAllMotion
 	v.WindowTitle = buildinfo.Name
-	if !m.noneBackground() {
-		v.BackgroundColor = lipgloss.Color(theme.Hex(m.pal.BG))
-		v.ForegroundColor = lipgloss.Color(theme.Hex(m.pal.Text))
-	}
 	return v
 }
 
