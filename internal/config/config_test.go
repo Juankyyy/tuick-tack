@@ -21,8 +21,31 @@ func TestDefault(t *testing.T) {
 	if c.Theme != ThemeMidnight || !c.Sound {
 		t.Fatalf("unexpected defaults: %+v", c)
 	}
+	if c.Background != DefaultBackground {
+		t.Fatalf("background = %q, want %q", c.Background, DefaultBackground)
+	}
 	if c.Version != Version || c.SoundName != DefaultSound || c.Volume != DefaultVolume {
 		t.Fatalf("unexpected sound defaults: %+v", c)
+	}
+}
+
+func TestBackgroundCycle(t *testing.T) {
+	if !ValidBackground(DefaultBackground) {
+		t.Fatalf("default background %q is not valid", DefaultBackground)
+	}
+	for i, name := range Backgrounds {
+		if !ValidBackground(name) {
+			t.Errorf("%q is not valid", name)
+		}
+		if got, want := NextBackground(name), Backgrounds[(i+1)%len(Backgrounds)]; got != want {
+			t.Errorf("NextBackground(%q) = %q, want %q", name, got, want)
+		}
+	}
+	if got := NextBackground("nope"); got != Backgrounds[0] {
+		t.Errorf("unknown background fell back to %q, want %q", got, Backgrounds[0])
+	}
+	if ValidBackground("") {
+		t.Error("empty background should be invalid")
 	}
 }
 
@@ -37,6 +60,7 @@ func TestValidate(t *testing.T) {
 		{"no presets", func(c *Config) { c.Presets = nil }, true},
 		{"bad version", func(c *Config) { c.Version = Version + 1 }, false},
 		{"bad theme", func(c *Config) { c.Theme = "neon" }, false},
+		{"bad background", func(c *Config) { c.Background = "neon" }, false},
 		{"bad sound", func(c *Config) { c.SoundName = "airhorn" }, false},
 		{"low volume", func(c *Config) { c.Volume = -1 }, false},
 		{"high volume", func(c *Config) { c.Volume = 101 }, false},
@@ -140,6 +164,9 @@ func TestLoadMigratesV1(t *testing.T) {
 	if c.Version != Version || c.SoundName != SoundDigital || c.Volume != DefaultVolume {
 		t.Fatalf("v1 was not migrated: %+v", c)
 	}
+	if c.Background != DefaultBackground {
+		t.Fatalf("v1 background = %q, want %q", c.Background, DefaultBackground)
+	}
 	if c.Theme != ThemeEmber || c.Sound || len(c.Presets) != 1 {
 		t.Fatalf("migration lost settings: %+v", c)
 	}
@@ -150,9 +177,10 @@ func TestLoadMigratesV1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"version": 4`) ||
+	if !strings.Contains(string(data), `"version": 5`) ||
+		!strings.Contains(string(data), `"background": "aurora"`) ||
 		!strings.Contains(string(data), `"sound_name": "digital"`) {
-		t.Fatalf("migrated file not written as v4: %s", data)
+		t.Fatalf("migrated file not written as v5: %s", data)
 	}
 }
 
@@ -180,7 +208,8 @@ func TestLoadMigratesV2(t *testing.T) {
 		t.Fatalf("version = %d, want %d", c.Version, Version)
 	}
 	if c.SoundName != SoundMarimba || c.Volume != 35 || c.Sound ||
-		c.Theme != ThemeMono || len(c.Presets) != 1 {
+		c.Theme != ThemeMono || len(c.Presets) != 1 ||
+		c.Background != DefaultBackground {
 		t.Fatalf("v2 migration lost settings: %+v", c)
 	}
 	if c.WindowWidth != 0 || c.WindowHeight != 0 || c.WindowPosition != nil {
@@ -213,6 +242,41 @@ func TestLoadMigratesV3(t *testing.T) {
 	if c.WindowPosition != nil {
 		t.Fatalf("position should start unset: %+v", c.WindowPosition)
 	}
+	if c.Background != DefaultBackground {
+		t.Fatalf("v3 background = %q, want %q", c.Background, DefaultBackground)
+	}
+}
+
+func TestLoadMigratesV4(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	v4 := `{
+  "version": 4,
+  "theme": "ember",
+  "sound": true,
+  "sound_name": "deep",
+  "volume": 40,
+  "window_width": 120,
+  "window_height": 40,
+  "window_position": { "x": 93, "y": 100 },
+  "presets": [
+    { "id": "p5", "label": "5 min", "seconds": 300 }
+  ]
+}`
+	if err := os.WriteFile(path, []byte(v4), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := NewStore(path).Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Version != Version || c.Theme != ThemeEmber ||
+		c.Background != DefaultBackground || c.SoundName != SoundDeep ||
+		c.Volume != 40 || len(c.Presets) != 1 {
+		t.Fatalf("v4 migration lost settings: %+v", c)
+	}
+	if c.WindowPosition == nil || c.WindowPosition.X != 93 || c.WindowPosition.Y != 100 {
+		t.Fatalf("v4 migration lost the window position: %+v", c.WindowPosition)
+	}
 }
 
 func TestSaveLoadRoundTrip(t *testing.T) {
@@ -220,6 +284,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	store := NewStore(path)
 	c := Default()
 	c.Theme = ThemeEmber
+	c.Background = BackgroundStars
 	c.Sound = false
 	c.SoundName = SoundMarimba
 	c.Volume = 35
@@ -238,6 +303,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	if got.Theme != ThemeEmber || got.Sound || len(got.Presets) != 4 ||
+		got.Background != BackgroundStars ||
 		got.SoundName != SoundMarimba || got.Volume != 35 ||
 		got.WindowWidth != 140 || got.WindowHeight != 45 ||
 		got.WindowPosition == nil || got.WindowPosition.X != -120 ||
@@ -324,17 +390,30 @@ func TestSaveRejectsInvalid(t *testing.T) {
 
 func TestNormalizeTrimsLabels(t *testing.T) {
 	c := Config{
-		Version:   Version,
-		Theme:     ThemeMono,
-		SoundName: DefaultSound,
-		Volume:    DefaultVolume,
-		Presets:   []Preset{{ID: "p1", Label: "  hi  ", Seconds: 10}},
+		Version:    Version,
+		Theme:      ThemeMono,
+		Background: DefaultBackground,
+		SoundName:  DefaultSound,
+		Volume:     DefaultVolume,
+		Presets:    []Preset{{ID: "p1", Label: "  hi  ", Seconds: 10}},
 	}
 	c = Normalize(c)
 	if c.Presets[0].Label != "hi" {
 		t.Fatalf("label = %q", c.Presets[0].Label)
 	}
 	if err := Validate(c); err != nil {
+		t.Fatalf("normalized config invalid: %v", err)
+	}
+}
+
+func TestNormalizeFillsMissingBackground(t *testing.T) {
+	c := Default()
+	c.Background = ""
+	got := Normalize(c)
+	if got.Background != DefaultBackground {
+		t.Fatalf("background = %q, want %q", got.Background, DefaultBackground)
+	}
+	if err := Validate(got); err != nil {
 		t.Fatalf("normalized config invalid: %v", err)
 	}
 }

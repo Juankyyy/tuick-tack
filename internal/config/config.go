@@ -1,5 +1,5 @@
-// Package config owns the persisted preferences: presets, theme, sound
-// selection, volume and the TUI window placement.
+// Package config owns the persisted preferences: presets, theme, background,
+// sound selection, volume and the TUI window placement.
 //
 // The daemon is the only writer. Load falls back to defaults when the file is
 // missing, and backs up an unreadable or invalid file before doing the same.
@@ -18,7 +18,7 @@ import (
 
 const (
 	// Version is the schema version understood by this build.
-	Version = 4
+	Version = 5
 	// MaxPresets is the maximum number of stored presets.
 	MaxPresets = 16
 	// MinSeconds and MaxSeconds bound a preset or countdown.
@@ -57,6 +57,34 @@ const (
 // Themes lists the supported themes in cycle order.
 var Themes = []string{ThemeMidnight, ThemeEmber, ThemeMono}
 
+// Background names are stable identifiers stored in config.json. They are
+// separate from the theme: the theme owns the palette and the background owns
+// the ambient layer painted behind the stage.
+const (
+	BackgroundAurora    = "aurora"
+	BackgroundStars     = "stars"
+	BackgroundFireflies = "fireflies"
+	BackgroundRain      = "rain"
+	BackgroundWaves     = "waves"
+	BackgroundGrid      = "grid"
+	BackgroundNone      = "none"
+
+	DefaultBackground = BackgroundAurora
+)
+
+// Backgrounds lists the supported backgrounds in cycle order. Aurora is the
+// original background and stays first so the familiar look is always one step
+// away.
+var Backgrounds = []string{
+	BackgroundAurora,
+	BackgroundStars,
+	BackgroundFireflies,
+	BackgroundRain,
+	BackgroundWaves,
+	BackgroundGrid,
+	BackgroundNone,
+}
+
 // Window size bounds. A stored width and height of zero means the TUI has not
 // recorded a preference yet.
 const (
@@ -93,6 +121,7 @@ type Preset struct {
 type Config struct {
 	Version        int             `json:"version"`
 	Theme          string          `json:"theme"`
+	Background     string          `json:"background"`
 	Sound          bool            `json:"sound"`
 	SoundName      string          `json:"sound_name"`
 	Volume         int             `json:"volume"`
@@ -105,11 +134,12 @@ type Config struct {
 // Default returns a fresh default configuration.
 func Default() Config {
 	return Config{
-		Version:   Version,
-		Theme:     ThemeMidnight,
-		Sound:     true,
-		SoundName: DefaultSound,
-		Volume:    DefaultVolume,
+		Version:    Version,
+		Theme:      ThemeMidnight,
+		Background: DefaultBackground,
+		Sound:      true,
+		SoundName:  DefaultSound,
+		Volume:     DefaultVolume,
 		Presets: []Preset{
 			{ID: "p5", Label: "5 min", Seconds: 300},
 			{ID: "p10", Label: "10 min", Seconds: 600},
@@ -141,6 +171,26 @@ func ValidTheme(name string) bool {
 		}
 	}
 	return false
+}
+
+// ValidBackground reports whether name is a supported ambient background.
+func ValidBackground(name string) bool {
+	for _, b := range Backgrounds {
+		if b == name {
+			return true
+		}
+	}
+	return false
+}
+
+// NextBackground returns the next background in cycle order.
+func NextBackground(name string) string {
+	for i, b := range Backgrounds {
+		if b == name {
+			return Backgrounds[(i+1)%len(Backgrounds)]
+		}
+	}
+	return Backgrounds[0]
 }
 
 // ValidSeconds reports whether n is inside the accepted duration range.
@@ -197,8 +247,9 @@ func ValidPresetID(id string) bool {
 // Migrate upgrades a decoded configuration to the current schema. Version 1
 // had no sound selection or volume, so both take the v2 defaults. Version 3
 // adds the optional window size and version 4 the optional window position;
-// both stay unset until the TUI records them. It returns the migrated config
-// and whether anything changed.
+// both stay unset until the TUI records them. Version 5 adds the ambient
+// background, which starts as the original aurora. It returns the migrated
+// config and whether anything changed.
 func Migrate(c Config) (Config, bool) {
 	if c.Version >= Version {
 		return c, false
@@ -206,6 +257,9 @@ func Migrate(c Config) (Config, bool) {
 	if c.Version < 2 {
 		c.SoundName = DefaultSound
 		c.Volume = DefaultVolume
+	}
+	if c.Version < 5 {
+		c.Background = DefaultBackground
 	}
 	c.Version = Version
 	return c, true
@@ -218,6 +272,9 @@ func Validate(c Config) error {
 	}
 	if !ValidTheme(c.Theme) {
 		return fmt.Errorf("unknown theme %q", c.Theme)
+	}
+	if !ValidBackground(c.Background) {
+		return fmt.Errorf("unknown background %q", c.Background)
 	}
 	if !ValidSound(c.SoundName) {
 		return fmt.Errorf("unknown sound %q", c.SoundName)
@@ -256,6 +313,11 @@ func Validate(c Config) error {
 // Normalize trims labels and fills a missing preset list. It is used after
 // decoding so harmless whitespace does not invalidate a config.
 func Normalize(c Config) Config {
+	if c.Background == "" {
+		// A v5 file edited by hand may lose the field; keep the rest of the
+		// settings instead of backing up the whole config.
+		c.Background = DefaultBackground
+	}
 	for i := range c.Presets {
 		c.Presets[i].Label = strings.TrimSpace(c.Presets[i].Label)
 	}

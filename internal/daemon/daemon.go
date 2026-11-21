@@ -568,6 +568,8 @@ func (d *Daemon) Command(c *ipc.Session, msg protocol.ClientMessage) {
 		d.restorePresets(c)
 	case protocol.TypeSetTheme:
 		d.setTheme(c, msg.Name)
+	case protocol.TypeSetBackground:
+		d.setBackground(c, msg.Name)
 	case protocol.TypeSetSound:
 		if msg.Enabled != nil {
 			if err := d.changeSound(*msg.Enabled); err != nil {
@@ -716,6 +718,24 @@ func (d *Daemon) restorePresets(c *ipc.Session) {
 func (d *Daemon) setTheme(c *ipc.Session, name string) {
 	cfg := d.Config()
 	cfg.Theme = name
+	d.commitConfig(c, cfg)
+}
+
+// setBackground stores the ambient background and lets every connected TUI
+// repaint. The protocol validates the name; the guard keeps a malformed config
+// from being written if a caller bypasses it.
+func (d *Daemon) setBackground(c *ipc.Session, name string) {
+	if !config.ValidBackground(name) {
+		if c != nil {
+			c.Send(protocol.NewError(protocol.CodeInvalidBackground, "unknown background"))
+		}
+		return
+	}
+	cfg := d.Config()
+	if cfg.Background == name {
+		return
+	}
+	cfg.Background = name
 	d.commitConfig(c, cfg)
 }
 

@@ -139,8 +139,14 @@ func (c *Canvas) Dim(t float64) {
 	black := color.RGBA{A: 0xFF}
 	for i := range c.cells {
 		cell := &c.cells[i]
-		cell.FG = lerp(cell.FG, black, t)
-		cell.BG = lerp(cell.BG, black, t)
+		// Only dim colors that are actually present. A transparent cell must
+		// stay transparent so the terminal background can show through.
+		if cell.HasFG {
+			cell.FG = lerp(cell.FG, black, t)
+		}
+		if cell.HasBG {
+			cell.BG = lerp(cell.BG, black, t)
+		}
 	}
 }
 
@@ -245,40 +251,84 @@ func (c *Canvas) Blit(src *Canvas, x, y int) {
 	}
 }
 
-// Render serializes the canvas as truecolor ANSI. Each row is W cells and the
-// result has no trailing newline.
+// Render serializes the canvas as truecolor ANSI. Cells without a foreground
+// or background keep the terminal's own colors: this is what lets the "none"
+// backdrop show a real terminal background or background image. Each row ends
+// with a reset, so no style leaks into the next row, and the result has no
+// trailing newline.
 func (c *Canvas) Render() string {
 	if c.W == 0 || c.H == 0 {
 		return ""
 	}
 	var b strings.Builder
 	b.Grow(c.W * c.H * 12)
+	// Start from the terminal's default style so a transparent first row cannot
+	// inherit attributes from the previous application or frame.
+	b.WriteString("\x1b[0m")
 	for y := 0; y < c.H; y++ {
 		var cur Cell
-		first := true
 		for x := 0; x < c.W; x++ {
 			cell := c.cells[y*c.W+x]
-			if first || cell.FG != cur.FG || cell.BG != cur.BG || cell.Bold != cur.Bold {
-				b.WriteString("\x1b[")
-				fmt.Fprintf(&b, "38;2;%d;%d;%d;48;2;%d;%d;%d",
-					cell.FG.R, cell.FG.G, cell.FG.B, cell.BG.R, cell.BG.G, cell.BG.B)
-				if cell.Bold {
-					b.WriteString(";1")
-				} else {
-					b.WriteString(";22")
+			if !sameStyle(cur, cell) {
+				if styleSet(cell) {
+					if styleSet(cur) {
+						b.WriteString("\x1b[0m")
+					}
+					b.WriteString("\x1b[")
+					sep := false
+					if cell.HasFG {
+						fmt.Fprintf(&b, "38;2;%d;%d;%d", cell.FG.R, cell.FG.G, cell.FG.B)
+						sep = true
+					}
+					if cell.HasBG {
+						if sep {
+							b.WriteByte(';')
+						}
+						fmt.Fprintf(&b, "48;2;%d;%d;%d", cell.BG.R, cell.BG.G, cell.BG.B)
+						sep = true
+					}
+					if cell.Bold {
+						if sep {
+							b.WriteByte(';')
+						}
+						b.WriteByte('1')
+					}
+					b.WriteByte('m')
+				} else if styleSet(cur) {
+					b.WriteString("\x1b[0m")
 				}
-				b.WriteByte('m')
 				cur = cell
-				first = false
 			}
 			b.WriteRune(cell.Ch)
 		}
-		b.WriteString("\x1b[0m")
+		if styleSet(cur) {
+			b.WriteString("\x1b[0m")
+		}
 		if y != c.H-1 {
 			b.WriteByte('\n')
 		}
 	}
 	return b.String()
+}
+
+// styleSet reports whether a cell carries any SGR attribute.
+func styleSet(c Cell) bool {
+	return c.HasFG || c.HasBG || c.Bold
+}
+
+// sameStyle reports whether two cells would serialize identically, ignoring
+// the glyph itself.
+func sameStyle(a, b Cell) bool {
+	if a.HasFG != b.HasFG || a.HasBG != b.HasBG || a.Bold != b.Bold {
+		return false
+	}
+	if a.HasFG && a.FG != b.FG {
+		return false
+	}
+	if a.HasBG && a.BG != b.BG {
+		return false
+	}
+	return true
 }
 
 // Width returns the display width of a string in cells.

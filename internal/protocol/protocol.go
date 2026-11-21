@@ -36,10 +36,14 @@ const (
 	TypePresetDelete          = "preset_delete"
 	TypePresetsRestoreDefault = "presets_restore_defaults"
 
-	TypeSetTheme   = "set_theme"
-	TypeSetSound   = "set_sound"
-	TypeGetState   = "get_state"
-	TypeQuitDaemon = "quit_daemon"
+	TypeSetTheme = "set_theme"
+	// TypeSetBackground is additive: the hello's config carries the current
+	// background, and a TUI that receives an empty value (an older daemon) keeps
+	// the change local instead of sending a command that daemon does not know.
+	TypeSetBackground = "set_background"
+	TypeSetSound      = "set_sound"
+	TypeGetState      = "get_state"
+	TypeQuitDaemon    = "quit_daemon"
 
 	TypeSetSoundName = "set_sound_name"
 	TypeSetVolume    = "set_volume"
@@ -94,6 +98,7 @@ const (
 	CodeInvalidDuration     = "invalid_duration"
 	CodeInvalidLabel        = "invalid_label"
 	CodeInvalidTheme        = "invalid_theme"
+	CodeInvalidBackground   = "invalid_background"
 	CodeInvalidSound        = "invalid_sound"
 	CodeInvalidVolume       = "invalid_volume"
 	CodeInvalidWindowSize   = "invalid_window_size"
@@ -124,13 +129,15 @@ type ClientMessage struct {
 	Force        bool                   `json:"force,omitempty"`
 }
 
-// ConfigPayload is the shared preset, theme, sound and volume shape.
+// ConfigPayload is the shared preset, theme, background, sound and volume
+// shape.
 type ConfigPayload struct {
-	Presets   []config.Preset `json:"presets"`
-	Theme     string          `json:"theme"`
-	Sound     bool            `json:"sound"`
-	SoundName string          `json:"sound_name"`
-	Volume    int             `json:"volume"`
+	Presets    []config.Preset `json:"presets"`
+	Theme      string          `json:"theme"`
+	Background string          `json:"background"`
+	Sound      bool            `json:"sound"`
+	SoundName  string          `json:"sound_name"`
+	Volume     int             `json:"volume"`
 }
 
 // ServerMessage is implemented by every daemon-to-client message.
@@ -426,11 +433,12 @@ func NewState(st engine.State) StateMessage {
 // NewConfigPayload copies the configuration into the wire shape.
 func NewConfigPayload(c config.Config) ConfigPayload {
 	return ConfigPayload{
-		Presets:   append([]config.Preset(nil), c.Presets...),
-		Theme:     c.Theme,
-		Sound:     c.Sound,
-		SoundName: c.SoundName,
-		Volume:    c.Volume,
+		Presets:    append([]config.Preset(nil), c.Presets...),
+		Theme:      c.Theme,
+		Background: c.Background,
+		Sound:      c.Sound,
+		SoundName:  c.SoundName,
+		Volume:     c.Volume,
 	}
 }
 
@@ -584,6 +592,11 @@ func (m ClientMessage) Validate() *ErrorMessage {
 	case TypeSetTheme:
 		if !config.ValidTheme(m.Name) {
 			return invalid(CodeInvalidTheme, fmt.Sprintf("unknown theme %q", m.Name))
+		}
+		return nil
+	case TypeSetBackground:
+		if !config.ValidBackground(m.Name) {
+			return invalid(CodeInvalidBackground, fmt.Sprintf("unknown background %q", m.Name))
 		}
 		return nil
 	case TypeSetSound:

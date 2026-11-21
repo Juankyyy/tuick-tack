@@ -65,12 +65,12 @@ scripts/build.ps1
 winres/                 go-winres metadata
 ```
 
-- State management: the **daemon is the single source of truth** (timer, presets, theme, sound selection, volume, remembered TUI window placement, tray). The TUI is a client; it renders snapshots and interpolates locally for smoothness. `finish_seq` dedupes celebrations. No client-side timer truth, no external state library.
+- State management: the **daemon is the single source of truth** (timer, presets, theme, background, sound selection, volume, remembered TUI window placement, tray). The TUI is a client; it renders snapshots and interpolates locally for smoothness. `finish_seq` dedupes celebrations. No client-side timer truth, no external state library.
 - Local persistence: JSON config at `%APPDATA%\tuick-tack\config.json`; the daemon is the only writer; atomic writes; no DB. Session history for the Statistics tab lives next to it in `%APPDATA%\tuick-tack\history.jsonl` (append-only JSONL, cap 2000, atomic trim): it is data, not settings, and does not make config.json a second store. The Windows registry is used **only** for autostart (`HKCU\...\Run`), the per-user AUMID registration (`HKCU\Software\Classes\AppUserModelId\Juankyyy.TuickTack`, `DisplayName`) and the standard Inno uninstall entry (read-only from the app; written by the setup), never for app state. Do not add SQLite or a second config store.
 - Localization: all user-facing copy lives in `internal/tui/copy`; UI code reads it via `copy.T(...)`. Do not hardcode labels, tooltips, dialogs or toasts in widgets. The v1 UI is English; if Spanish is added later, its messages live in the same package.
 - Dependencies pinned for a reason keep a comment next to them; do not bump until the packages are compatible. Bubble Tea/Lipgloss v2 use the `charm.land/...` module paths and the v2 API; `systray` v1.12.2 is the Fyne fork with left/right-click callbacks and package-level menu state.
 - Keep time-dependent logic testable by injecting a clock; never call `time.Now()` in domain logic that has tests. `time.Now()` belongs in `main`/wiring; tests use a fake clock. The engine relies on the monotonic reading inside `time.Time`.
-- Config schema version is `4`. Bump it and add a migration before adding/changing fields; back up a corrupt config and fall back to defaults.
+- Config schema version is `5`. Bump it and add a migration before adding/changing fields; back up a corrupt config and fall back to defaults.
 - No cgo: build with `CGO_ENABLED=0`. `systray` and `go-winio` are pure Go on Windows.
 - No wide runes or emoji in the TUI. Every glyph must be one terminal cell; test layouts at 80×24 and 120×40.
 - All TUI rendering goes through `internal/tui/canvas`; do not scatter raw ANSI outside the canvas serializer.

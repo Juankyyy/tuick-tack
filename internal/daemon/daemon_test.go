@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sys/windows"
 
 	"tuick-tack/internal/config"
+	"tuick-tack/internal/ipc"
 )
 
 func TestAutostartCommand(t *testing.T) {
@@ -216,6 +217,40 @@ func TestSetWindowSizePersists(t *testing.T) {
 	if got := d.Config(); got.WindowWidth != 150 || got.WindowHeight != 50 ||
 		got.WindowPosition == nil || got.WindowPosition.X != 93 {
 		t.Fatalf("invalid values changed the config: %+v", got)
+	}
+}
+
+func TestSetBackgroundPersists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	store := config.NewStore(path)
+	cfg := config.Default()
+	if err := store.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	d := &Daemon{
+		logger: log.New(io.Discard, "", 0),
+		store:  store,
+		cfg:    cfg,
+		server: ipc.NewServer("", "test", nil),
+	}
+
+	d.setBackground(nil, config.BackgroundStars)
+	got := d.Config()
+	if got.Background != config.BackgroundStars {
+		t.Fatalf("background = %q, want %q", got.Background, config.BackgroundStars)
+	}
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Background != config.BackgroundStars {
+		t.Fatalf("background not persisted: %+v", loaded)
+	}
+
+	// An invalid name is ignored instead of corrupting the config.
+	d.setBackground(nil, "neon")
+	if got := d.Config(); got.Background != config.BackgroundStars {
+		t.Fatalf("invalid background changed the config: %+v", got)
 	}
 }
 

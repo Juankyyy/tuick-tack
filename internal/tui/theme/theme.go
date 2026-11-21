@@ -146,6 +146,53 @@ func Pulse(a, b color.RGBA, phase float64) color.RGBA {
 	return Lerp(a, b, t)
 }
 
+// Luminance returns the WCAG relative luminance of c (0 is black, 1 is white).
+func Luminance(c color.RGBA) float64 {
+	channel := func(v uint8) float64 {
+		s := float64(v) / 255
+		if s <= 0.03928 {
+			return s / 12.92
+		}
+		return math.Pow((s+0.055)/1.055, 2.4)
+	}
+	return 0.2126*channel(c.R) + 0.7152*channel(c.G) + 0.0722*channel(c.B)
+}
+
+// Contrast returns the WCAG contrast ratio between two colors (1..21).
+func Contrast(a, b color.RGBA) float64 {
+	la, lb := Luminance(a), Luminance(b)
+	if lb > la {
+		la, lb = lb, la
+	}
+	return (la + 0.05) / (lb + 0.05)
+}
+
+// Ink keeps the hue of c but mixes it toward black until it reaches at least
+// minContrast against bg. Light stage text uses it so a transparent background
+// stays readable over a light terminal. Colors that already meet the target
+// are returned unchanged; if even black cannot reach it, black is returned.
+func Ink(c, bg color.RGBA, minContrast float64) color.RGBA {
+	if minContrast <= 1 || Contrast(c, bg) >= minContrast {
+		return c
+	}
+	black := color.RGBA{A: 0xFF}
+	if Contrast(black, bg) < minContrast {
+		return black
+	}
+	// Contrast grows monotonically as the mix approaches black, so a binary
+	// search finds the lightest variant that still meets the target.
+	lo, hi := 0.0, 1.0
+	for i := 0; i < 18; i++ {
+		mid := (lo + hi) / 2
+		if Contrast(Lerp(black, c, mid), bg) >= minContrast {
+			lo = mid
+		} else {
+			hi = mid
+		}
+	}
+	return Lerp(black, c, lo)
+}
+
 // HSL converts a hue (0..1), saturation (0..1) and lightness (0..1) to an
 // opaque color. Hue wraps around; saturation and lightness are clamped.
 func HSL(h, s, l float64) color.RGBA {

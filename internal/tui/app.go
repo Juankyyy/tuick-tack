@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"image/color"
 	"math/rand"
 	"strconv"
 	"strings"
@@ -171,6 +172,16 @@ type Model struct {
 	snapAt   time.Time
 	cfg      config.Config
 	pal      theme.Theme
+	// termLight is true when the terminal background is light and
+	// termBG is its RGB color. They come from the OSC 11 reply and let the
+	// transparent "none" background switch its stage text to a dark palette.
+	termLight   bool
+	termBG      color.RGBA
+	termBGKnown bool
+	// backgroundSupported is true when the daemon's config carries a
+	// background, so set_background is safe to send. An older daemon leaves it
+	// empty and the TUI keeps the choice local for this session.
+	backgroundSupported bool
 
 	width, height int
 	hits          []hitbox
@@ -230,7 +241,9 @@ type Model struct {
 	finishedAt       time.Time
 	confetti         *fx.Confetti
 	dust             *fx.Dust
+	backdrop         fx.Backdrop
 	animTime         float64
+	backdropTime     float64
 	lastTick         time.Time
 
 	toast      string
@@ -302,6 +315,7 @@ func newModel(pipe string, now func() time.Time, seed int64) *Model {
 		presetFocus: presetFocusList,
 		connecting:  true,
 		dust:        fx.NewDust(seed, 80, 24),
+		backdrop:    fx.NewBackdrop(cfg.Background, seed, 80, 24),
 		lastTick:    now(),
 		openURL:     browser.Open,
 		openPath:    explorer.ShowInFolder,
@@ -311,9 +325,10 @@ func newModel(pipe string, now func() time.Time, seed int64) *Model {
 	return m
 }
 
-// Init starts the connection and the render tick.
+// Init starts the connection, the render tick and the terminal background
+// query used by the transparent "none" background.
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(connectCmd(m.pipe), tickCmd(100*time.Millisecond))
+	return tea.Batch(connectCmd(m.pipe), tickCmd(100*time.Millisecond), tea.RequestBackgroundColor)
 }
 
 // Update implements tea.Model.
@@ -321,6 +336,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		return m, m.handleWindowSize(msg.Width, msg.Height)
+	case tea.BackgroundColorMsg:
+		if msg.Color == nil {
+			// A malformed OSC 11 reply can carry a nil color; RGBA would
+			// panic, and an unknown background must keep the active palette.
+			return m, nil
+		}
+		r, g, b, _ := msg.RGBA()
+		m.termBG = color.RGBA{R: uint8(r >> 8), G: uint8(g >> 8), B: uint8(b >> 8), A: 0xFF}
+		m.termLight = lightBackground(m.termBG)
+		m.termBGKnown = true
+		return m, nil
 	case windowSaveMsg:
 		return m, m.handleWindowSave(msg)
 	case windowSavedMsg:
@@ -410,6 +436,9 @@ func (m *Model) handleConnected(msg connectedMsg) tea.Cmd {
 	m.applyConfig(protocol.ConfigMessage{ConfigPayload: msg.hello.Config})
 	m.setUpdate(msg.hello.Update)
 	cmds := []tea.Cmd{readCmd(m.client)}
+	if m.noneBackground() {
+		cmds = append(cmds, tea.RequestBackgroundColor)
+	}
 	if cmd := m.noteHelloWindow(msg.hello.Window); cmd != nil {
 		cmds = append(cmds, cmd)
 	}
@@ -505,6 +534,13 @@ func (m *Model) handleTick() tea.Cmd {
 	}
 	m.lastTick = now
 	m.animTime += dt.Seconds()
+	backdropPace := 1.0
+	if m.status() == engine.Paused {
+		// Slow the ambient clock instead of scaling absolute time inside the
+		// effect: that would make the particles jump on pause and resume.
+		backdropPace = 0.25
+	}
+	m.backdropTime += dt.Seconds() * backdropPace
 	if m.dust != nil {
 		m.dust.Update(dt.Seconds())
 	}
@@ -531,13 +567,25 @@ func (m *Model) handleTick() tea.Cmd {
 }
 
 func (m *Model) applyConfig(cfg protocol.ConfigMessage) {
+	// An older daemon has no background field. Keep the local choice in that
+	// case instead of resetting the screen on every unrelated config broadcast.
+	background := cfg.Background
+	supported := background != ""
+	if !config.ValidBackground(background) {
+		if background == "" && config.ValidBackground(m.cfg.Background) {
+			background = m.cfg.Background
+		} else {
+			background = config.DefaultBackground
+		}
+	}
 	c := config.Config{
-		Version:   config.Version,
-		Theme:     cfg.Theme,
-		Sound:     cfg.Sound,
-		SoundName: cfg.SoundName,
-		Volume:    cfg.Volume,
-		Presets:   append([]config.Preset(nil), cfg.Presets...),
+		Version:    config.Version,
+		Theme:      cfg.Theme,
+		Background: background,
+		Sound:      cfg.Sound,
+		SoundName:  cfg.SoundName,
+		Volume:     cfg.Volume,
+		Presets:    append([]config.Preset(nil), cfg.Presets...),
 	}
 	if !config.ValidTheme(c.Theme) {
 		c.Theme = "midnight"
@@ -552,8 +600,10 @@ func (m *Model) applyConfig(cfg protocol.ConfigMessage) {
 	if !config.ValidVolume(c.Volume) {
 		c.Volume = config.DefaultVolume
 	}
+	m.backgroundSupported = supported
 	m.cfg = c
 	m.pal = theme.Get(c.Theme)
+	m.setBackdrop(c.Background)
 	if m.modal == modalSound {
 		m.soundCursor = soundIndex(c.SoundName)
 	}
@@ -1141,7 +1191,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 		switch text {
-		case "p", "v", "s", "?":
+		case "p", "v", "s", "b", "?":
 			return nil
 		}
 	} else {
@@ -1198,6 +1248,11 @@ func (m *Model) handleIdleKey(key tea.Key) tea.Cmd {
 		return nil
 	case text == "t":
 		return m.cycleTheme()
+	case text == "b":
+		if m.input != "" {
+			return nil
+		}
+		return m.cycleBackground()
 	case text == "u":
 		return m.updateKey()
 	case text == "s":
@@ -1237,6 +1292,8 @@ func (m *Model) handleTimerKey(key tea.Key) tea.Cmd {
 	case text == "v":
 		m.openSound()
 		return nil
+	case text == "b":
+		return m.cycleBackground()
 	case text == "s":
 		return m.openStats()
 	case text == "m":
@@ -1262,6 +1319,8 @@ func (m *Model) handleFinishedKey(key tea.Key) tea.Cmd {
 	case text == "v":
 		m.openSound()
 		return nil
+	case text == "b":
+		return m.cycleBackground()
 	case text == "s":
 		return m.openStats()
 	case text == "m":
@@ -1726,6 +1785,36 @@ func (m *Model) cycleTheme() tea.Cmd {
 	m.pal = theme.Get(next)
 	m.showToast(copy.T(copy.ToastTheme, next))
 	return m.send(protocol.ClientMessage{Type: protocol.TypeSetTheme, Name: next})
+}
+
+// setBackdrop swaps the ambient layer only when the name really changes, so a
+// daemon broadcast does not reset the effect's phase.
+func (m *Model) setBackdrop(name string) {
+	if !config.ValidBackground(name) {
+		name = config.DefaultBackground
+	}
+	if m.backdrop != nil && m.backdrop.Name() == name {
+		return
+	}
+	w, h := m.viewSize()
+	m.backdrop = fx.NewBackdrop(name, m.seed, w, h)
+}
+
+func (m *Model) cycleBackground() tea.Cmd {
+	next := config.NextBackground(m.cfg.Background)
+	m.cfg.Background = next
+	m.setBackdrop(next)
+	m.showToast(copy.T(copy.ToastBackground, copy.BackgroundName(next)))
+	var cmds []tea.Cmd
+	if m.connected && m.client != nil && m.backgroundSupported {
+		cmds = append(cmds, m.send(protocol.ClientMessage{Type: protocol.TypeSetBackground, Name: next}))
+	}
+	if next == config.BackgroundNone {
+		// The terminal profile may have changed; refresh the light/dark stage
+		// palette when the user enters the transparent background.
+		cmds = append(cmds, tea.RequestBackgroundColor)
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m *Model) openSound() {

@@ -98,6 +98,39 @@ func TestHSLPastelStaysMuted(t *testing.T) {
 	}
 }
 
+func TestContrastAndInk(t *testing.T) {
+	white := color.RGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}
+	black := color.RGBA{A: 0xFF}
+	if got := Contrast(white, black); got < 20.9 || got > 21.1 {
+		t.Fatalf("white/black contrast = %.2f, want 21", got)
+	}
+	if got := Contrast(white, white); got != 1 {
+		t.Fatalf("white/white contrast = %.2f, want 1", got)
+	}
+	if Luminance(white) < 0.99 || Luminance(black) != 0 {
+		t.Fatalf("luminance white=%.3f black=%.3f", Luminance(white), Luminance(black))
+	}
+
+	// Dark colors that already meet the target are untouched.
+	dark := color.RGBA{R: 0x20, G: 0x30, B: 0x40, A: 0xFF}
+	if got := Ink(dark, white, 4.5); got != dark {
+		t.Fatalf("Ink changed a readable color: %+v", got)
+	}
+	// A pastel accent is darkened just enough to meet the target.
+	accent := Get("midnight").Accent
+	ink := Ink(accent, white, 4.5)
+	if got := Contrast(ink, white); got < 4.5 {
+		t.Fatalf("ink contrast = %.2f, want at least 4.5", got)
+	}
+	if ink == accent {
+		t.Fatal("Ink returned the unreadable accent unchanged")
+	}
+	// A target even black cannot meet falls back to black.
+	if got := Ink(color.RGBA{R: 0x20, G: 0x20, B: 0x20, A: 0xFF}, black, 4.5); got != black {
+		t.Fatalf("Ink on black = %+v, want black", got)
+	}
+}
+
 func maxChannel(c color.RGBA) int {
 	return int(maxInt(int(c.R), maxInt(int(c.G), int(c.B))))
 }

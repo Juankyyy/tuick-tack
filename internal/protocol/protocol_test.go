@@ -21,6 +21,7 @@ func TestClientRoundTrip(t *testing.T) {
 		{Type: TypePresetUpdate, ID: "abc", Label: "Deep work", Seconds: 1500},
 		{Type: TypePresetDelete, ID: "abc"},
 		{Type: TypeSetTheme, Name: config.ThemeEmber},
+		{Type: TypeSetBackground, Name: config.BackgroundStars},
 		{Type: TypeSetSound, Enabled: &enabled},
 		{Type: TypeSetSoundName, SoundName: config.SoundMarimba},
 		{Type: TypeSetVolume, Volume: &volume},
@@ -104,6 +105,7 @@ func TestStateWithoutDeadline(t *testing.T) {
 func TestHelloAndConfigRoundTrip(t *testing.T) {
 	c := config.Default()
 	c.Theme = config.ThemeMono
+	c.Background = config.BackgroundWaves
 	c.WindowWidth, c.WindowHeight = 140, 45
 	c.WindowPosition = &config.WindowPosition{X: -120, Y: 100}
 	upd := &UpdatePayload{Latest: "v0.2.0", URL: "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0", Notes: "## What's new\n\n- Faster\n"}
@@ -115,6 +117,7 @@ func TestHelloAndConfigRoundTrip(t *testing.T) {
 	}
 	h, ok := back.(HelloMessage)
 	if !ok || h.Protocol != Version || h.Config.Theme != config.ThemeMono ||
+		h.Config.Background != config.BackgroundWaves ||
 		len(h.Config.Presets) != 3 || h.Config.SoundName != c.SoundName ||
 		h.Config.Volume != c.Volume || h.Update == nil || h.Update.Latest != "v0.2.0" ||
 		h.Update.URL != upd.URL || h.Update.Notes != upd.Notes {
@@ -135,8 +138,26 @@ func TestHelloAndConfigRoundTrip(t *testing.T) {
 	}
 	cm, ok := back.(ConfigMessage)
 	if !ok || cm.Sound != c.Sound || len(cm.Presets) != 3 ||
+		cm.Background != config.BackgroundWaves ||
 		cm.SoundName != c.SoundName || cm.Volume != c.Volume {
 		t.Fatalf("unexpected config: %#v", back)
+	}
+}
+
+func TestConfigWithoutBackgroundDecodesEmpty(t *testing.T) {
+	// An older daemon omits the field; the TUI treats it as "keep the local
+	// background" instead of failing the handshake.
+	data := []byte(`{"type":"config","presets":[],"theme":"midnight","sound":true,"sound_name":"digital","volume":80}`)
+	back, err := DecodeServer(data)
+	if err != nil {
+		t.Fatalf("DecodeServer: %v", err)
+	}
+	cm, ok := back.(ConfigMessage)
+	if !ok {
+		t.Fatalf("decoded %#v, want ConfigMessage", back)
+	}
+	if cm.Background != "" {
+		t.Fatalf("missing background decoded as %q, want empty", cm.Background)
 	}
 }
 
@@ -317,6 +338,9 @@ func TestValidate(t *testing.T) {
 		{"restore", ClientMessage{Type: TypePresetsRestoreDefault}, ""},
 		{"theme", ClientMessage{Type: TypeSetTheme, Name: config.ThemeEmber}, ""},
 		{"bad theme", ClientMessage{Type: TypeSetTheme, Name: "neon"}, CodeInvalidTheme},
+		{"background", ClientMessage{Type: TypeSetBackground, Name: config.BackgroundStars}, ""},
+		{"bad background", ClientMessage{Type: TypeSetBackground, Name: "neon"}, CodeInvalidBackground},
+		{"missing background", ClientMessage{Type: TypeSetBackground}, CodeInvalidBackground},
 		{"sound on", ClientMessage{Type: TypeSetSound, Enabled: &enabled}, ""},
 		{"sound off", ClientMessage{Type: TypeSetSound, Enabled: &disabled}, ""},
 		{"sound missing", ClientMessage{Type: TypeSetSound}, CodeInvalidCommand},

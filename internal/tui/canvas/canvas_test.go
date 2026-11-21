@@ -82,6 +82,84 @@ func TestDim(t *testing.T) {
 	}
 }
 
+func TestDimLeavesTransparent(t *testing.T) {
+	th := theme.Get("midnight")
+	c := New(2, 1)
+	c.Set(0, 0, 'a', Fg(th.Text))
+	c.Set(1, 0, 'b', Bg(th.Panel))
+	before := c.At(0, 0).FG
+	c.Dim(0.5)
+	if got := c.At(0, 0); got.FG.R >= before.R || got.HasBG {
+		t.Fatalf("text-only cell should dim its foreground and stay transparent: %+v", got)
+	}
+	if got := c.At(1, 0); !got.HasBG || got.HasFG {
+		t.Fatalf("background-only cell should keep its background and no foreground: %+v", got)
+	}
+}
+
+func TestRenderTransparentCanvas(t *testing.T) {
+	c := New(3, 1)
+	s := c.Render()
+	if strings.Contains(s, "38;2;") || strings.Contains(s, "48;2;") {
+		t.Fatalf("empty canvas should not set colors: %q", s)
+	}
+	plain := ansi.ReplaceAllString(s, "")
+	if got := Width(plain); got != 3 {
+		t.Fatalf("plain width = %d, want 3", got)
+	}
+}
+
+func TestRenderMixedTransparentCells(t *testing.T) {
+	th := theme.Get("midnight")
+	c := New(4, 1)
+	c.Set(0, 0, 'a', Full(th.Text, th.Panel))
+	c.Set(1, 0, 'b', Fg(th.Text))
+	c.Set(2, 0, 'c', Full(th.Text, th.Panel))
+	c.Set(3, 0, ' ', Fg(th.Text))
+	s := c.Render()
+	if strings.Contains(s, "48;2;0;0;0") {
+		t.Fatalf("renderer invented a black background: %q", s)
+	}
+	if got := strings.Count(s, "48;2;"); got != 2 {
+		t.Fatalf("background runs = %d, want 2: %q", got, s)
+	}
+	if got := strings.Count(s, "38;2;"); got != 4 {
+		t.Fatalf("foreground runs = %d, want 4: %q", got, s)
+	}
+	plain := ansi.ReplaceAllString(s, "")
+	if got := Width(plain); got != 4 {
+		t.Fatalf("plain width = %d, want 4", got)
+	}
+}
+
+func TestRenderBackgroundOnlyCell(t *testing.T) {
+	th := theme.Get("midnight")
+	c := New(3, 1)
+	c.Set(1, 0, ' ', Bg(th.Panel))
+	s := c.Render()
+	if got := strings.Count(s, "48;2;"); got != 1 {
+		t.Fatalf("background runs = %d, want 1: %q", got, s)
+	}
+	if strings.Contains(s, "38;2;") {
+		t.Fatalf("background-only cell should not set a foreground: %q", s)
+	}
+}
+
+func TestRenderBoldTransition(t *testing.T) {
+	th := theme.Get("midnight")
+	c := New(2, 1)
+	c.Set(0, 0, 'a', Style{FG: th.Text, HasFG: true, Bold: true})
+	c.Set(1, 0, 'b', Fg(th.Text))
+	s := c.Render()
+	if !strings.Contains(s, ";1m") {
+		t.Fatalf("bold cell did not emit the bold attribute: %q", s)
+	}
+	plain := ansi.ReplaceAllString(s, "")
+	if got := Width(plain); got != 2 {
+		t.Fatalf("plain width = %d, want 2", got)
+	}
+}
+
 func TestResize(t *testing.T) {
 	c := New(2, 2)
 	c.Set(0, 0, 'a', Fg(theme.Get("midnight").Text))
@@ -107,7 +185,7 @@ func TestRenderNoTrailingNewline(t *testing.T) {
 	if strings.HasSuffix(s, "\n") {
 		t.Fatal("render should not end with a newline")
 	}
-	if !strings.Contains(s, "\x1b[38;2;") {
+	if !strings.Contains(s, "\x1b[48;2;") {
 		t.Fatal("render should use truecolor")
 	}
 }

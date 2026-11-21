@@ -259,7 +259,8 @@ func (s *Server) BroadcastState(st engine.State) {
 	s.Broadcast(protocol.NewState(st))
 }
 
-// BroadcastConfig sends the presets, theme, sound selection and volume.
+// BroadcastConfig sends the presets, theme, background, sound selection and
+// volume.
 func (s *Server) BroadcastConfig(c config.Config) {
 	s.Broadcast(protocol.NewConfig(c))
 }

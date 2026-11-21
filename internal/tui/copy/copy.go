@@ -263,11 +263,20 @@ const (
 	ToastDeleted     = Key("toast.deleted")
 	ToastRestored    = Key("toast.restored")
 	ToastTheme       = Key("toast.theme")
+	ToastBackground  = Key("toast.background")
 	ToastSoundOn     = Key("toast.sound.on")
 	ToastSoundOff    = Key("toast.sound.off")
 	ToastReplaced    = Key("toast.replaced")
 	ToastUpdateFound = Key("toast.update.found")
 	ToastUpToDate    = Key("toast.update.uptodate")
+
+	BackgroundAurora    = Key("background.aurora")
+	BackgroundStars     = Key("background.stars")
+	BackgroundFireflies = Key("background.fireflies")
+	BackgroundRain      = Key("background.rain")
+	BackgroundWaves     = Key("background.waves")
+	BackgroundGrid      = Key("background.grid")
+	BackgroundNone      = Key("background.none")
 
 	Minutes = Key("unit.minutes")
 
@@ -541,7 +550,7 @@ var texts = map[Key]string{
 	HelpTitle:  "Help",
 	HelpIdle:   "type a duration · [Enter] start · [←→] select preset",
 	HelpTimer:  "[Space] pause/resume · [Esc] cancel · [+/-] adjust 1 min",
-	HelpModal:  "[p] presets · [t] theme · [v] sound · [s] stats",
+	HelpModal:  "[p] presets · [t] theme · [v] sound · [s] stats · [b] background",
 	HelpClose:  "[Esc] or [Enter] to close",
 	HelpQuit:   "[q] closes the TUI; the tray keeps running",
 	HelpUpdate: "updates: [u] check · dialog: [Tab] type · [↑/↓] notes",
@@ -578,11 +587,20 @@ var texts = map[Key]string{
 	ToastDeleted:     "Preset deleted",
 	ToastRestored:    "Default presets restored",
 	ToastTheme:       "%s theme",
+	ToastBackground:  "%s background",
 	ToastSoundOn:     "Sound on",
 	ToastSoundOff:    "Sound off",
 	ToastReplaced:    "Countdown replaced",
 	ToastUpdateFound: "%s available",
 	ToastUpToDate:    "Up to date (latest %s)",
+
+	BackgroundAurora:    "Aurora",
+	BackgroundStars:     "Stars",
+	BackgroundFireflies: "Fireflies",
+	BackgroundRain:      "Rain",
+	BackgroundWaves:     "Tide",
+	BackgroundGrid:      "Sunset",
+	BackgroundNone:      "None",
 
 	Minutes: "min",
 
@@ -705,4 +723,25 @@ func T(key Key, args ...any) string {
 		return s
 	}
 	return fmt.Sprintf(s, args...)
+}
+
+// BackgroundName returns the display name of a background ID. Unknown IDs fall
+// back to the original aurora so the toast always has a label.
+func BackgroundName(name string) string {
+	switch name {
+	case config.BackgroundStars:
+		return T(BackgroundStars)
+	case config.BackgroundFireflies:
+		return T(BackgroundFireflies)
+	case config.BackgroundRain:
+		return T(BackgroundRain)
+	case config.BackgroundWaves:
+		return T(BackgroundWaves)
+	case config.BackgroundGrid:
+		return T(BackgroundGrid)
+	case config.BackgroundNone:
+		return T(BackgroundNone)
+	default:
+		return T(BackgroundAurora)
+	}
 }

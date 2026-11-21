@@ -17,6 +17,7 @@ import (
 	"tuick-tack/internal/tui/bigfont"
 	"tuick-tack/internal/tui/canvas"
 	"tuick-tack/internal/tui/copy"
+	"tuick-tack/internal/tui/fx"
 	"tuick-tack/internal/tui/notes"
 	"tuick-tack/internal/tui/theme"
 )
@@ -76,8 +77,8 @@ func (m *Model) View() tea.View {
 	if m.compact() {
 		m.drawCompact(c, w, h)
 	} else {
-		m.drawBackground(c, w, h)
-		if m.dust != nil {
+		m.drawBackdrop(c, w, h)
+		if m.showDust() {
 			m.dust.Draw(c, theme.Lerp(m.pal.BG, m.pal.Muted, 0.55))
 		}
 		if m.celebrating && m.confetti != nil {
@@ -95,8 +96,10 @@ func (m *Model) View() tea.View {
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeAllMotion
 	v.WindowTitle = buildinfo.Name
-	v.BackgroundColor = lipgloss.Color(theme.Hex(m.pal.BG))
-	v.ForegroundColor = lipgloss.Color(theme.Hex(m.pal.Text))
+	if !m.noneBackground() {
+		v.BackgroundColor = lipgloss.Color(theme.Hex(m.pal.BG))
+		v.ForegroundColor = lipgloss.Color(theme.Hex(m.pal.Text))
+	}
 	return v
 }
 
@@ -213,45 +216,68 @@ func (m *Model) layout(w, h int) viewLayout {
 	}
 }
 
-func (m *Model) drawBackground(c *canvas.Canvas, w, h int) {
-	if w <= 0 || h <= 0 {
+func (m *Model) drawBackdrop(c *canvas.Canvas, w, h int) {
+	if m.backdrop == nil {
+		m.backdrop = fx.NewBackdrop(config.DefaultBackground, m.seed, w, h)
+	}
+	m.backdrop.Resize(w, h)
+	m.backdrop.Draw(c, m.pal, m.backdropTime, fx.State{
+		Progress:    m.progress(),
+		Paused:      m.status() == engine.Paused,
+		Urgent:      m.status() == engine.Running && m.remaining() <= 10*time.Second,
+		Celebrating: m.celebrating,
+	})
+	m.drawFlash(c)
+}
+
+// noneBackground reports whether the selected backdrop is the transparent
+// "none" option. It is the single place that decides whether the TUI is allowed
+// to paint or set a background.
+func (m *Model) noneBackground() bool {
+	return m.backdrop != nil && m.backdrop.Name() == config.BackgroundNone
+}
+
+// showDust keeps the original 30-mote field around the quiet, particle-free
+// backgrounds. Stars, fireflies, rain, sunset and none are cleaner without it.
+func (m *Model) showDust() bool {
+	if m.dust == nil || m.backdrop == nil {
+		return m.dust != nil
+	}
+	switch m.backdrop.Name() {
+	case config.BackgroundNone, config.BackgroundStars, config.BackgroundFireflies,
+		config.BackgroundRain, config.BackgroundGrid:
+		return false
+	default:
+		return true
+	}
+}
+
+// drawFlash adds the short celebration flash on top of the ambient layer. It
+// uses the same theme.Lerp as the old background so the tint keeps its exact
+// rounding, and it runs before the dust and confetti so those stay crisp.
+func (m *Model) drawFlash(c *canvas.Canvas) {
+	if !m.celebrating {
 		return
 	}
-	now := m.now()
-	flash := 0.0
-	if m.celebrating {
-		age := now.Sub(m.celebrationStart).Seconds()
-		if age >= 0 && age < 0.12 {
-			flash = 0.35 * (1 - age/0.12)
-		}
+	// "none" has no ambient background to tint: a full-screen flash would
+	// paint one and hide the terminal's own background.
+	if m.noneBackground() {
+		return
 	}
-	r := float64(maxInt(w, h)) * 0.62
-	cx1 := float64(w)*0.24 + math.Sin(m.animTime*0.07)*float64(w)*0.08
-	cy1 := float64(h)*0.32 + math.Cos(m.animTime*0.05)*float64(h)*0.10
-	cx2 := float64(w)*0.78 + math.Cos(m.animTime*0.06)*float64(w)*0.06
-	cy2 := float64(h)*0.72 + math.Sin(m.animTime*0.04)*float64(h)*0.08
-	for y := 0; y < h; y++ {
-		t := 0.0
-		if h > 1 {
-			t = float64(y) / float64(h-1)
-		}
-		row := theme.Lerp(m.pal.BG, m.pal.BG2, t)
-		for x := 0; x < w; x++ {
-			base := row
-			d1 := math.Hypot(float64(x)-cx1, float64(y)-cy1)
-			if d1 < r {
-				i := (1 - d1/r) * (1 - d1/r) * 0.16
-				base = theme.Lerp(base, m.pal.Accent, i)
+	age := m.now().Sub(m.celebrationStart).Seconds()
+	if age < 0 || age >= 0.12 {
+		return
+	}
+	flash := 0.35 * (1 - age/0.12)
+	for y := 0; y < c.H; y++ {
+		for x := 0; x < c.W; x++ {
+			cell := c.At(x, y)
+			if !cell.HasBG {
+				continue
 			}
-			d2 := math.Hypot(float64(x)-cx2, float64(y)-cy2)
-			if d2 < r {
-				i := (1 - d2/r) * (1 - d2/r) * 0.13
-				base = theme.Lerp(base, m.pal.Accent2, i)
-			}
-			if flash > 0 {
-				base = theme.Lerp(base, m.pal.Text, flash)
-			}
-			c.Set(x, y, ' ', canvas.Bg(base))
+			// Keep the glyph: stars, fireflies and rain paint a foreground
+			// over the background, and the flash must not erase them.
+			c.Set(x, y, cell.Ch, canvas.Bg(theme.Lerp(cell.BG, m.pal.Text, flash)))
 		}
 	}
 }
@@ -268,16 +294,17 @@ func (m *Model) drawContent(c *canvas.Canvas, l viewLayout) {
 		m.drawMeta(c, l.metaY, l.x, l.w)
 	}
 
-	hintStyle := canvas.Fg(theme.Lerp(m.pal.BG, m.pal.Muted, 0.8))
+	hintStyle := canvas.Fg(m.stageInk(theme.Lerp(m.pal.BG, m.pal.Muted, 0.8), stageDimContrast))
 	switch m.status() {
 	case engine.Running, engine.Paused:
 		if l.controlsY > l.metaY {
 			m.drawTimerControls(c, l.controlsY, l.x, l.w)
 		}
-		m.drawCentered(c, l.hintY, copy.T(copy.ControlsRunning), hintStyle, l.x, l.w)
+		hint := copy.T(copy.ControlsRunning)
 		if m.status() == engine.Paused {
-			m.drawCentered(c, l.hintY, copy.T(copy.ControlsPaused), hintStyle, l.x, l.w)
+			hint = copy.T(copy.ControlsPaused)
 		}
+		m.drawCentered(c, l.hintY, hint, hintStyle, l.x, l.w)
 	case engine.Finished:
 		if l.controlsY > l.metaY {
 			m.drawFinishedControls(c, l.controlsY, l.x, l.w)
@@ -288,7 +315,7 @@ func (m *Model) drawContent(c *canvas.Canvas, l viewLayout) {
 			m.drawInput(c, l.inputY, l.x, l.w)
 		}
 		if m.inputErr != "" {
-			m.drawCentered(c, l.chipsY, m.inputErr, canvas.Fg(m.pal.Danger), l.x, l.w)
+			m.drawCentered(c, l.chipsY, m.inputErr, canvas.Fg(m.stageInk(m.pal.Danger, stageAccentContrast)), l.x, l.w)
 		} else if l.chipsY > l.labelY {
 			m.drawChips(c, l.chipsY, l.x, l.w)
 		}
@@ -297,7 +324,7 @@ func (m *Model) drawContent(c *canvas.Canvas, l viewLayout) {
 
 	// Secondary hint, quieter than the key line above it and below it on screen.
 	if l.subHintY >= 0 {
-		dim := theme.Lerp(m.pal.BG, m.pal.Muted, 0.5)
+		dim := m.stageInk(theme.Lerp(m.pal.BG, m.pal.Muted, 0.5), stageDimContrast)
 		hint := copy.T(copy.UpdateHint)
 		if m.update != nil {
 			hint = copy.T(copy.UpdateHintNew, m.update.Latest)
@@ -307,24 +334,27 @@ func (m *Model) drawContent(c *canvas.Canvas, l viewLayout) {
 
 	if !m.connected {
 		msg := copy.T(copy.Connecting)
-		col := m.pal.Muted
+		col := m.stageInk(m.pal.Muted, stageMutedContrast)
 		if !m.connecting {
 			msg = copy.T(copy.Disconnected)
-			col = m.pal.Danger
+			col = m.stageInk(m.pal.Danger, stageAccentContrast)
 		}
 		m.drawCentered(c, l.statusY, msg, canvas.Fg(col), l.x, l.w)
 	} else if m.checkingUpdate {
-		m.drawCentered(c, l.statusY, copy.T(copy.UpdateChecking), canvas.Fg(m.pal.Muted), l.x, l.w)
+		m.drawCentered(c, l.statusY, copy.T(copy.UpdateChecking), canvas.Fg(m.stageInk(m.pal.Muted, stageMutedContrast)), l.x, l.w)
 	} else if m.toastActive() {
-		m.drawCentered(c, l.statusY, m.toast, canvas.Fg(m.pal.Warn), l.x, l.w)
+		m.drawCentered(c, l.statusY, m.toast, canvas.Fg(m.stageInk(m.pal.Warn, stageAccentContrast)), l.x, l.w)
 	}
 }
 
 // drawCompact is the plain-text fallback used below the supported minimum: a
-// flat background and a few lines, most useful first, so the clock and the
-// goal stay visible even in a tiny pane. It never draws hits or modals.
+// flat theme background (or a transparent one for "none") and a few lines,
+// most useful first, so the clock and the goal stay visible even in a tiny
+// pane. It never draws hits or modals.
 func (m *Model) drawCompact(c *canvas.Canvas, w, h int) {
-	c.Fill(0, 0, w, h, canvas.Bg(m.pal.BG))
+	if !m.noneBackground() {
+		c.Fill(0, 0, w, h, canvas.Bg(m.pal.BG))
+	}
 	lines := m.compactLines(w)
 	if len(lines) > h {
 		lines = lines[:h]
@@ -334,7 +364,7 @@ func (m *Model) drawCompact(c *canvas.Canvas, w, h int) {
 		y = 0
 	}
 	for _, line := range lines {
-		m.drawCenteredIn(c, 0, y, w, line, canvas.Fg(m.pal.Text))
+		m.drawCenteredIn(c, 0, y, w, line, canvas.Fg(m.stageInk(m.pal.Text, stageTextContrast)))
 		y++
 	}
 }
@@ -468,7 +498,7 @@ func (m *Model) drawHeader(c *canvas.Canvas, x, y, w int) {
 
 	brand := copy.T(copy.Brand)
 	c.Set(x, y, '●', canvas.Fg(dot))
-	c.Text(x+2, y, brand, canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
+	c.Text(x+2, y, brand, canvas.Style{FG: m.stageInk(m.pal.Text, stageTextContrast), HasFG: true, Bold: true})
 	next := x + 2 + canvas.Width(brand)
 	// The running version follows the wordmark as a quiet suffix. When an
 	// update notice is showing, the version leaves room for its shortest form:
@@ -481,7 +511,7 @@ func (m *Model) drawHeader(c *canvas.Canvas, x, y, w int) {
 			need += canvas.Width(short) + 2
 		}
 		if next+need < dotX {
-			c.Text(next, y, label, canvas.Fg(headerVersionColor(m.pal)))
+			c.Text(next, y, label, canvas.Fg(m.stageInk(headerVersionColor(m.pal), stageDimContrast)))
 			next += canvas.Width(label)
 		}
 	}
@@ -491,7 +521,8 @@ func (m *Model) drawHeader(c *canvas.Canvas, x, y, w int) {
 	c.Set(dotX, y, '●', canvas.Fg(dot))
 	c.Text(lx, y, label, canvas.Style{FG: col, HasFG: true, Bold: true})
 	if sub := m.headerSubline(); sub != "" {
-		c.Text(right-canvas.Width(sub)+1, y+1, sub, canvas.Fg(m.pal.Muted))
+		sx := right - canvas.Width(sub) + 1
+		c.Text(sx, y+1, sub, canvas.Fg(m.stageInk(m.pal.Muted, stageMutedContrast)))
 	}
 }
 
@@ -523,6 +554,9 @@ func (m *Model) drawUpdateLink(c *canvas.Canvas, x, y, limit int) {
 	}
 	colors := m.updateColors(len([]rune(text)))
 	hoverBG := theme.Lerp(m.pal.BG, m.pal.Text, 0.12)
+	if m.lightStage() {
+		hoverBG = theme.Lerp(m.termBG, m.stageInk(m.pal.Text, stageTextContrast), 0.12)
+	}
 	cx := x
 	for i, r := range []rune(text) {
 		st := canvas.Style{FG: colors[i], HasFG: true, Bold: true}
@@ -547,10 +581,10 @@ func (m *Model) updateColors(n int) []color.RGBA {
 			t = float64(i) / float64(n-1)
 		}
 		if m.pal.Name == "mono" {
-			colors[i] = theme.Lerp(m.pal.Muted, m.pal.Text, t)
+			colors[i] = m.stageInk(theme.Lerp(m.pal.Muted, m.pal.Text, t), stageMutedContrast)
 			continue
 		}
-		colors[i] = theme.HSL(updateHueSpan*t+m.animTime*updateHueSpeed, updateSat, updateLight)
+		colors[i] = m.stageInk(theme.HSL(updateHueSpan*t+m.animTime*updateHueSpeed, updateSat, updateLight), stageMutedContrast)
 	}
 	return colors
 }
@@ -559,11 +593,11 @@ func (m *Model) headerDot(col color.RGBA) color.RGBA {
 	phase := m.animTime * 2.4
 	switch m.status() {
 	case engine.Running:
-		return theme.Pulse(m.pal.Accent, m.pal.Accent2, phase)
+		return theme.Pulse(m.stageInk(m.pal.Accent, stageAccentContrast), m.stageInk(m.pal.Accent2, stageAccentContrast), phase)
 	case engine.Paused:
-		return m.pal.Warn
+		return m.stageInk(m.pal.Warn, stageAccentContrast)
 	case engine.Finished:
-		return theme.Pulse(m.pal.Warn, m.pal.Danger, phase)
+		return theme.Pulse(m.stageInk(m.pal.Warn, stageAccentContrast), m.stageInk(m.pal.Danger, stageAccentContrast), phase)
 	default:
 		return col
 	}
@@ -594,19 +628,19 @@ func (m *Model) headerSubline() string {
 func (m *Model) statusInfo() (string, color.RGBA) {
 	if !m.connected {
 		if m.connecting {
-			return copy.T(copy.StatusConnecting), m.pal.Muted
+			return copy.T(copy.StatusConnecting), m.stageInk(m.pal.Muted, stageMutedContrast)
 		}
-		return copy.T(copy.StatusOffline), m.pal.Danger
+		return copy.T(copy.StatusOffline), m.stageInk(m.pal.Danger, stageAccentContrast)
 	}
 	switch m.status() {
 	case engine.Running:
-		return copy.T(copy.StatusRunning), m.pal.Accent
+		return copy.T(copy.StatusRunning), m.stageInk(m.pal.Accent, stageAccentContrast)
 	case engine.Paused:
-		return copy.T(copy.StatusPaused), m.pal.Warn
+		return copy.T(copy.StatusPaused), m.stageInk(m.pal.Warn, stageAccentContrast)
 	case engine.Finished:
-		return copy.T(copy.StatusFinished), m.pal.Warn
+		return copy.T(copy.StatusFinished), m.stageInk(m.pal.Warn, stageAccentContrast)
 	default:
-		return copy.T(copy.StatusReady), m.pal.Accent
+		return copy.T(copy.StatusReady), m.stageInk(m.pal.Accent, stageAccentContrast)
 	}
 }
 
@@ -670,6 +704,13 @@ func (m *Model) drawHero(c *canvas.Canvas, y, x, w int) {
 	if m.status() != engine.Paused && m.status() != engine.Finished {
 		hideColon = (m.now().UnixMilli()/500)%2 == 1
 	}
+	shadow := theme.Scale(m.pal.BG, 0.5)
+	if m.lightStage() {
+		// Keep the block shadow, but make it a light gray: a near-black
+		// shadow under dark ink would merge the digits into a dark mass on a
+		// light terminal.
+		shadow = theme.Scale(m.termBG, 0.78)
+	}
 	bx := x + (w-bw)/2
 	if bx < x {
 		bx = x
@@ -678,7 +719,7 @@ func (m *Model) drawHero(c *canvas.Canvas, y, x, w int) {
 		Scale:        scale,
 		Top:          top,
 		Bottom:       bottom,
-		Shadow:       theme.Scale(m.pal.BG, 0.5),
+		Shadow:       shadow,
 		HasShadow:    true,
 		Bold:         true,
 		HideColon:    hideColon,
@@ -687,34 +728,38 @@ func (m *Model) drawHero(c *canvas.Canvas, y, x, w int) {
 }
 
 func (m *Model) heroColors(ghost bool) (canvasColor, canvasColor) {
+	accent := m.stageInk(m.pal.Accent, stageAccentContrast)
+	accent2 := m.stageInk(m.pal.Accent2, stageAccentContrast)
+	warn := m.stageInk(m.pal.Warn, stageAccentContrast)
+	danger := m.stageInk(m.pal.Danger, stageAccentContrast)
 	if ghost {
-		return m.pal.Muted, theme.Lerp(m.pal.BG, m.pal.Border, 0.9)
+		return m.stageInk(m.pal.Muted, stageDimContrast),
+			m.stageInk(theme.Lerp(m.pal.BG, m.pal.Border, 0.9), stageDimContrast)
 	}
 	switch m.status() {
 	case engine.Paused:
-		return m.pal.Warn, theme.Lerp(m.pal.Warn, m.pal.Accent2, 0.45)
+		return warn, theme.Lerp(warn, accent2, 0.45)
 	case engine.Finished:
-		return m.pal.Warn, m.pal.Danger
+		return warn, danger
 	default:
 		if m.remaining() <= 10*time.Second && m.remaining() > 0 {
 			phase := float64(m.now().UnixMilli()) / 220
-			warn := theme.Pulse(m.pal.Warn, m.pal.Danger, phase)
-			return warn, theme.Pulse(m.pal.Danger, m.pal.Accent2, phase+1.2)
+			return theme.Pulse(warn, danger, phase), theme.Pulse(danger, accent2, phase+1.2)
 		}
-		return m.pal.Accent, m.pal.Accent2
+		return accent, accent2
 	}
 }
 
 func (m *Model) drawLabel(c *canvas.Canvas, y, x, w int) {
 	text := copy.T(copy.ReadyTitle)
-	col := m.pal.Muted
+	col := m.stageInk(m.pal.Muted, stageMutedContrast)
 	switch m.status() {
 	case engine.Running, engine.Paused:
 		text = m.currentLabel()
-		col = m.pal.Text
+		col = m.stageInk(m.pal.Text, stageTextContrast)
 	case engine.Finished:
 		text = copy.T(copy.FinishedTitle, m.finishLabel())
-		col = m.pal.Text
+		col = m.stageInk(m.pal.Text, stageTextContrast)
 	}
 	m.drawCentered(c, y, text, canvas.Style{FG: col, HasFG: true, Bold: true}, x, w)
 }
@@ -786,17 +831,17 @@ func (m *Model) drawProgress(c *canvas.Canvas, y, x, w int) {
 
 func (m *Model) drawMeta(c *canvas.Canvas, y, x, w int) {
 	text := copy.T(copy.ReadyMeta)
-	col := m.pal.Muted
+	col := m.stageInk(m.pal.Muted, stageMutedContrast)
 	switch m.status() {
 	case engine.Running:
 		text = copy.T(copy.RunningMeta, duration.Format(m.remaining()))
-		col = m.pal.Muted
+		col = m.stageInk(m.pal.Muted, stageMutedContrast)
 	case engine.Paused:
 		text = copy.T(copy.PausedMeta, duration.Format(m.remaining()))
-		col = m.pal.Warn
+		col = m.stageInk(m.pal.Warn, stageAccentContrast)
 	case engine.Finished:
 		text = copy.T(copy.FinishedMeta)
-		col = m.pal.Muted
+		col = m.stageInk(m.pal.Muted, stageMutedContrast)
 	}
 	m.drawCentered(c, y, text, canvas.Fg(col), x, w)
 }
@@ -811,11 +856,12 @@ func (m *Model) endClock() string {
 func (m *Model) drawInput(c *canvas.Canvas, y, x, w int) {
 	text := m.input
 	prompt := "› "
-	col := m.pal.Text
+	col := m.stageInk(m.pal.Text, stageTextContrast)
 	if text == "" {
 		text = copy.T(copy.InputPlaceholder)
-		col = m.pal.Muted
+		col = m.stageInk(m.pal.Muted, stageMutedContrast)
 	}
+	promptCol := m.stageInk(m.pal.Accent, stageAccentContrast)
 	line := prompt + text
 	lineW := canvas.Width(line)
 	if text == m.input {
@@ -829,12 +875,12 @@ func (m *Model) drawInput(c *canvas.Canvas, y, x, w int) {
 	if sx < x {
 		sx = x
 	}
-	c.Text(sx, y, prompt, canvas.Style{FG: m.pal.Accent, HasFG: true, Bold: true})
+	c.Text(sx, y, prompt, canvas.Style{FG: promptCol, HasFG: true, Bold: true})
 	c.Text(sx+canvas.Width(prompt), y, text, canvas.Fg(col))
 	if text == m.input {
-		c.Set(sx+canvas.Width(prompt)+canvas.Width(text), y, '_', canvas.Style{FG: m.pal.Accent, HasFG: true, Bold: true})
+		c.Set(sx+canvas.Width(prompt)+canvas.Width(text), y, '_', canvas.Style{FG: promptCol, HasFG: true, Bold: true})
 	} else {
-		c.Set(sx+canvas.Width(prompt)+canvas.Width(text)+1, y, '_', canvas.Style{FG: m.pal.Accent, HasFG: true, Bold: true})
+		c.Set(sx+canvas.Width(prompt)+canvas.Width(text)+1, y, '_', canvas.Style{FG: promptCol, HasFG: true, Bold: true})
 	}
 }
 

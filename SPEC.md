@@ -47,7 +47,7 @@ El countdown, el sonido y el icono siguen funcionando aunque se cierre la TUI. A
 - Icono de bandeja con menú contextual para lanzar cualquier preset.
 - Chime de 3–5 s al llegar a 0.
 - Celebración con confeti en la TUI al llegar a 0.
-- Estilo cuidado: fondo aurora a pantalla completa, cabecera de dos alturas, dígitos grandes con degradado y barra de progreso viva con checkpoints.
+- Estilo cuidado: fondo ambiental a pantalla completa, cabecera de dos alturas, dígitos grandes con degradado y barra de progreso viva con checkpoints.
 - El countdown y el sonido sobreviven al cierre de la TUI.
 - Configuración persistente, temas, autostart opcional, build reproducible del `.exe` portable y de un setup por usuario.
 
@@ -127,12 +127,12 @@ Campos de estado:
 ## 7. Protocolo IPC
 
 - Transporte: named pipe de go-winio; mensajes JSON consecutivos con `json.Encoder`/`json.Decoder` sobre `net.Conn`. Los buffers del pipe son explícitos (64 KiB): con los tamaños por defecto una escritura puede esperar a que el cliente lea, y eso bloquearía los snapshots o el aviso final.
-- Handshake: cliente `hello {protocol: 1}` ↔ servidor `hello {protocol: 1, app_version, config, update?, window?}`. `window` es aditivo y siempre lo envía un daemon de esta versión (`{width,height}` en celdas y `position?` en píxeles; ceros si no hay tamaño guardado). Su presencia indica que el daemon entiende `set_window_size`; un daemon viejo lo omite y la TUI no manda ese comando. La posición es opcional: nil significa que no hay ninguna guardada o que el daemon es viejo.
+- Handshake: cliente `hello {protocol: 1}` ↔ servidor `hello {protocol: 1, app_version, config, update?, window?}`. `config` incluye el fondo actual; un daemon viejo lo omite y la TUI conserva su elección local. `window` es aditivo y siempre lo envía un daemon de esta versión (`{width,height}` en celdas y `position?` en píxeles; ceros si no hay tamaño guardado). Su presencia indica que el daemon entiende `set_window_size`; un daemon viejo lo omite y la TUI no manda ese comando. La posición es opcional: nil significa que no hay ninguna guardada o que el daemon es viejo.
 - El servidor acepta N clientes; broadcast de estado a 10 Hz mientras corre (y en cada cambio), y config solo al cambiar.
 - Errores: `{ "type": "error", "code": "...", "message": "..." }`.
 - La TUI reintenta la conexión cada 1 s si se cae; muestra banner de desconexión y deshabilita comandos.
 - `daemon_closing` es la excepción: la TUI sale sin reintentar y sin lanzar un daemon nuevo, porque el cierre lo pidió el usuario desde la bandeja.
-- Los mensajes de servidor desconocidos se decodifican como `IgnoredMessage` y se ignoran, para que un mensaje aditivo no rompa un cliente viejo. Por eso `update`, `update_progress` y `daemon_closing` no suben `Protocol`. El campo `notes` (cuerpo de la release, recortado a 16 KiB) es aditivo dentro de `update` y `update_result`: un daemon viejo no lo envía y una TUI vieja lo ignora. `install_update` y `download_portable` son comandos nuevos: un daemon viejo responde `invalid_command`, que la TUI muestra como actualización no disponible. `set_window_size` también es aditivo: la TUI solo lo envía si el `hello` trae `window`.
+- Los mensajes de servidor desconocidos se decodifican como `IgnoredMessage` y se ignoran, para que un mensaje aditivo no rompa un cliente viejo. Por eso `update`, `update_progress` y `daemon_closing` no suben `Protocol`. El campo `notes` (cuerpo de la release, recortado a 16 KiB) es aditivo dentro de `update` y `update_result`: un daemon viejo no lo envía y una TUI vieja lo ignora. `install_update` y `download_portable` son comandos nuevos: un daemon viejo responde `invalid_command`, que la TUI muestra como actualización no disponible. `set_window_size` también es aditivo: la TUI solo lo envía si el `hello` trae `window`. `set_background` es aditivo: la TUI solo lo envía si el `config` del handshake trae un fondo no vacío; si no, cicla el efecto solo para esa sesión.
 
 Cliente → daemon:
 
@@ -146,6 +146,7 @@ Cliente → daemon:
 | `preset_delete` | `id` |
 | `presets_restore_defaults` | — |
 | `set_theme` | `name` |
+| `set_background` | `name` (`aurora`, `stars`, `fireflies`, `rain`, `waves`, `grid`, `none`) |
 | `set_sound` | `enabled` |
 | `set_sound_name` | `sound_name` |
 | `set_volume` | `volume` |
@@ -165,7 +166,7 @@ Daemon → cliente:
 |---|---|
 | `hello` | `protocol`, `app_version`, `config`, `update?`, `window?` (`width`, `height`, `position?`; siempre presente en daemons de esta versión) |
 | `state` | snapshot del §6 |
-| `config` | `presets`, `theme`, `sound`, `sound_name`, `volume` |
+| `config` | `presets`, `theme`, `background`, `sound`, `sound_name`, `volume` |
 | `update` | `latest`, `url`, `setup?`, `portable?`, `notes?` |
 | `update_result` | `current`, `latest?`, `url?`, `setup?`, `portable?`, `notes?`, `error?` |
 | `update_progress` | `kind` (`setup`/`portable`), `phase`, `received?`, `total?`, `path?`, `error?` |
@@ -179,7 +180,7 @@ Daemon → cliente:
 
 El tamaño y la posición de ventana no se difunden: son geometría del cliente, no estado compartido. El daemon los guarda en config y los devuelve en el siguiente `hello`; no hace broadcast ni refresca la bandeja.
 
-Validación: duración 1..86400 s; etiqueta 1..32 caracteres; máximo 16 presets; tema válido; sonido válido (`chime`, `marimba`, `digital`, `deep`); volumen 0..100; tamaño de ventana 1..1000 por 1..1000 celdas; posición entre -32768 y 32767 en ambos ejes. Comando inválido → error, sin cambiar estado.
+Validación: duración 1..86400 s; etiqueta 1..32 caracteres; máximo 16 presets; tema válido; fondo válido (`aurora`, `stars`, `fireflies`, `rain`, `waves`, `grid`, `none`); sonido válido (`chime`, `marimba`, `digital`, `deep`); volumen 0..100; tamaño de ventana 1..1000 por 1..1000 celdas; posición entre -32768 y 32767 en ambos ejes. Comando inválido → error, sin cambiar estado.
 
 ## 8. Configuración y presets
 
@@ -191,8 +192,9 @@ Rutas (por usuario, sin admin):
 
 ```json
 {
-  "version": 4,
+  "version": 5,
   "theme": "midnight",
+  "background": "aurora",
   "sound": true,
   "sound_name": "digital",
   "volume": 80,
@@ -208,10 +210,11 @@ Rutas (por usuario, sin admin):
 ```
 
 - Semilla de defaults en el primer arranque; presets editables/borrables; “Restore defaults” en el gestor.
+- `background` es el fondo ambiental: `aurora` (el original, por defecto), `stars`, `fireflies`, `rain`, `waves`, `grid` (Sunset) o `none`. `b` cicla en idle/running/paused/finished y el daemon lo guarda; el tema solo cambia la paleta. La aurora conserva el polvo original (y marea lo comparte); estrellas, luciérnagas, lluvia, Sunset y none van sin el polvo extra. `none` no pinta ninguna celda de fondo: se ve el fondo real de la terminal (color, imagen o acrylic); los paneles, botones, barra y modales de la UI sí conservan su propio fondo. El flash de celebración se omite con `none`; el confeti sigue.
 - Sonido por defecto `digital`; volumen por defecto 80, rango 0..100 y pasos de 5 en la UI.
 - `window_width`/`window_height` son el tamaño de terminal preferido en celdas y se omiten mientras no haya preferencia (0). Solo los escribe el daemon cuando la TUI reporta un resize.
 - `window_position` es el borde superior izquierdo exterior de la ventana en píxeles de pantalla (admite negativos en multi-monitor) y se omite mientras no haya preferencia. Solo lo escribe el daemon cuando la TUI reporta un movimiento. Una posición fuera de rango se descarta al normalizar en vez de invalidar toda la config.
-- Migración v1 → v4, v2 → v4 y v3 → v4 al cargar: conserva theme, sound, presets, sonido, volumen y tamaño; v1 fija `sound_name=digital` y `volume=80`; la posición queda sin definir. El daemon guarda la config migrada al arrancar.
+- Migración v1 → v5, v2 → v5, v3 → v5 y v4 → v5 al cargar: conserva theme, sound, presets, sonido, volumen, tamaño y posición; v1 fija `sound_name=digital` y `volume=80`; v1–v4 fijan `background=aurora`; la posición queda sin definir en v1–v3. El daemon guarda la config migrada al arrancar.
 - Escritura atómica (temporal en el mismo directorio + rename). Config corrupta: backup `config.bad-<timestamp>.json` y defaults.
 - Historial de sesiones: una línea JSON por countdown terminado (`started_ms`, `planned_ms`, `elapsed_ms`, `paused_ms?`, `label`, `preset_id?`, `outcome`). `outcome` es `completed` (llega a 0, también ajustando), `stopped` (stop explícito) o `replaced` (un `start` lo sustituye). No se registra un daemon que muere con el timer vivo, igual que el timer no se restaura. Cap 2000 registros con recorte atómico e histéresis (256); las líneas inválidas se saltan y un fichero ilegible se respalda como `history.bad-<timestamp>.jsonl` y arranca vacío. **No vive en `config.json`**: es un log de datos, no ajustes versionados, y no se añade un segundo store de configuración ni una base de datos.
 - El daemon es el único escritor. Para el historial guarda el inicio de pared al arrancar, acumula las pausas y suma los ajustes al planificado, de modo que el registro refleja el objetivo final y el tiempo real. El cálculo de días, horas y rachas usa la zona local y un reloj inyectable en tests.
@@ -230,6 +233,7 @@ Rutas (por usuario, sin admin):
 - **Finished / celebración:** flash + confeti + una palabra grande al azar (`TIME'S UP!`, `DONE!`, `FINISHED!`, `TIME OUT!`, `THE END!`, `BINGO!`); la cabecera muestra `TIME'S UP!` y `at HH:MM`; tras 6 s, pantalla tranquila con resumen y `r` repeat / `Enter` close. A los 10 s del finish la TUI manda `dismiss` y vuelve a idle por sí sola; si hay un modal abierto espera a que se cierre, y un `r` o un cierre manual cancelan el plazo.
 - **Gestión de presets:** lista, añadir (`a`), editar (`e`), borrar (`d` con confirmación), restore defaults (`r`), start (`Enter`), close (`Esc`). `Tab` lleva el foco a la barra de acciones; `←/→` eligen acción y `Enter` la ejecuta. Las acciones que necesitan un preset se atenúan y se saltan si la lista está vacía.
 - **Sonido:** modal `v` con on/off, lista Chime/Marimba/Digital/Deep, volumen 0–100 en pasos de 5, preview con `Space` y mute con `m`. Elegir sonido o cambiar volumen previsualiza si el sonido está activo.
+- **Fondos ambientales:** `b` cicla `aurora` (el original), `stars`, `fireflies`, `rain`, `waves`, `grid` (visible como **Sunset**) y `none`, con toast y persistencia en config. La aurora es el default y conserva el polvo de 30 motas; marea lo comparte. Estrellas, luciérnagas, lluvia, Sunset y none no añaden polvo. `none` deja el fondo de la terminal visible: el canvas no pinta celdas vacías y la TUI no fija `BackgroundColor`/`ForegroundColor`; los elementos de UI y la sombra del contador mantienen sus fondos, y el flash de celebración se omite. Con `none`, la TUI pregunta el color real del fondo por OSC 11 (`tea.RequestBackgroundColor`) al arrancar, al entrar en `none` y al conectar; si es claro, todo lo que flota directamente sobre la terminal —marca, versión, estado, sub-línea, contador y fantasma, etiqueta, meta, input, atajos, sub-hint, enlace de actualización, status y compacto— usa una tinta oscura derivada del tema con contraste WCAG (7:1 texto, 4.5:1 secundario, 3:1 grande/decorativo). Los paneles, botones, chips, barra y modales conservan su fondo oscuro, y la sombra del contador se mantiene, en gris claro cuando el fondo es claro para no juntar tinta oscura con una sombra casi negra. Si el terminal no responde a OSC 11 o el fondo es oscuro, se conserva la paleta actual; con cualquier otro fondo no hay adaptación. En compacto, `none` tampoco rellena el fondo. `b` se ignora mientras hay texto en el input y en modo compacto. Los efectos leen el progreso, la pausa y los últimos 10 s, pero solo pintan fondo: el texto, el flash de celebración y el confeti no cambian.
 - **Confirmación de cancelar:** overlay “Stop the countdown? Enter yes · Esc no”.
 - **Ayuda:** overlay `?` con título “Help”, atajos globales y los atajos de sonido y presets (`[a] add`, `[e] edit`, `[d] delete`, `[r] defaults`).
 - **Estadísticas:** pestaña a pantalla completa con `s` (hoja sobre el escenario atenuado, como el diálogo de actualización). Cuatro secciones con `←/→`, `Tab` o `1..4`: **overview** (KPIs del rango y delta contra la ventana anterior, barras de foco por día con medio bloque y hoy en accent2, racha actual y mejor racha —días con al menos una sesión—, sesión más larga, día y hora más productivos); **activity** (heatmap de 26 semanas con celdas de fondo y 5 niveles, foco por hora de inicio y por día de la semana, frase de insight); **presets** (barras horizontales por etiqueta con runs y % completadas, más usado y media); **recent** (últimas 20 sesiones con `✓ completed` / `· stopped at 4m` / `· replaced at 8m` y scroll). `t` cicla 7/30/90/all en el overview; `↑/↓`, `PgUp`/`PgDn`, `Home`/`End` y la rueda desplazan; `Esc` o `s` cierran. Las gráficas usan 7 o 30 barras según el ancho y 6/8/10 filas de alto según el espacio (30 días con barras de una celda y etiquetas semanales). Bajo 48×22 no se dibuja y `s` se ignora. Abrir la pestaña no toca el timer; un final la cierra para enseñar la celebración, y un stop o un reemplazo desde la bandeja la dejan abierta y refrescan los datos.
@@ -246,12 +250,12 @@ Rutas (por usuario, sin admin):
 - **Persistencia:** la posición se muestrea cada 500 ms desde el tick existente y se envía al daemon, junto al tamaño, con 300 ms de debounce y otra vez al cerrar con `q`/`Esc`; el `HWND` se cachea. La posición inicial de arranque y la que produce aplicar la preferencia no se guardan. En reconexiones no se reaplica nada, para no pisar un resize o un movimiento del usuario. Mientras la ventana está maximizada o minimizada no se guarda ni tamaño ni posición: se conserva la última colocación normal. Si la posición guardada no cae en ningún monitor (pantalla desconectada), no se mueve y se conserva el valor.
 - Mínimo con estilos 48×22. El reloj usa escala 1 y pasa a escala 2 desde 100×30. La separación entre piezas es de una fila por debajo de 32 de alto y de dos filas desde 32 (la fila extra del aviso de actualización retrasa el cambio).
 - Entre 22 y 23 filas se usa el modo *tight*: se omite la línea meta (`remaining` / `Type a duration or pick a preset`) y su hueco para que el bloque quepa sin solapes. Desde 24 filas vuelve la meta.
-- Sin panel ni marco: la aurora ocupa toda la pantalla y el contenido vive en una columna centrada de máximo 100 celdas. En 80×24 quedan 4 celdas de margen a cada lado.
+- Sin panel ni marco: el fondo ambiental ocupa toda la pantalla y el contenido vive en una columna centrada de máximo 100 celdas. En 80×24 quedan 4 celdas de margen a cada lado.
 - Estructura vertical: cabecera de dos alturas (marca arriba; estado + sub-línea `ends at` / `on hold` / `at` / `no countdown` a la derecha) · aire · hero dígitos (7) · aire · etiqueta · aire · barra · aire · meta · aire · [input + chips | botones] · aire · atajos de teclas.
 - El aviso de actualización vive en la fila de la marca, no añade filas: `● tuick·tack vX.Y.Z  [Update available]` con el estado a la derecha. La versión sigue a la marca en un tono apagado (el muted mezclado con el fondo al 85%) y cede su hueco si no deja sitio para la forma corta del aviso; el aviso se calcula contra el punto de estado y nunca lo pisa.
 - Debajo de los atajos principales hay una fila en blanco y una segunda línea, más atenuada, con `[u] check for updates`, o `[u] update to vX` cuando ya hay una release conocida. En 80×24 la fila extra sale de juntar la etiqueta y la barra de progreso y de reducir el hueco entre la meta y los controles; desde 26 filas se mantiene el aire normal. En el modo tight (22–23 filas) y en compacto se omite para no quitar la línea de estado. La fila de estado sigue encima de los atajos.
 - La cabecera se alinea a la medida y el bloque completo (dígitos → atajos) se centra verticalmente: los atajos quedan bajo los presets/botones, separados por el mismo aire (una fila por debajo de 30 de alto, dos desde 30), y el espacio sobrante queda bajo ellos. En 48×22 y 80×24 el bloque llena justo el alto disponible. La línea de estado (desconectado / aviso) se dibuja en la fila inmediatamente superior a los atajos.
-- Por debajo de 48×22 (anchura < 48 o altura < 22) la TUI pasa a modo texto compacto: fondo plano, sin aurora, polvo, confeti, bigfont, chips ni botones. Muestra por prioridad el reloj, la etiqueta, el estado y los atajos esenciales, y recorta las líneas de menor prioridad hasta dejar solo el reloj en una fila. Los modales de gestión no se dibujan y sus teclas se ignoran; la confirmación de parada se muestra como texto. Al recuperar el mínimo se restaura la vista anterior.
+- Por debajo de 48×22 (anchura < 48 o altura < 22) la TUI pasa a modo texto compacto: fondo plano, sin fondo ambiental, polvo, confeti, bigfont, chips ni botones. Muestra por prioridad el reloj, la etiqueta, el estado y los atajos esenciales, y recorta las líneas de menor prioridad hasta dejar solo el reloj en una fila. Los modales de gestión no se dibujan y sus teclas se ignoran; la confirmación de parada se muestra como texto. Al recuperar el mínimo se restaura la vista anterior.
 - Los modales se dibujan sobre un scrim que atenúa el escenario y una hoja plana sin marco, con el mismo contenido y botones.
 
 ### Teclas
@@ -314,10 +318,10 @@ Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pa
 
 ### Elementos
 
-- **Fondo aurora:** degradado vertical + dos halos radiales suaves; deriva lenta ligada al progreso. Ocupa toda la pantalla, sin recorte por ningún panel.
-- **Escenario abierto:** sin panel, sin marco y sin borde. El contenido flota directamente sobre la aurora en una columna centrada de hasta 100 celdas; no hay caja que simule una ventana.
+- **Fondos ambientales:** `aurora` es el degradado vertical + dos halos radiales original; `stars` es un campo en perspectiva con punto de fuga centrado: las estrellas salen hacia los bordes con estelas de puntos (cabeza `+`/`*`), arranca con 80 y va revelando hasta 320 al 100% del progreso, con la misma velocidad de cabeza y estelas que crecen con el progreso y el pulso de los últimos 10 s, más una fugaz ocasional; `fireflies` es un enjambre de 14-18 luces grandes, cálidas y con halo 3×3 que flotan en la mitad inferior; `rain` cae en columnas de glifos ASCII; `waves` pinta tres bandas sinusoidales desde abajo; `grid` (visible como **Sunset**) dibuja un sol retro ámbar semienterrado con cortes, halo, reflejo y una rejilla en perspectiva; `none` no pinta el fondo y deja ver la terminal. Todos usan los colores del tema, se mueven a 10 Hz, se atenúan al pausar y en la celebración, y mantienen el contraste por debajo del texto (el aro del sol es la única excepción deliberada). El flash es global salvo con `none`; el polvo se suma solo a aurora y marea.
+- **Escenario abierto:** sin panel, sin marco y sin borde. El contenido flota directamente sobre el fondo ambiental en una columna centrada de hasta 100 celdas; no hay caja que simule una ventana.
 - **Cabecera de dos alturas:** marca y dot a la izquierda; estado en mayúsculas y dot a la derecha; sub-línea derecha con `ends at HH:MM`, `on hold`, `at HH:MM` o `no countdown`. Sin píldora de estado.
-- **Dígitos:** fuente de bloques 7×5, escala horizontal 1 en compacto y 2 en amplio, degradado por fila, sombra de 1 celda (abajo-derecha) y halo tenue. Las palabras de celebración usan la misma fuente y la escala 2 desde 100 columnas con espaciado proporcional (recorta los huecos laterales de cada glifo) para que las frases largas quepan sin volver a 1×; los dígitos siguen monoespaciados para que el reloj no cambie de ancho.
+- **Dígitos:** fuente de bloques 7×5, escala horizontal 1 en compacto y 2 en amplio, degradado por fila, sombra de 1 celda (abajo-derecha) y halo tenue; se mantiene también con `none`, con la sombra en un gris claro cuando el fondo de la terminal es claro. Las palabras de celebración usan la misma fuente y la escala 2 desde 100 columnas con espaciado proporcional (recorta los huecos laterales de cada glifo) para que las frases largas quepan sin volver a 1×; los dígitos siguen monoespaciados para que el reloj no cambie de ancho.
 - **Barra de progreso:** 1 fila, relleno con degradado accent→accent2, pista oscura, cabeza blanca brillante y checkpoints `┆` cada 25%.
 - **Detalles vivos:** colon parpadeante, dot de estado pulsante, ~30 motas de polvo lentas, pulso ámbar en los últimos 10 s.
 - **Sin emoji ni runas de doble ancho.** Todo el contenido usa glifos de una celda y box-drawing.
@@ -328,7 +332,7 @@ Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pa
 - No llenar la pantalla de cajas y bordes.
 - No simular una ventana: ni panel centrado, ni marco redondeado, ni píldora de estado.
 - No cambiar el color del texto completo por estado; solo acentos, barra y cifras.
-- No animar a 60 fps el idle: 10 Hz para polvo/estado; 30 fps solo en la celebración.
+- No animar a 60 fps el idle: 10 Hz para polvo/estado/fondos; 30 fps solo en la celebración.
 
 ## 11. Celebración y confeti
 
@@ -443,11 +447,11 @@ Quit
 
 ## 14. Render por celdas
 
-- `internal/tui/canvas`: rejilla de celdas `{ch rune; fg, bg color.RGBA; bold bool}` con `Set`, `Text`, `Box`, `Fill`, `Gradient`, `Blit`, `Center`, `Dim` (scrim de modales) y `Render() string` (ANSI SGR 24-bit, reset por fila, sin runas anchas).
+- `internal/tui/canvas`: rejilla de celdas `{ch rune; fg, bg color.RGBA; bold bool}` con `Set`, `Text`, `Box`, `Fill`, `Gradient`, `Blit`, `Center`, `Dim` (scrim de modales, solo sobre colores presentes) y `Render() string` (ANSI SGR 24-bit, reset por fila, sin runas anchas). `Render` emite solo los atributos que existen: una celda sin `FG`/`BG` conserva el color real de la terminal, lo que hace posible el fondo `none`.
 - `internal/tui/bigfont`: fuente 7×5 para `0-9`, `A-Z` y `: ' ! . - ?`; dibuja con gradiente por fila y sombra, y tiene un modo proporcional para las palabras de celebración (recorta los huecos laterales; los dígitos siguen monoespaciados).
-- `internal/tui/theme`: paletas y utilidades de mezcla/lerp.
+- `internal/tui/theme`: paletas y utilidades de mezcla/lerp, incluidos `Luminance`, `Contrast` e `Ink` para adaptar la tinta al fondo de la terminal.
 - `internal/tui/notes`: extrae la sección `What's new` del body de la release, quita Markdown/HTML/ANSI/emoji y envuelve el texto a celdas; el resultado lo pinta el diálogo de actualización con scroll.
-- `internal/tui/fx`: polvo ambiental y sistema de partículas del confeti.
+- `internal/tui/fx`: `Backdrop` y sus fondos (`aurora`, `stars`, `fireflies`, `rain`, `waves`, `grid`/Sunset, `none`), el polvo ambiental y el sistema de partículas del confeti. `Draw` es una función del tiempo y de una semilla, sin estado acumulado, para que pausar, redimensionar o redibujar no desincronice el efecto.
 - `View()` de Bubble Tea devuelve `tea.NewView(canvas.Render())`; alt screen y mouse se declaran según la API v2.
 - Se redibuja solo cuando hay cambios o tick: 10 Hz normal, 30 fps en celebración, 10 Hz para el polvo.
 - Hot loop sin allocations por celda (buffers reutilizados); frame < 8 ms a 120×40.
@@ -488,7 +492,7 @@ internal/
     canvas/
     bigfont/
     theme/
-    fx/                       # dust + confetti
+    fx/                       # backdrops + dust + confetti
 assets/
   sounds/ chime.wav marimba.wav digital.wav deep.wav
   icon.ico                    # ICO multi-tamaño del ejecutable (winres)
@@ -542,9 +546,9 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 ### Automáticos
 
 - `duration`: tabla de formatos válidos/inválidos, clamps.
-- `config`: defaults, carga/guardado, corrupto → backup, migración v1→v4, v2→v4 y v3→v4, validación de presets/sonido/volumen/tamaño y posición de ventana.
+- `config`: defaults, carga/guardado, corrupto → backup, migración v1→v5, v2→v5, v3→v5 y v4→v5, validación de presets/fondo/sonido/volumen/tamaño y posición de ventana.
 - `engine`: reloj falso; start/pause/resume/adjust/finish una vez/replace/restart; `finish_seq`.
-- `protocol`: round-trip JSON, versión, errores, comandos de sonido y volumen, `set_window_size` y `hello.window` con y sin posición, `update`, `check_update`/`update_result`, `install_update`/`download_portable`, `update_progress`, `daemon_closing` con motivo, `get_stats`/`stats` y tolerancia a tipos desconocidos.
+- `protocol`: round-trip JSON, versión, errores, comandos de sonido y volumen, `set_background` válido/inválido y compatibilidad con un `config` viejo sin el campo, `set_window_size` y `hello.window` con y sin posición, `update`, `check_update`/`update_result`, `install_update`/`download_portable`, `update_progress`, `daemon_closing` con motivo, `get_stats`/`stats` y tolerancia a tipos desconocidos.
 - `stats`: alta y recarga de JSONL, rechazo de registros inválidos, líneas corruptas saltadas, respaldo de un fichero ilegible, recorte al cap, agregados (día local, hora, día de la semana, totales por rango, top de etiquetas, recientes ordenados, récords) y rachas con huecos y mañana sin sesiones.
 - `ipc`: pipe de test con nombre único, handshake con `update`, start/pause/stop, broadcast, múltiples clientes, reconexión y aviso final entregado antes de cerrar el pipe.
 - `update`: comparación semver y pre-releases, GET contra `httptest` (200/404/403/JSON roto/timeout), `User-Agent`, assets estables/digest, `body`/notas con normalización de CRLF y recorte a 16 KiB en límite de rune, descarga TLS con progreso, SHA-256 correcto e incorrecto, checksums y rechazo de URLs no HTTPS.
@@ -552,10 +556,10 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - `updater`: copia del helper a un directorio temporal; el lanzamiento real del setup se prueba a mano.
 - `notify`: construcción del `Notification` (AUMID, título, cuerpo, URL de activación, duración) y validación; el COM real se prueba a mano.
 - `browser`: solo `https`, rechazo de `http`, `file` y `javascript`.
-- `canvas`/`bigfont`: dimensiones, clipping, ancho de runas, gradiente.
-- `fx`: RNG con semilla, física, caducidad, sin NaN, límites.
+- `canvas`/`bigfont`: dimensiones, clipping, ancho de runas, gradiente; `Render` de celdas transparentes (sin `FG`/`BG` no emite color, con reset al volver a una celda vacía) y `Dim` que solo toca colores presentes.
+- `fx`: RNG con semilla, física, caducidad, sin NaN, límites; fondos deterministas, sin runas anchas, resize y contraste; la aurora conserva el hash del fondo anterior; estrellas solo en la franja superior; luciérnagas con centro y halo en la mitad inferior; Sunset con sol visible, aro brillante limitado y horizonte más claro; `none` deja el canvas intacto y transparente.
 - `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único; persistencia del tamaño y la posición de ventana, conservando la posición cuando el mensaje no la trae; parseo y migración del valor de autostart; catálogo de sonidos, escalado PCM y caché; caché de la release (incluidas las notas) y comprobación manual (up to date / available / failed) contra `httptest`; notificación inyectada solo para la bandeja; `Quit` idempotente y marcado como cierre pedido por el usuario; payload con capacidades setup/portable y notas; rechazos de instalación (`unavailable`, `busy`, `unsupported`, `timer_active`) y descarga+spawn con un `spawnUpdater` inyectado; historial con reloj inyectado: completed/stopped/replaced, pausas acumuladas, ajustes en el planificado, `onFinish` repetido no duplica y `get_stats` sale del store.
-- `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; colocación de ventana (aplicar una vez, ignorar el inicial, debounce, descartar guardados obsoletos, guardado al cerrar, consola compartida sin mover, maximizado sin guardar y compatibilidad con daemon viejo); `termwin` se prueba a mano por depender de la ventana real; modal de sonido; aviso de actualización (degradado animado con `animTime`, flecha, fallback corto, hover, click y modo compacto); `u` abre el diálogo si hay release o comprueba si no; diálogo en 48×22/80×24/120×40 con chips de tipo en una fila (copia en uso primero, estados `Installed`/`Not installed`/`In use`/`Not in use`/`Not available`; apilados a 44 columnas), selección con `Tab` (las flechas ya no cambian la copia), fila horizontal de acciones con `←`/`→`, aviso de la otra copia en una línea, aviso de countdown, progreso, resultado portable y fallo; panel de notas con `What's new`, scroll por `↑`/`↓`/`PgUp`/`PgDn`/`Home`/`End`/rueda, barra de scroll, hint dinámico (`[Tab] type`, `[↑/↓] notes`, `[g] github` según ancho y assets) y vuelta a 18 filas sin notas; `Enter`/`g`/`Esc`; aviso secundario `[u] update to vX`; celebración una vez por `finish_seq`; cierre por `daemon_closing` (quit/update) sin reconexión; estadísticas: `s` abre en idle (solo cuando no es sufijo), running, paused y finished; `25m`/`90s` siguen tecleándose; `m` mutea; `s`/`Esc` cierran; secciones con `←/→`/`Tab`/`1..4`, `t` cicla el rango, scroll y rueda, tabs clicables, refresco al reconectar y al parar con la pestaña abierta, cierre con aviso si el daemon es viejo, estado vacío, `s` ignorada en compacto y layout sin runas anchas en 48×22/80×24/120×40.
+- `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; fondos ambientales con `b` (ciclo, toast, persistencia y fallback con daemon viejo) y layout sin runas anchas para cada fondo en 80×24/120×40; `none` con `BackgroundColor`/`ForegroundColor` nil, canvas de fondo vacío, flash omitido y compacto transparente; consulta OSC 11 (fondo claro/oscuro), paleta de escenario oscura solo con `none` + fondo claro (contraste WCAG, sin cambios en fondo oscuro, desconocido u otro fondo) y ausencia de sombras de texto; colocación de ventana (aplicar una vez, ignorar el inicial, debounce, descartar guardados obsoletos, guardado al cerrar, consola compartida sin mover, maximizado sin guardar y compatibilidad con daemon viejo); `termwin` se prueba a mano por depender de la ventana real; modal de sonido; aviso de actualización (degradado animado con `animTime`, flecha, fallback corto, hover, click y modo compacto); `u` abre el diálogo si hay release o comprueba si no; diálogo en 48×22/80×24/120×40 con chips de tipo en una fila (copia en uso primero, estados `Installed`/`Not installed`/`In use`/`Not in use`/`Not available`; apilados a 44 columnas), selección con `Tab` (las flechas ya no cambian la copia), fila horizontal de acciones con `←`/`→`, aviso de la otra copia en una línea, aviso de countdown, progreso, resultado portable y fallo; panel de notas con `What's new`, scroll por `↑`/`↓`/`PgUp`/`PgDn`/`Home`/`End`/rueda, barra de scroll, hint dinámico (`[Tab] type`, `[↑/↓] notes`, `[g] github` según ancho y assets) y vuelta a 18 filas sin notas; `Enter`/`g`/`Esc`; aviso secundario `[u] update to vX`; celebración una vez por `finish_seq`; cierre por `daemon_closing` (quit/update) sin reconexión; estadísticas: `s` abre en idle (solo cuando no es sufijo), running, paused y finished; `25m`/`90s` siguen tecleándose; `m` mutea; `s`/`Esc` cierran; secciones con `←/→`/`Tab`/`1..4`, `t` cicla el rango, scroll y rueda, tabs clicables, refresco al reconectar y al parar con la pestaña abierta, cierre con aviso si el daemon es viejo, estado vacío, `s` ignorada en compacto y layout sin runas anchas en 48×22/80×24/120×40.
 - `notes`: extracción de `What's new` (incluida la apóstrofe tipográfica) y fallback al body completo; tablas, enlaces, imágenes, énfasis, code fences, blockquotes y callouts; limpieza de ANSI, controles, emojis, CJK, bidi y entidades; wrapping con sangría colgante, palabras largas y anchos 20/36/56, todo de una celda.
 - Comandos: `go test ./...`, `go vet ./...`, `gofmt -l .`.
 
@@ -654,8 +658,9 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 
 ```json
 {
-  "version": 4,
+  "version": 5,
   "theme": "midnight",
+  "background": "aurora",
   "sound": true,
   "sound_name": "digital",
   "volume": 80,

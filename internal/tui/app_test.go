@@ -2,6 +2,8 @@ package tui
 
 import (
 	"errors"
+	"fmt"
+	"image/color"
 	"regexp"
 	"strings"
 	"testing"
@@ -1578,14 +1580,467 @@ func TestApplyConfig(t *testing.T) {
 	m, _ := testModel(80, 24)
 	cfg := config.Default()
 	cfg.Theme = config.ThemeEmber
+	cfg.Background = config.BackgroundGrid
 	cfg.Sound = false
 	cfg.SoundName = config.SoundMarimba
 	cfg.Volume = 35
 	cfg.Presets = cfg.Presets[:1]
 	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.NewConfigPayload(cfg)})
 	if m.pal.Name != config.ThemeEmber || m.cfg.Sound || len(m.cfg.Presets) != 1 ||
+		m.cfg.Background != config.BackgroundGrid || m.backdrop.Name() != config.BackgroundGrid ||
 		m.cfg.SoundName != config.SoundMarimba || m.cfg.Volume != 35 {
 		t.Fatalf("config not applied: %+v", m.cfg)
+	}
+}
+
+func TestApplyConfigKeepsLocalBackgroundForOldDaemon(t *testing.T) {
+	m, _ := testModel(80, 24)
+	cfg := config.Default()
+	cfg.Background = config.BackgroundFireflies
+	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.NewConfigPayload(cfg)})
+	if !m.backgroundSupported || m.backdrop.Name() != config.BackgroundFireflies {
+		t.Fatalf("background not applied: supported=%v name=%q",
+			m.backgroundSupported, m.backdrop.Name())
+	}
+
+	// An older daemon omits the field: keep the local choice for this session.
+	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.ConfigPayload{
+		Theme: config.ThemeMidnight, Sound: true,
+	}})
+	if m.backgroundSupported {
+		t.Fatal("a missing background should mark the daemon as unsupported")
+	}
+	if m.cfg.Background != config.BackgroundFireflies ||
+		m.backdrop.Name() != config.BackgroundFireflies {
+		t.Fatalf("missing background reset the local choice: %+v", m.cfg)
+	}
+
+	// A malformed non-empty value falls back to aurora but still marks the
+	// daemon as capable: the field is present, so set_background can be sent.
+	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.ConfigPayload{
+		Theme: config.ThemeMidnight, Background: "neon", Sound: true,
+	}})
+	if !m.backgroundSupported {
+		t.Fatal("a non-empty background should mark the daemon as supported")
+	}
+	if m.cfg.Background != config.DefaultBackground ||
+		m.backdrop.Name() != config.DefaultBackground {
+		t.Fatalf("invalid background did not fall back: %+v", m.cfg)
+	}
+}
+
+func TestCycleBackground(t *testing.T) {
+	m, _ := testModel(80, 24)
+	if m.cfg.Background != config.BackgroundAurora {
+		t.Fatalf("default background = %q", m.cfg.Background)
+	}
+	press(m, 'b', "b")
+	if m.cfg.Background != config.BackgroundStars || m.backdrop.Name() != config.BackgroundStars {
+		t.Fatalf("b did not cycle to stars: cfg=%q backdrop=%q",
+			m.cfg.Background, m.backdrop.Name())
+	}
+	if !m.toastActive() {
+		t.Fatal("cycling the background should show a toast")
+	}
+
+	// While typing a duration, b must not steal the shortcut.
+	press(m, '5', "5")
+	press(m, 'b', "b")
+	if m.input != "5" || m.cfg.Background != config.BackgroundStars {
+		t.Fatalf("input/background changed while typing: input=%q background=%q",
+			m.input, m.cfg.Background)
+	}
+	m.input = ""
+
+	// Running timers can change it too.
+	applyRunning(m)
+	press(m, 'b', "b")
+	if m.cfg.Background != config.BackgroundFireflies {
+		t.Fatalf("running b did not advance: %q", m.cfg.Background)
+	}
+}
+
+func TestViewNoneIsTransparent(t *testing.T) {
+	m, _ := testModel(80, 24)
+	cfg := config.Default()
+	cfg.Background = config.BackgroundNone
+	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.NewConfigPayload(cfg)})
+	v := m.View()
+	if v.BackgroundColor != nil || v.ForegroundColor != nil {
+		t.Fatalf("none should leave the terminal colors alone: bg=%v fg=%v",
+			v.BackgroundColor, v.ForegroundColor)
+	}
+	themeBG := fmt.Sprintf("48;2;%d;%d;%d", m.pal.BG.R, m.pal.BG.G, m.pal.BG.B)
+	if strings.Contains(v.Content, themeBG) {
+		t.Fatalf("none painted the theme background %q in the view", themeBG)
+	}
+
+	c := canvas.New(80, 24)
+	m.drawBackdrop(c, 80, 24)
+	for y := 0; y < c.H; y++ {
+		for x := 0; x < c.W; x++ {
+			cell := c.At(x, y)
+			if cell.HasFG || cell.HasBG {
+				t.Fatalf("none painted cell %d,%d: %+v", x, y, cell)
+			}
+		}
+	}
+
+	// The celebration flash must not fill the transparent background. Set a
+	// real start so the flash window is active: otherwise the test would pass
+	// even without the "none" guard in drawFlash.
+	m.celebrating = true
+	m.celebrationStart = m.now()
+	c = canvas.New(80, 24)
+	m.drawBackdrop(c, 80, 24)
+	for y := 0; y < c.H; y++ {
+		for x := 0; x < c.W; x++ {
+			cell := c.At(x, y)
+			if cell.HasFG || cell.HasBG {
+				t.Fatalf("none painted cell %d,%d during the flash: %+v", x, y, cell)
+			}
+		}
+	}
+
+	// The hero keeps its original shadow even with none: it is a deliberate
+	// readability element, not an ambient background.
+	hero := canvas.New(80, 24)
+	l := m.layout(80, 24)
+	m.drawHero(hero, l.heroY, l.x, l.w)
+	shadow := theme.Scale(m.pal.BG, 0.5)
+	shadowCells := 0
+	for y := 0; y < hero.H; y++ {
+		for x := 0; x < hero.W; x++ {
+			cell := hero.At(x, y)
+			if !cell.HasBG {
+				continue
+			}
+			if cell.BG != shadow {
+				t.Fatalf("unexpected hero background at %d,%d: %+v", x, y, cell)
+			}
+			shadowCells++
+		}
+	}
+	if shadowCells == 0 {
+		t.Fatal("none should keep the hero shadow")
+	}
+}
+
+func TestCompactNoneIsTransparent(t *testing.T) {
+	m, _ := testModel(40, 12)
+	cfg := config.Default()
+	cfg.Background = config.BackgroundNone
+	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.NewConfigPayload(cfg)})
+	c := canvas.New(40, 12)
+	m.drawCompact(c, 40, 12)
+	for y := 0; y < c.H; y++ {
+		for x := 0; x < c.W; x++ {
+			if c.At(x, y).HasBG {
+				t.Fatalf("compact none painted a background at %d,%d", x, y)
+			}
+		}
+	}
+	v := m.View()
+	if v.BackgroundColor != nil || v.ForegroundColor != nil {
+		t.Fatalf("compact none should leave terminal colors alone: bg=%v fg=%v",
+			v.BackgroundColor, v.ForegroundColor)
+	}
+
+	// On a light terminal the compact copy switches to dark ink as well.
+	m.termBGKnown = true
+	m.termLight = true
+	m.termBG = color.RGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}
+	c = canvas.New(40, 12)
+	m.drawCompact(c, 40, 12)
+	found := false
+	for y := 0; y < c.H; y++ {
+		for x := 0; x < c.W; x++ {
+			cell := c.At(x, y)
+			if !cell.HasFG || cell.Ch == ' ' {
+				continue
+			}
+			found = true
+			if got := theme.Contrast(cell.FG, m.termBG); got < stageTextContrast {
+				t.Fatalf("compact ink at %d,%d has contrast %.2f, want %.1f", x, y, got, stageTextContrast)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("compact light stage painted no text")
+	}
+}
+
+func TestBackgroundColorMsg(t *testing.T) {
+	m, _ := testModel(80, 24)
+	white := color.RGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}
+	_, _ = m.Update(tea.BackgroundColorMsg{Color: white})
+	if !m.termBGKnown || !m.termLight || m.termBG != white {
+		t.Fatalf("light background not stored: known=%v light=%v bg=%+v",
+			m.termBGKnown, m.termLight, m.termBG)
+	}
+	dark := color.RGBA{R: 0x07, G: 0x0B, B: 0x14, A: 0xFF}
+	_, _ = m.Update(tea.BackgroundColorMsg{Color: dark})
+	if m.termLight || m.termBG != dark {
+		t.Fatalf("dark background not stored: light=%v bg=%+v", m.termLight, m.termBG)
+	}
+	// Saturated backgrounds are classified by WCAG contrast, not HSL
+	// lightness: pure blue is dark enough that white text reads better.
+	for _, saturated := range []color.RGBA{
+		{R: 0x00, G: 0x00, B: 0xFF, A: 0xFF},
+	} {
+		_, _ = m.Update(tea.BackgroundColorMsg{Color: saturated})
+		if m.termLight {
+			t.Fatalf("saturated background %+v was classified as light", saturated)
+		}
+	}
+}
+
+func TestBackgroundColorMsgNil(t *testing.T) {
+	m, _ := testModel(80, 24)
+	_, _ = m.Update(tea.BackgroundColorMsg{})
+	if m.termBGKnown {
+		t.Fatal("a nil color should not mark the terminal background as known")
+	}
+}
+
+func TestViewBackgroundColorTransitions(t *testing.T) {
+	m, _ := testModel(80, 24)
+	if v := m.View(); v.BackgroundColor == nil || v.ForegroundColor == nil {
+		t.Fatal("a themed background should set terminal colors")
+	}
+	cfg := config.Default()
+	cfg.Background = config.BackgroundNone
+	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.NewConfigPayload(cfg)})
+	if v := m.View(); v.BackgroundColor != nil || v.ForegroundColor != nil {
+		t.Fatal("none should clear terminal colors")
+	}
+	cfg.Background = config.BackgroundAurora
+	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.NewConfigPayload(cfg)})
+	if v := m.View(); v.BackgroundColor == nil || v.ForegroundColor == nil {
+		t.Fatal("returning to a themed background should restore terminal colors")
+	}
+}
+
+func lightStageModel(t *testing.T) *Model {
+	t.Helper()
+	m, _ := testModel(80, 24)
+	cfg := config.Default()
+	cfg.Background = config.BackgroundNone
+	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.NewConfigPayload(cfg)})
+	m.termBGKnown = true
+	m.termLight = true
+	m.termBG = color.RGBA{R: 0xFF, G: 0xFF, B: 0xFF, A: 0xFF}
+	return m
+}
+
+func TestLightStagePalette(t *testing.T) {
+	m := lightStageModel(t)
+	white := m.termBG
+	if !m.lightStage() {
+		t.Fatal("none over a light terminal should use the light stage")
+	}
+	if got := m.stageInk(m.pal.Text, stageTextContrast); got == m.pal.Text {
+		t.Fatal("body text was not darkened for the light terminal")
+	}
+	for _, tc := range []struct {
+		name string
+		col  color.RGBA
+		min  float64
+	}{
+		{"text", m.pal.Text, stageTextContrast},
+		{"accent", m.pal.Accent, stageAccentContrast},
+		{"accent2", m.pal.Accent2, stageAccentContrast},
+		{"warn", m.pal.Warn, stageAccentContrast},
+		{"danger", m.pal.Danger, stageAccentContrast},
+	} {
+		ink := m.stageInk(tc.col, tc.min)
+		if got := theme.Contrast(ink, white); got < tc.min {
+			t.Errorf("%s ink %+v has contrast %.2f, want %.1f", tc.name, ink, got, tc.min)
+		}
+	}
+	for i, c := range m.updateColors(12) {
+		if got := theme.Contrast(c, white); got < stageMutedContrast {
+			t.Errorf("update color %d has contrast %.2f, want %.1f", i, got, stageMutedContrast)
+		}
+	}
+
+	// A dark terminal and a themed backdrop keep the active palette verbatim.
+	m.termLight = false
+	if got := m.stageInk(m.pal.Text, stageTextContrast); got != m.pal.Text {
+		t.Fatalf("dark terminal changed the palette: %+v", got)
+	}
+	m.termLight = true
+	m.termBGKnown = false
+	if got := m.stageInk(m.pal.Text, stageTextContrast); got != m.pal.Text {
+		t.Fatalf("unknown terminal background changed the palette: %+v", got)
+	}
+	m.termBGKnown = true
+	cfg := config.Default()
+	cfg.Background = config.BackgroundAurora
+	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.NewConfigPayload(cfg)})
+	if got := m.stageInk(m.pal.Text, stageTextContrast); got != m.pal.Text {
+		t.Fatalf("a themed backdrop changed the stage palette: %+v", got)
+	}
+}
+
+// rowMinContrast returns the lowest contrast of the foreground cells with ink
+// on a row. It fails when the row has no text at all.
+func rowMinContrast(t *testing.T, c *canvas.Canvas, y int, bg color.RGBA) float64 {
+	t.Helper()
+	low := 21.0
+	found := false
+	for x := 0; x < c.W; x++ {
+		cell := c.At(x, y)
+		if !cell.HasFG || cell.Ch == ' ' {
+			continue
+		}
+		found = true
+		if ratio := theme.Contrast(cell.FG, bg); ratio < low {
+			low = ratio
+		}
+	}
+	if !found {
+		t.Fatalf("row %d has no foreground text", y)
+	}
+	return low
+}
+
+func TestLightStageFrame(t *testing.T) {
+	m := lightStageModel(t)
+	l := m.layout(80, 24)
+	c := canvas.New(80, 24)
+	m.drawContent(c, l)
+	white := m.termBG
+
+	if low := rowMinContrast(t, c, l.headerY, white); low < stageDimContrast {
+		t.Errorf("header contrast = %.2f, want at least %.1f", low, stageDimContrast)
+	}
+	if got := theme.Contrast(c.At(l.x+2, l.headerY).FG, white); got < stageTextContrast {
+		t.Errorf("brand contrast = %.2f, want at least %.1f", got, stageTextContrast)
+	}
+	if low := rowMinContrast(t, c, l.labelY, white); low < stageMutedContrast {
+		t.Errorf("label contrast = %.2f, want at least %.1f", low, stageMutedContrast)
+	}
+	if low := rowMinContrast(t, c, l.inputY, white); low < stageMutedContrast {
+		t.Errorf("input contrast = %.2f, want at least %.1f", low, stageMutedContrast)
+	}
+	if low := rowMinContrast(t, c, l.metaY, white); low < stageMutedContrast {
+		t.Errorf("meta contrast = %.2f, want at least %.1f", low, stageMutedContrast)
+	}
+	if low := rowMinContrast(t, c, l.hintY, white); low < stageDimContrast {
+		t.Errorf("hint contrast = %.2f, want at least %.1f", low, stageDimContrast)
+	}
+	if low := rowMinContrast(t, c, l.subHintY, white); low < stageDimContrast {
+		t.Errorf("sub-hint contrast = %.2f, want at least %.1f", low, stageDimContrast)
+	}
+
+	// The countdown gradient is dark ink too, and its block shadow must stay
+	// light so a dark glyph never sits on a dark shadow cell.
+	hero := canvas.New(80, 24)
+	m.drawHero(hero, l.heroY, l.x, l.w)
+	darkShadow := theme.Scale(m.pal.BG, 0.5)
+	shadowCells := 0
+	for y := l.heroY; y < l.heroY+bigfont.GlyphH; y++ {
+		for x := 0; x < hero.W; x++ {
+			cell := hero.At(x, y)
+			if cell.HasBG {
+				if cell.BG == darkShadow {
+					t.Fatalf("light stage kept the dark hero shadow at %d,%d", x, y)
+				}
+				shadowCells++
+			}
+			if !cell.HasFG || cell.Ch == ' ' {
+				continue
+			}
+			bg := white
+			if cell.HasBG {
+				bg = cell.BG
+			}
+			if got := theme.Contrast(cell.FG, bg); got < stageDimContrast {
+				t.Fatalf("hero ink at %d,%d has contrast %.2f against its cell", x, y, got)
+			}
+		}
+	}
+	if shadowCells == 0 {
+		t.Fatal("light stage lost the hero block shadow")
+	}
+
+	// The transient status line adapts as well.
+	m.toast = "hello"
+	m.toastUntil = m.now().Add(time.Minute)
+	c = canvas.New(80, 24)
+	m.drawContent(c, l)
+	if low := rowMinContrast(t, c, l.statusY, white); low < stageAccentContrast {
+		t.Errorf("status contrast = %.2f, want at least %.1f", low, stageAccentContrast)
+	}
+}
+
+func TestNoTextShadow(t *testing.T) {
+	m := lightStageModel(t)
+	c := canvas.New(80, 24)
+	style := canvas.Fg(m.pal.Text)
+	m.drawCentered(c, 5, "abc", style, 0, 80)
+	for x := 0; x < c.W; x++ {
+		cell := c.At(x, 6)
+		if cell.HasFG || cell.HasBG {
+			t.Fatalf("drawCentered painted a shadow cell at %d,6: %+v", x, cell)
+		}
+	}
+}
+
+func TestViewBackdrops(t *testing.T) {
+	for _, name := range config.Backgrounds {
+		t.Run(name, func(t *testing.T) {
+			m, _ := testModel(80, 24)
+			cfg := config.Default()
+			cfg.Background = name
+			m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.NewConfigPayload(cfg)})
+			assertFrame(t, m, 80, 24)
+			m.width, m.height = 120, 40
+			assertFrame(t, m, 120, 40)
+		})
+	}
+}
+
+func TestShowDustByBackground(t *testing.T) {
+	m, _ := testModel(80, 24)
+	for _, name := range []string{config.BackgroundAurora, config.BackgroundWaves} {
+		m.setBackdrop(name)
+		if !m.showDust() {
+			t.Errorf("%s should keep the ambient dust", name)
+		}
+	}
+	for _, name := range []string{
+		config.BackgroundNone, config.BackgroundStars, config.BackgroundFireflies,
+		config.BackgroundRain, config.BackgroundGrid,
+	} {
+		m.setBackdrop(name)
+		if m.showDust() {
+			t.Errorf("%s should not add the dust field", name)
+		}
+	}
+}
+
+func TestBackdropClockSlowsWhenPaused(t *testing.T) {
+	m, clock := testModel(80, 24)
+	applyRunning(m)
+
+	start := m.backdropTime
+	clock.Advance(100 * time.Millisecond)
+	m.handleTick()
+	if got := m.backdropTime - start; got < 0.099 || got > 0.101 {
+		t.Fatalf("running backdrop clock advanced %.3f, want ~0.1", got)
+	}
+
+	m.applyState(protocol.StateMessage{
+		Type: protocol.TypeState, Status: "paused",
+		DurationMS: 300000, RemainingMS: 200000,
+	})
+	start = m.backdropTime
+	clock.Advance(100 * time.Millisecond)
+	m.handleTick()
+	if got := m.backdropTime - start; got < 0.024 || got > 0.026 {
+		t.Fatalf("paused backdrop clock advanced %.3f, want ~0.025", got)
 	}
 }
 

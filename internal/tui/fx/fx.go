@@ -1,4 +1,5 @@
-// Package fx implements the ambient dust and the confetti celebration.
+// Package fx implements the ambient backdrop, the ambient dust and the
+// confetti celebration.
 package fx
 
 import (

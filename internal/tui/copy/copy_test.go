@@ -127,6 +127,26 @@ func TestUpdateCopyExists(t *testing.T) {
 	}
 }
 
+func TestBackgroundCopyCoversConfig(t *testing.T) {
+	for _, name := range config.Backgrounds {
+		label := BackgroundName(name)
+		if label == "" || label == name {
+			t.Errorf("BackgroundName(%q) = %q, want a user-facing label", name, label)
+		}
+		for _, r := range label {
+			if r > 0x7f {
+				t.Errorf("BackgroundName(%q) contains a non-ASCII rune %q", name, r)
+			}
+		}
+	}
+	if got, want := T(ToastBackground, BackgroundName(config.BackgroundStars)), "Stars background"; got != want {
+		t.Errorf("ToastBackground = %q, want %q", got, want)
+	}
+	if got := BackgroundName(config.BackgroundGrid); got != "Sunset" {
+		t.Errorf("BackgroundName(grid) = %q, want Sunset", got)
+	}
+}
+
 func TestKeyHintsUseBracketFormat(t *testing.T) {
 	keys := []Key{
 		ControlsIdle, ControlsRunning, ControlsPaused, ControlsFinished,
