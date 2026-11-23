@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"tuick-tack/assets"
 	"tuick-tack/internal/config"
 	"tuick-tack/internal/duration"
 	"tuick-tack/internal/engine"
@@ -106,17 +105,13 @@ func statusText(st engine.State) (menu, tooltip string) {
 	}
 }
 
-// iconFor returns the tray icon for a status. The pack is ICO today; the macOS
-// menu bar switches to PNG in the menu-bar phase.
-func iconFor(status engine.Status) []byte {
-	switch status {
-	case engine.Running:
-		return assets.RunningIcon
-	case engine.Paused:
-		return assets.PausedIcon
-	case engine.Finished:
-		return assets.FinishedIcon
-	default:
-		return assets.IdleIcon
+// menuBarTitle is the compact text next to the menu-bar icon on macOS: the
+// remaining time while a countdown runs or is paused. Windows ignores it, so a
+// countdown never widens the notification area.
+func menuBarTitle(st engine.State) string {
+	switch st.Status {
+	case engine.Running, engine.Paused:
+		return duration.Format(st.Remaining)
 	}
+	return ""
 }

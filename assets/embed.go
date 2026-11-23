@@ -49,3 +49,25 @@ var PausedIcon []byte
 //
 //go:embed icons/finished.ico
 var FinishedIcon []byte
+
+// The PNG variants are the 32 px macOS menu-bar images, shown at 16 pt.
+
+// IdleIconPNG is the macOS menu-bar icon used while no countdown is active.
+//
+//go:embed icons/idle.png
+var IdleIconPNG []byte
+
+// RunningIconPNG is the macOS menu-bar icon used while a countdown runs.
+//
+//go:embed icons/running.png
+var RunningIconPNG []byte
+
+// PausedIconPNG is the macOS menu-bar icon used while a countdown is paused.
+//
+//go:embed icons/paused.png
+var PausedIconPNG []byte
+
+// FinishedIconPNG is the macOS menu-bar icon used when a countdown finishes.
+//
+//go:embed icons/finished.png
+var FinishedIconPNG []byte

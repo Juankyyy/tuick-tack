@@ -76,7 +76,7 @@ func (t *Tray) onReady() {
 		t.mu.Unlock()
 		return
 	}
-	systray.SetOnTapped(t.actions.OpenTUI)
+	initTray(t.actions)
 	systray.SetIcon(iconFor(engine.Idle))
 
 	t.status = systray.AddMenuItem(copy.T(copy.TrayReady), copy.T(copy.TrayCurrentTooltip))
@@ -185,6 +185,7 @@ func (t *Tray) updateLocked(st engine.State, cfg config.Config) {
 	statusTitle, tooltip := statusText(st)
 	t.status.SetTitle(statusTitle)
 	systray.SetTooltip(tooltip)
+	setMenuBarTitle(menuBarTitle(st))
 
 	if st.Status != t.lastStatus {
 		t.lastStatus = st.Status

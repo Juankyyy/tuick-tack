@@ -1,11 +1,13 @@
 // Command gen-icons draws the pixel-art tray and executable icons into assets/.
 //
 // The tray icons live on a 7x7 grid with one cell of margin: at 16 px every
-// cell is exactly 2 px, and at 24/32/48 px it is 3/4/6 px. The executable icon
-// is a 16x16 grid on a navy tile. Every ICO entry is rendered at its own size
-// without antialiasing; the small entries are never downsampled from a 256 px
-// master. The ICO carries the sizes Windows asks for, and winres embeds the
-// same file in the executable.
+// cell is exactly 2 px, and at 24/32/48 px it is 3/4/6 px. Each state gets an
+// ICO for Windows and a 32 px PNG for the macOS menu bar, where the image is
+// shown at 16 pt and the 2x bitmap keeps it sharp on Retina. The executable
+// icon is a 16x16 grid on a navy tile. Every ICO entry is rendered at its own
+// size without antialiasing; the small entries are never downsampled from a
+// 256 px master. The ICO carries the sizes Windows asks for, and winres embeds
+// the same file in the executable.
 package main
 
 import (
@@ -176,6 +178,13 @@ func main() {
 			fail(err)
 		}
 		fmt.Printf("gen-icons: wrote assets/icons/%s.ico\n", st.name)
+
+		// macOS shows the menu-bar image at 16 pt; a 32 px PNG is the Retina
+		// bitmap for the same spot, so it stays sharp on every Mac display.
+		if err := writePNG(filepath.Join(iconsDir, st.name+".png"), art.render(32)); err != nil {
+			fail(err)
+		}
+		fmt.Printf("gen-icons: wrote assets/icons/%s.png\n", st.name)
 	}
 
 	if err := writeICO(filepath.Join(root, "assets", "icon.ico"), appSizes, func(size int) image.Image {

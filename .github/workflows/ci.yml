@@ -1,7 +1,7 @@
 # Windows is the reference platform and macOS is a supported build target. Both
 # run vet, tests and a full build with CGO_ENABLED=0 on every push and pull
-# request. macOS tests must stay green without cgo: the real menu bar needs cgo
-# and is added in the menu-bar phase, behind the tray no-op.
+# request. The macOS jobs also build with CGO_ENABLED=1, which compiles the real
+# menu bar through systray; the no-cgo build keeps the headless fallback honest.
 name: CI
 
 on:
@@ -62,4 +62,8 @@ jobs:
       - name: go test
         run: go test ./... -count=1
       - name: go build
+        run: go build ./...
+      - name: go build (cgo tray)
+        env:
+          CGO_ENABLED: "1"
         run: go build ./...

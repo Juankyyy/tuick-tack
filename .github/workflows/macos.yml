@@ -1,7 +1,7 @@
-# Base of the macOS workflow. Phase 1 runs the full vet, tests and build without
-# cgo on both architectures. The real menu bar needs cgo; the packaging phase
-# grows this file into the cgo build, lipo, the .app bundle, the ad-hoc signature
-# and the universal zip for the release.
+# Base of the macOS workflow. It runs the full vet, tests and build without cgo
+# on both architectures, then builds with cgo to compile the real menu bar. The
+# packaging phase grows this file into lipo, the .app bundle, the ad-hoc
+# signature and the universal zip for the release.
 name: macOS
 
 on:
@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  no-cgo:
+  check:
     name: macOS ${{ matrix.arch }} (no cgo)
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
@@ -40,4 +40,8 @@ jobs:
       - name: go test
         run: go test ./... -count=1
       - name: go build
+        run: go build ./...
+      - name: go build (cgo tray)
+        env:
+          CGO_ENABLED: "1"
         run: go build ./...

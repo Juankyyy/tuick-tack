@@ -102,6 +102,23 @@ func TestVolumeLevels(t *testing.T) {
 	}
 }
 
+func TestMenuBarTitle(t *testing.T) {
+	tests := []struct {
+		state engine.State
+		want  string
+	}{
+		{engine.State{Status: engine.Idle}, ""},
+		{engine.State{Status: engine.Running, Remaining: 4*time.Minute + 32*time.Second}, "04:32"},
+		{engine.State{Status: engine.Paused, Remaining: 90 * time.Second}, "01:30"},
+		{engine.State{Status: engine.Finished}, ""},
+	}
+	for _, tt := range tests {
+		if got := menuBarTitle(tt.state); got != tt.want {
+			t.Errorf("menuBarTitle(%+v) = %q, want %q", tt.state, got, tt.want)
+		}
+	}
+}
+
 func TestIconFor(t *testing.T) {
 	for _, st := range []engine.Status{engine.Idle, engine.Running, engine.Paused, engine.Finished} {
 		if len(iconFor(st)) == 0 {
