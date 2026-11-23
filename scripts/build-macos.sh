@@ -18,7 +18,8 @@ usage:
 build:   compiles dist/tuick-tack-darwin-<arch> with cgo.
 package: combines the two binaries with lipo, builds Tuick-Tack.app from the
          committed Info.plist, wrapper and icon.iconset, signs it ad-hoc and
-         writes dist/tuick-tack-macos-universal.zip plus SHA256SUMS.txt.
+         writes dist/tuick-tack-macos-universal.zip, its .sha256 and
+         SHA256SUMS.txt.
 EOF
 }
 
@@ -136,7 +137,8 @@ package)
 	bv=$(bundle_version "$version") || exit 2
 	app=dist/Tuick-Tack.app
 	stage=dist/macos-portable
-	rm -rf "$app" "$stage" dist/tuick-tack-macos-universal.zip dist/SHA256SUMS.txt
+	rm -rf "$app" "$stage" dist/tuick-tack-macos-universal.zip \
+		dist/tuick-tack-macos-universal.zip.sha256 dist/SHA256SUMS.txt
 	mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
 	echo "==> combining arm64 and amd64"
@@ -168,6 +170,10 @@ package)
 	(
 		cd dist
 		shasum -a 256 tuick-tack-macos-universal.zip >SHA256SUMS.txt
+		# The release also carries the zip's own checksum. The Windows
+		# SHA256SUMS.txt lists only the .exe files, so macOS uses this file
+		# as its fallback when GitHub reports no asset digest.
+		shasum -a 256 tuick-tack-macos-universal.zip >tuick-tack-macos-universal.zip.sha256
 	)
 
 	"$app/Contents/MacOS/tuick-tack" --version
