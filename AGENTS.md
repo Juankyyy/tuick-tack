@@ -46,8 +46,9 @@ On macOS (Xcode Command Line Tools; cgo links the menu bar):
   build that compiles the real menu bar. A red check blocks merges.
   `.github/workflows/macos.yml` runs on push to `dev` and manual dispatch: it builds
   both architectures with cgo, combines them with `lipo`, packages `Tuick-Tack.app`
-  (Info.plist, wrapper, `icon.icns`, ad-hoc signature) and uploads the universal zip
-  and `SHA256SUMS.txt` as an artifact. The release upload comes in the update phase.
+  (Info.plist, wrapper, `icon.icns`, ad-hoc signature) and uploads the universal zip,
+  its `.sha256` and `SHA256SUMS.txt` as an artifact. A manual run with a `tag` attaches
+  the zip and its `.sha256` to that existing release; it never creates one.
   Never run `go generate ./...` in CI: it includes the Windows `.syso` and installer
   steps.
 

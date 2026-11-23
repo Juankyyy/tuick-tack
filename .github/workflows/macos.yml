@@ -1,8 +1,10 @@
 # macOS build and packaging. Every push to dev produces an ad-hoc signed dev
-# artifact; a manual run can stamp a version. The package job combines both
-# architectures with lipo, builds Tuick-Tack.app from macos/, signs it ad-hoc
-# and writes the universal zip plus SHA256SUMS.txt. The release upload is added
-# in the update/release phase.
+# artifact; a manual run can stamp a version and attach the universal zip to an
+# existing GitHub release. The package job combines both architectures with
+# lipo, builds Tuick-Tack.app from macos/, signs it ad-hoc and writes the
+# universal zip, its .sha256 and SHA256SUMS.txt. The release upload never
+# creates a release: the Windows release is published from main and this
+# workflow only adds the macOS assets to that tag.
 name: macOS
 
 on:
@@ -11,19 +13,27 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Version to stamp (vX.Y.Z); dev keeps 0.0.0 in Info.plist
+        description: Version to stamp when no tag is given (vX.Y.Z); empty or dev keeps 0.0.0 in Info.plist
         required: false
-        default: dev
+        default: ""
+      tag:
+        description: Existing release tag to attach the app to (optional); also stamps the version
+        required: false
+        default: ""
 
 permissions:
   contents: read
 
 concurrency:
-  group: macos-${{ github.ref }}
+  # Tag dispatches get their own group, so a push to dev cannot cancel a
+  # release attach (and vice versa).
+  group: macos-${{ github.event.inputs.tag || github.ref }}
   cancel-in-progress: true
 
 env:
-  VERSION: ${{ github.event.inputs.version || 'dev' }}
+  # A release dispatch stamps the tag, so the app inside the zip always
+  # matches the release it is attached to.
+  VERSION: ${{ github.event.inputs.tag || github.event.inputs.version || 'dev' }}
 
 jobs:
   build:
@@ -40,6 +50,17 @@ jobs:
             arch: amd64
     steps:
       - uses: actions/checkout@v7
+        with:
+          # A release dispatch must build the tagged commit, not the branch the
+          # manual run was started from.
+          ref: ${{ github.event.inputs.tag || github.ref }}
+      - name: check the release tag
+        if: github.event.inputs.tag != ''
+        env:
+          TAG: ${{ github.event.inputs.tag }}
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: gh release view "$TAG" --json tagName >/dev/null
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -67,6 +88,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
       - uses: actions/download-artifact@v8
         with:
           pattern: tuick-tack-darwin-*
@@ -80,6 +103,7 @@ jobs:
       - name: verify the artifact
         run: |
           (cd dist && shasum -a 256 -c SHA256SUMS.txt)
+          (cd dist && shasum -a 256 -c tuick-tack-macos-universal.zip.sha256)
           plutil -lint dist/Tuick-Tack.app/Contents/Info.plist
           codesign --verify --deep --strict --verbose=2 dist/Tuick-Tack.app
           lipo dist/Tuick-Tack.app/Contents/MacOS/tuick-tack -verify_arch arm64 x86_64
@@ -97,5 +121,45 @@ jobs:
           name: tuick-tack-macos-universal
           path: |
             dist/tuick-tack-macos-universal.zip
+            dist/tuick-tack-macos-universal.zip.sha256
             dist/SHA256SUMS.txt
           if-no-files-found: error
+
+  release:
+    name: Attach the app to the release
+    needs: package
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.tag != ''
+    runs-on: macos-15
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.inputs.tag }}
+      # Without a checkout there is no git remote; tell gh which repository.
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: check the tag
+        run: |
+          case "$TAG" in
+          v[0-9]*) ;;
+          *)
+            echo "tag must look like vX.Y.Z (got: $TAG)" >&2
+            exit 2
+            ;;
+          esac
+      - uses: actions/download-artifact@v8
+        with:
+          name: tuick-tack-macos-universal
+          path: dist
+      - name: verify the artifact
+        working-directory: dist
+        run: |
+          shasum -a 256 -c SHA256SUMS.txt
+          shasum -a 256 -c tuick-tack-macos-universal.zip.sha256
+      - name: attach the app to the release
+        run: |
+          gh release upload "$TAG" \
+            dist/tuick-tack-macos-universal.zip \
+            dist/tuick-tack-macos-universal.zip.sha256 \
+            --clobber
