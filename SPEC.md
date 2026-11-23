@@ -1,39 +1,48 @@
 # Tuick-Tack — SPEC
 
-> **Estado:** implementado (v1) · **Fecha:** 2026-11-12
-> **Plataforma:** Windows 10/11 x64 · **Licencia:** GPL-3.0 (repo)
-> **Stack:** Go 1.26+ + Bubble Tea v2 + Lipgloss v2 + systray + go-winio
-> **Repo:** `tuick-tack` (v1 implementado en `dev`; builds locales `portable` y `setup` en `dist/`)
+> **Estado:** v1 Windows + port macOS experimental · **Fecha:** 2026-11-23
+> **Plataformas:** Windows 10/11 x64 · macOS 13+ universal (experimental) · **Licencia:** GPL-3.0 (repo)
+> **Stack:** Go 1.26+ + Bubble Tea v2 + Lipgloss v2 + systray + go-winio (Windows) / Unix socket (macOS)
+> **Repo:** `tuick-tack` (v1 Windows; port macOS en `dev`; builds locales `portable`/`setup` y zip universal)
 
 ---
 
 ## 1. Resumen
 
-Tuick-Tack es una app de escritorio para Windows con dos caras:
+Tuick-Tack es una app de escritorio para Windows 10/11 y macOS 13+ con dos caras:
 
 1. **TUI** en la terminal (Bubble Tea) para elegir presets, escribir minutos, ver el countdown, pausar, ajustar y gestionar presets.
-2. **Icono en la bandeja** gestionado por un daemon en segundo plano que es dueño del temporizador, del sonido y del menú.
+2. **Icono en la bandeja o en el menu bar** gestionado por un daemon en segundo plano que es dueño del temporizador, del sonido y del menú.
 
 El countdown, el sonido y el icono siguen funcionando aunque se cierre la TUI. Al llegar a 0 suena el sonido elegido al volumen configurado y, si la TUI está abierta, se celebra con confeti a pantalla completa. Presets por defecto 5/10/15 min, presets personalizados con nombre y duración, y entrada libre de minutos.
+
+Windows es la plataforma de referencia y no cambia de comportamiento. macOS es experimental, usa la misma base de código y la misma TUI/daemon; solo cambian los bridges de plataforma (bandeja, IPC, sonido, autostart y actualización), documentados en §4.
 
 ## 2. Decisiones clave
 
 | Área | Decisión |
 |---|---|
 | Lenguaje | Go 1.26+ (las versiones pinneadas de Bubble Tea v2 y go-winio lo requieren); `CGO_ENABLED=0` en Windows |
+| Plataformas | Windows 10/11 x64 (referencia) y macOS 13+ universal (experimental) sobre una sola base de código |
 | TUI | `charm.land/bubbletea/v2` v2.1.1 + `charm.land/lipgloss/v2` v2.1.0 |
-| Bandeja | `fyne.io/systray` v1.12.2 (Go puro en Windows; sin cgo) |
-| IPC | `github.com/Microsoft/go-winio` v0.6.4, named pipe + JSON |
+| Bandeja | `fyne.io/systray` v1.12.2: Go puro en Windows; cgo/Cocoa en macOS. Sin cgo en macOS, tray no-op |
+| IPC | Named pipe de `github.com/Microsoft/go-winio` en Windows; Unix domain socket en macOS; mensajes JSON iguales |
+| Instancia | Mutex con nombre de Win32 en Windows; `flock` en macOS |
+| Autostart | Registro `HKCU\...\Run` en Windows; LaunchAgent en `~/Library/LaunchAgents` en macOS |
+| Notificaciones | WinRT toast con AUMID en Windows; `osascript` en macOS |
+| Instalación | Inno Setup por usuario en Windows; `.app` portable en `~/Applications` o `/Applications` en macOS |
+| Actualización | Setup o `.exe` portable en Windows; zip universal + `.sha256` y sustitución manual del `.app` en macOS |
 | Win32 | `golang.org/x/sys/windows` (`PlaySoundW`, mutex, registro) |
-| Icono del .exe | `go-winres` generando un `.syso` |
+| macOS nativo | syscalls de `golang.org/x/sys/unix`, socket Unix, `afplay`, `open` y LaunchAgent |
+| Icono del .exe | `go-winres` generando un `.syso` (solo Windows) |
 | Arquitectura | Un ejecutable con dos modos (TUI y daemon), una sola cuenta atrás activa |
 | Idioma | UI en inglés; código, comentarios y commits en inglés; documentación en español |
 | Temas | `midnight` (por defecto), `ember`, `mono` |
-| Aviso al terminar | Sonido elegible (1–5 s) con volumen 0–100 + icono de bandeja en alerta + confeti en la TUI |
+| Aviso al terminar | Sonido elegible (1–5 s) con volumen 0–100 + icono de bandeja/menu bar en alerta + confeti en la TUI |
 | Estadísticas | Historial local `history.jsonl` (2000 registros), agregados en el daemon y pestaña `s` de la TUI con overview, actividad, presets y sesiones recientes |
-| Toast nativo | Solo para el resultado de una comprobación manual de actualizaciones (`github.com/mtunjic/winrt-toast` v1.2.0); el aviso de fin sigue siendo sonido + TUI |
+| Toast nativo | Solo para el resultado de una comprobación manual de actualizaciones: WinRT en Windows y `osascript` en macOS (sin clic); el aviso de fin sigue siendo sonido + TUI |
 
-**Por qué un ejecutable y dos procesos:** un solo archivo evita que el usuario tenga que emparejar dos binarios. Por debajo siguen siendo dos procesos porque la TUI vive en una terminal: si fuese un solo proceso, cerrar la terminal mataría el icono, el countdown y el sonido. El daemon posee el estado; la TUI es una vista/controlador que se puede abrir y cerrar. Ambos modos viven en `tuick-tack.exe`: sin argumentos arranca la TUI y con `--daemon` el daemon.
+**Por qué un ejecutable y dos procesos:** un solo archivo evita que el usuario tenga que emparejar dos binarios. Por debajo siguen siendo dos procesos porque la TUI vive en una terminal: si fuese un solo proceso, cerrar la terminal mataría el icono, el countdown y el sonido. El daemon posee el estado; la TUI es una vista/controlador que se puede abrir y cerrar. En Windows ambos modos viven en `tuick-tack.exe`: sin argumentos arranca la TUI y con `--daemon` el daemon. En macOS el mismo binario vive dentro de `Tuick-Tack.app/Contents/MacOS/` y el wrapper `launcher` arranca el daemon al abrir el bundle.
 
 **Por qué Go + Bubble Tea:** `systray` cubre exactamente el requisito (menú, submenús, tooltip, clic izquierdo/derecho, actualización dinámica) sin bucle de eventos propio; Bubble Tea/Lipgloss permite iterar el acabado visual rápido. Rust/ratatui se descartó por más ceremonia en la bandeja y el render.
 
@@ -49,50 +58,86 @@ El countdown, el sonido y el icono siguen funcionando aunque se cierre la TUI. A
 - Celebración con confeti en la TUI al llegar a 0.
 - Estilo cuidado: fondo ambiental a pantalla completa, cabecera de dos alturas, dígitos grandes con degradado y barra de progreso viva con checkpoints.
 - El countdown y el sonido sobreviven al cierre de la TUI.
-- Configuración persistente, temas, autostart opcional, build reproducible del `.exe` portable y de un setup por usuario.
+- La misma TUI, daemon, presets, temas, fondos, estadísticas y aviso de actualización en Windows y en macOS, con las capacidades nativas de cada plataforma detrás de bridges pequeños.
+- Configuración persistente, temas, autostart opcional, build reproducible del `.exe` portable y de un setup por usuario en Windows, y un `.app` universal ad-hoc en macOS.
 
 ### No objetivos v1
 
 - Varios timers simultáneos o cola de timers.
 - Persistencia del timer en curso tras reiniciar el daemon.
-- macOS/Linux (la app es Windows-only).
+- Linux (la app cubre Windows y macOS).
 - Toast nativo de Windows para el fin del countdown (las comprobaciones de actualizaciones sí usan uno, ver §12).
 - MSIX, descarga o instalación automática sin confirmación, firma de código.
+- Notarización y Developer ID en macOS, auto-reemplazo silencioso de `Tuick-Tack.app` e instalador/desinstalador tipo Inno en macOS.
+- Memoria de la posición y el tamaño de la ventana de la TUI en macOS (solo Windows).
 - Hotkeys globales, integración con calendario, sync en la nube.
 - UI mouse-first (el ratón funciona para chips/botones, pero el teclado manda).
 
 ## 4. Arquitectura
 
 ```
-        un solo ejecutable, dos procesos
-┌───────────────────────────┐  named    ┌──────────────────────────────────────┐
-│ tuick-tack.exe            │◄─pipe────►│ tuick-tack.exe --daemon              │
-│ TUI (consola)             │  JSON     │ systray (hilo principal)             │
-│ Bubble Tea v2             │  frames   │ TimerEngine · IPC server · config    │
-│ canvas + bigfont + fx     │           │ PlaySoundW · volumen · iconos · tray │
-└───────────────────────────┘           └──────────────────────────────────────┘
+        una base de código, dos procesos
+┌───────────────────────────┐  pipe /    ┌──────────────────────────────────────┐
+│ TUI (sin argumentos)      │◄─socket───►│ tuick-tack --daemon                  │
+│ TUI (consola)             │  JSON      │ systray / menu bar (hilo principal)  │
+│ Bubble Tea v2             │  frames    │ TimerEngine · IPC server · config    │
+│ canvas + bigfont + fx     │            │ sonido · volumen · iconos · menú     │
+└───────────────────────────┘            └──────────────────────────────────────┘
 ```
 
-- **Ejecutable** = `tuick-tack.exe`, app de consola. Sin argumentos arranca la TUI; con `--daemon`, el daemon; con `--daemon --hidden`, el daemon sin consola (autostart). El mismo binario incluye el modo interno `--apply-update`, que usa el helper temporal de actualizaciones.
-- **Instalador** = `tuick-tack-setup.exe`, generado con Inno Setup. Instala por usuario en `Documentos\tuick-tack`, sin admin, con acceso al menú Inicio y desinstalador. El portable sigue siendo `tuick-tack.exe`.
-- **Daemon** = proceso `--daemon`. Es la única fuente de verdad: motor, config, sonido, bandeja. Al arrancar desde el registro libera su consola con `--hidden` y sigue como app de bandeja.
-- **TUI** = proceso sin argumentos. Se conecta por el pipe; si el daemon no está, lanza una copia oculta de sí mismo con `--daemon` y reintenta.
-- Una sola TUI por sesión; el tray reutiliza la ventana abierta. Los comandos afectan al único timer.
-- El pipe es local, por usuario y sesión: `\\.\pipe\tuick-tack-<usuario>-<sesión>`. ACL para el usuario actual y acceso remoto denegado.
-- Instancia única: mutex con nombre (`CreateMutexW`) + fallo al escuchar el pipe. Si ya hay daemon, el segundo proceso sale con código 0.
+- **Ejecutable** = Windows `tuick-tack.exe`, app de consola. Sin argumentos arranca la TUI; con `--daemon`, el daemon; con `--daemon --hidden`, el daemon sin consola (autostart). En macOS el binario vive en `Tuick-Tack.app/Contents/MacOS/tuick-tack`; el wrapper `launcher` arranca el daemon al abrir el bundle y la TUI se abre desde el menu bar. El mismo binario incluye el modo interno `--apply-update`, que solo usa el helper de Windows.
+- **Instalador** = `tuick-tack-setup.exe`, generado con Inno Setup. Instala por usuario en `Documentos\tuick-tack`, sin admin, con acceso al menú Inicio y desinstalador. El portable sigue siendo `tuick-tack.exe`. En macOS no hay instalador: el zip contiene `Tuick-Tack.app` y se mueve a `~/Applications` o `/Applications`.
+- **Daemon** = proceso `--daemon`. Es la única fuente de verdad: motor, config, sonido, bandeja/menu bar. En Windows, al arrancar desde el registro libera su consola con `--hidden`; en macOS `--hidden` se acepta como no-op y el LaunchAgent arranca el binario con `--daemon --hidden`.
+- **TUI** = proceso sin argumentos. Se conecta por el pipe o el socket; si el daemon no está, lanza una copia oculta de sí mismo con `--daemon` y reintenta. En macOS el daemon escribe `open-tui.command` en `~/Library/Application Support/tuick-tack/` y lo abre con `open`, para no pedir permisos TCC de AppleScript.
+- Una sola TUI por sesión. En Windows el tray enfoca la ventana abierta; en macOS una segunda TUI activa Terminal con `open -a` como best effort (sin localizar la ventana) y sale. Los comandos afectan al único timer.
+- **IPC:** en Windows el pipe es local, por usuario y sesión: `\\.\pipe\tuick-tack-<usuario>-<sesión>`, con ACL para el usuario actual y acceso remoto denegado. En macOS es un Unix domain socket en `~/Library/Caches/tuick-tack/daemon-<uid>.sock`, con modo `0600`; si la ruta supera 100 bytes el daemon falla con un error claro (no hay fallback). Un socket huérfano se borra si el connect falla.
+- **Instancia única:** mutex con nombre (`CreateMutexW`) + fallo al escuchar el pipe en Windows; `flock` sobre `daemon.lock`/`tui.lock` en `~/Library/Caches/tuick-tack` en macOS. Si ya hay daemon, el segundo proceso sale con código 0.
 - Si el daemon se reinicia se pierde el timer en curso (documentado).
+
+### Plataformas y paridad
+
+La lógica compartida no llama a APIs de plataforma. Cada capacidad vive detrás de un bridge pequeño con una hoja `_windows.go` y otra `_darwin.go`; el compilador impide que una API Windows se cuele en el build de macOS. No hay fork ni rama paralela: Windows y macOS son dos targets del mismo repositorio.
+
+| Capacidad | Windows | macOS |
+|---|---|---|
+| TUI, daemon, motor, presets, temas, fondos, stats | Igual | Igual |
+| IPC | Named pipe `go-winio`, ACL por usuario | Unix socket `0600` en `~/Library/Caches/tuick-tack/daemon-<uid>.sock` |
+| Instancia única | `CreateMutexW` + pipe | `flock` de `daemon.lock`/`tui.lock` |
+| Menú | Bandeja `systray`, ICO; clic izquierdo abre/enfoca la TUI | Menu bar `systray` con cgo y PNG 32 px; el clic abre el menú y `Open Tuick-Tack` abre la TUI |
+| Segunda TUI | Enfoca la ventana existente | Activa Terminal con `open -a` (best effort) y sale |
+| Sonido | `PlaySoundW` con WAV escalado | `afplay` con el mismo WAV escalado |
+| Autostart | `HKCU\...\Run`, `--daemon --hidden` | LaunchAgent `com.juankyyy.tuick-tack.plist` |
+| Notificación de update | WinRT toast con AUMID; el clic abre la release | `osascript display notification`; sin clic |
+| Abrir TUI | Windows Terminal o consola; `termwin` coloca y enfoca | `.command` + `open`; activa Terminal sin localizar la ventana |
+| Instalación | Inno Setup por usuario | `.app` en `~/Applications` o `/Applications` |
+| Update | Setup o portable `.exe` | Zip universal + `.sha256`; descarga y Finder, sin reemplazo automático |
+| Ventana de la TUI | Tamaño y posición recordados (`termwin`, `CSI 8`) | No soportado: el daemon omite `window` y la TUI no mueve el terminal |
+| Perfil de terminal | Lee el `defaultProfile` de Windows Terminal | No aplica |
+| Datos | `%APPDATA%` y `%LOCALAPPDATA%` | `~/Library/Application Support` y `~/Library/Caches` |
+| Iconos | ICO multi-tamaño, rejilla 7×7 | PNG 32 px, rejilla 7×7 |
+| Build | `CGO_ENABLED=0`, `.syso`, Inno | cgo para systray, `lipo`, codesign ad-hoc y zip |
+| Firma | Sin firma; SmartScreen puede avisar | Ad-hoc, sin notarizar; Gatekeeper avisa en descargas |
+| CI | `windows-latest` | `macos-15` (arm64) y `macos-15-intel` (amd64) |
+
+Reglas de mantenimiento:
+
+- El código compartido nunca importa `golang.org/x/sys/windows`, `go-winio`, `winrt-toast` ni `systray`; el build de macOS lo impide.
+- Una capacidad nueva se declara en el bridge y se implementa en las dos hojas. Si una plataforma no la tiene, se devuelve no-op o se anuncia una capacidad y la UI la oculta.
+- No se duplica el daemon, la TUI ni la bandeja para macOS. Un cambio compartido llega gratis a las dos plataformas.
+- La tabla de paridad se actualiza con cada feature. Una feature no está terminada hasta que el CI de Windows y el de macOS están verdes.
 
 ## 5. Ciclo de vida
 
-1. El usuario abre `tuick-tack.exe`. Si ya hay una TUI (mutex `<pipe>-tui-mutex`), la nueva instancia enfoca la ventana existente y sale.
-2. La TUI intenta conectar al pipe. Si falla:
-   - Lanza una copia oculta de `tuick-tack.exe --daemon` detached con `CREATE_NO_WINDOW`.
+1. El usuario abre la app. En Windows es `tuick-tack.exe`; en macOS abre `Tuick-Tack.app`, cuyo wrapper arranca el daemon. Si ya hay una TUI (mutex `<pipe>-tui-mutex` en Windows, `flock` en macOS), en Windows la nueva instancia enfoca la ventana existente y sale; en macOS activa Terminal con `open -a` como best effort y sale (sin localizar la ventana).
+2. La TUI intenta conectar al pipe o socket. Si falla:
+   - Windows: lanza una copia oculta de `tuick-tack.exe --daemon` detached con `CREATE_NO_WINDOW`.
+   - macOS: lanza el binario con `--daemon --hidden` con `Setsid` y stdio a `/dev/null`; el daemon escribe su propio log y se mantiene sin terminal.
    - Reintenta durante ~3 s (100 ms entre intentos).
-3. El daemon arranca: logger, config, mutex, engine + servidor IPC en goroutines, `systray.Run` en el hilo principal.
-4. La TUI recibe `hello` + config y renderiza.
-5. Al llegar a 0, el daemon incrementa `finish_seq`, reproduce el sonido elegido y actualiza bandeja. La TUI detecta el nuevo `finish_seq` y lanza la celebración.
-6. `q` cierra solo la TUI; el daemon sigue. `Quit` en la bandeja cierra todo: el daemon avisa `daemon_closing` a las TUIs conectadas y la TUI sale sin reintentar (si reintentase, `Ensure` relanzaría el daemon).
-7. Al salir desde la bandeja: `systray.Quit()`, parar el loop, enviar `daemon_closing` a los clientes (se espera la escritura, con timeout), cerrar el pipe y parar el sonido. Un cierre de systray sin `Quit` (logoff) no envía el aviso.
+3. El daemon arranca: logger, config, lock, engine + servidor IPC en goroutines, `systray.Run` en el hilo principal. En macOS el LaunchAgent opcional lo arranca al iniciar sesión.
+4. La TUI recibe `hello` + config y renderiza. En macOS el `hello` omite `window` (no hay colocación de ventana).
+5. Al llegar a 0, el daemon incrementa `finish_seq`, reproduce el sonido elegido y actualiza la bandeja o el menu bar. La TUI detecta el nuevo `finish_seq` y lanza la celebración.
+6. `q` cierra solo la TUI; el daemon sigue. `Quit` en la bandeja/menu bar cierra todo: el daemon avisa `daemon_closing` a las TUIs conectadas y la TUI sale sin reintentar (si reintentase, `Ensure` relanzaría el daemon).
+7. Al salir desde el menú: `systray.Quit()`, parar el loop, enviar `daemon_closing` a los clientes (se espera la escritura, con timeout), cerrar el pipe/socket y parar el sonido. Un cierre de systray sin `Quit` (logoff) no envía el aviso.
 
 ## 6. Motor del temporizador
 
@@ -126,12 +171,12 @@ Campos de estado:
 
 ## 7. Protocolo IPC
 
-- Transporte: named pipe de go-winio; mensajes JSON consecutivos con `json.Encoder`/`json.Decoder` sobre `net.Conn`. Los buffers del pipe son explícitos (64 KiB): con los tamaños por defecto una escritura puede esperar a que el cliente lea, y eso bloquearía los snapshots o el aviso final.
-- Handshake: cliente `hello {protocol: 1}` ↔ servidor `hello {protocol: 1, app_version, config, update?, window?}`. `config` incluye el fondo actual; un daemon viejo lo omite y la TUI conserva su elección local. `window` es aditivo y siempre lo envía un daemon de esta versión (`{width,height}` en celdas y `position?` en píxeles; ceros si no hay tamaño guardado). Su presencia indica que el daemon entiende `set_window_size`; un daemon viejo lo omite y la TUI no manda ese comando. La posición es opcional: nil significa que no hay ninguna guardada o que el daemon es viejo.
+- Transporte: named pipe de go-winio en Windows y Unix domain socket en macOS; los mensajes JSON consecutivos usan `json.Encoder`/`json.Decoder` sobre `net.Conn`. Los buffers del pipe de Windows son explícitos (64 KiB): con los tamaños por defecto una escritura puede esperar a que el cliente lea, y eso bloquearía los snapshots o el aviso final.
+- Handshake: cliente `hello {protocol: 1}` ↔ servidor `hello {protocol: 1, app_version, config, update?, window?}`. `config` incluye el fondo actual; un daemon viejo lo omite y la TUI conserva su elección local. `window` es aditivo y lo envía el daemon de Windows (`{width,height}` en celdas y `position?` en píxeles; ceros si no hay tamaño guardado); el daemon de macOS lo omite porque no coloca la ventana. Su presencia indica que el daemon entiende `set_window_size`; un daemon viejo lo omite y la TUI no manda ese comando. La posición es opcional: nil significa que no hay ninguna guardada, que el daemon es viejo o que es macOS.
 - El servidor acepta N clientes; broadcast de estado a 10 Hz mientras corre (y en cada cambio), y config solo al cambiar.
 - Errores: `{ "type": "error", "code": "...", "message": "..." }`.
 - La TUI reintenta la conexión cada 1 s si se cae; muestra banner de desconexión y deshabilita comandos.
-- `daemon_closing` es la excepción: la TUI sale sin reintentar y sin lanzar un daemon nuevo, porque el cierre lo pidió el usuario desde la bandeja.
+- `daemon_closing` es la excepción: la TUI sale sin reintentar y sin lanzar un daemon nuevo, porque el cierre lo pidió el usuario desde la bandeja o el menu bar.
 - Los mensajes de servidor desconocidos se decodifican como `IgnoredMessage` y se ignoran, para que un mensaje aditivo no rompa un cliente viejo. Por eso `update`, `update_progress` y `daemon_closing` no suben `Protocol`. El campo `notes` (cuerpo de la release, recortado a 16 KiB) es aditivo dentro de `update` y `update_result`: un daemon viejo no lo envía y una TUI vieja lo ignora. `install_update` y `download_portable` son comandos nuevos: un daemon viejo responde `invalid_command`, que la TUI muestra como actualización no disponible. `set_window_size` también es aditivo: la TUI solo lo envía si el `hello` trae `window`. `set_background` es aditivo: la TUI solo lo envía si el `config` del handshake trae un fondo no vacío; si no, cicla el efecto solo para esa sesión. `readable_text` es un puntero aditivo en `config` y `set_readable_text` un comando aditivo: la TUI solo lo envía si el puntero está presente; con un daemon viejo conserva el ajuste local.
 
 Cliente → daemon:
@@ -156,10 +201,12 @@ Cliente → daemon:
 | `stop_sound` | — |
 | `check_update` | — |
 | `install_update` | `force?` (obligatorio si hay countdown activo) |
-| `download_portable` | — |
+| `download_portable` | — (en macOS descarga el zip universal y emite `update_progress` de tipo `portable`) |
 | `get_state` | — |
 | `get_stats` | — (pide el agregado del historial; solo responde al cliente que lo pide) |
 | `quit_daemon` | — |
+
+En macOS `install_update` responde `setup`/`failed`/`unsupported` y la TUI no lo ofrece; `download_portable` guarda `tuick-tack-vX.Y.Z-macos-universal.zip` en Downloads y el mensaje `done` lleva esa ruta. El resto de comandos es idéntico en las dos plataformas.
 
 Daemon → cliente:
 
@@ -179,7 +226,7 @@ Daemon → cliente:
 
 `get_stats` y `stats` son aditivos: un daemon viejo responde `invalid_command` y la TUI cierra la pestaña con un aviso; un cliente viejo ignora `stats`. El daemon responde solo al cliente que lo pidió, como `update_result`. La TUI pide el agregado al abrir la pestaña, al reconectar y cuando un snapshot muestra un stop o un reemplazo con la pestaña abierta (un final la cierra para celebrar); el resto del tiempo no hay tráfico extra.
 
-El tamaño y la posición de ventana no se difunden: son geometría del cliente, no estado compartido. El daemon los guarda en config y los devuelve en el siguiente `hello`; no hace broadcast ni refresca la bandeja.
+El tamaño y la posición de ventana no se difunden: son geometría del cliente, no estado compartido. El daemon los guarda en config (solo Windows) y los devuelve en el siguiente `hello`; no hace broadcast ni refresca la bandeja.
 
 Validación: duración 1..86400 s; etiqueta 1..32 caracteres; máximo 16 presets; tema válido; fondo válido (`aurora`, `stars`, `fireflies`, `rain`, `waves`, `grid`, `none`); sonido válido (`chime`, `marimba`, `digital`, `deep`); volumen 0..100; tamaño de ventana 1..1000 por 1..1000 celdas; posición entre -32768 y 32767 en ambos ejes. Comando inválido → error, sin cambiar estado.
 
@@ -187,9 +234,14 @@ Validación: duración 1..86400 s; etiqueta 1..32 caracteres; máximo 16 presets
 
 Rutas (por usuario, sin admin):
 
-- Config: `%APPDATA%\tuick-tack\config.json` (`os.UserConfigDir`).
-- Historial de estadísticas: `%APPDATA%\tuick-tack\history.jsonl`, JSONL solo-añadir, escrito únicamente por el daemon.
-- Caché/logs: `%LOCALAPPDATA%\tuick-tack\` (`os.UserCacheDir`): `sounds\<sonido>-<volumen>.wav`, `logs\tuick-tack.log`.
+| Datos | Windows | macOS |
+|---|---|---|
+| Config | `%APPDATA%\tuick-tack\config.json` | `~/Library/Application Support/tuick-tack/config.json` |
+| Historial | `%APPDATA%\tuick-tack\history.jsonl` | `~/Library/Application Support/tuick-tack/history.jsonl` |
+| Caché y logs | `%LOCALAPPDATA%\tuick-tack\` (`sounds\`, `logs\`, `updates\`) | `~/Library/Caches/tuick-tack/` (`sounds/`, `logs/`, `updates/`) |
+| Autostart | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` | `~/Library/LaunchAgents/com.juankyyy.tuick-tack.plist` |
+
+Rutas de config e historial vía `os.UserConfigDir`/`os.UserCacheDir`; el historial es JSONL solo-añadir, escrito únicamente por el daemon. `window_width`/`window_height` y `window_position` solo se usan en Windows; en macOS el daemon omite `window` en el `hello` y no los escribe.
 
 ```json
 {
@@ -221,8 +273,8 @@ Rutas (por usuario, sin admin):
 - Escritura atómica (temporal en el mismo directorio + rename). Config corrupta: backup `config.bad-<timestamp>.json` y defaults.
 - Historial de sesiones: una línea JSON por countdown terminado (`started_ms`, `planned_ms`, `elapsed_ms`, `paused_ms?`, `label`, `preset_id?`, `outcome`). `outcome` es `completed` (llega a 0, también ajustando), `stopped` (stop explícito) o `replaced` (un `start` lo sustituye). No se registra un daemon que muere con el timer vivo, igual que el timer no se restaura. Cap 2000 registros con recorte atómico e histéresis (256); las líneas inválidas se saltan y un fichero ilegible se respalda como `history.bad-<timestamp>.jsonl` y arranca vacío. **No vive en `config.json`**: es un log de datos, no ajustes versionados, y no se añade un segundo store de configuración ni una base de datos.
 - El daemon es el único escritor. Para el historial guarda el inicio de pared al arrancar, acumula las pausas y suma los ajustes al planificado, de modo que el registro refleja el objetivo final y el tiempo real. El cálculo de días, horas y rachas usa la zona local y un reloj inyectable en tests.
-- El daemon es el único escritor. La TUI manda comandos; el daemon guarda, actualiza el menú y hace broadcast del estado compartido. El tamaño y la posición de ventana solo se guardan y se devuelven en el siguiente `hello`.
-- El registro se usa solo para autostart (`HKCU\...\Run`) y para el AUMID de las notificaciones (`HKCU\Software\Classes\AppUserModelId\Juankyyy.TuickTack`, valor `DisplayName`); nunca para estado de la app.
+- El daemon es el único escritor. La TUI manda comandos; el daemon guarda, actualiza el menú y hace broadcast del estado compartido. El tamaño y la posición de ventana solo se guardan en Windows y se devuelven en el siguiente `hello`.
+- En Windows el registro se usa solo para autostart (`HKCU\...\Run`) y para el AUMID de las notificaciones (`HKCU\Software\Classes\AppUserModelId\Juankyyy.TuickTack`, valor `DisplayName`); nunca para estado de la app. En macOS el autostart es un LaunchAgent que apunta al binario del `.app`; el plist se reescribe al arrancar si la app se movió.
 - Etiqueta y duración visibles en el menú; el orden es el almacenado (defaults primero; los nuevos al final).
 - Duraciones: parser en §9. Límite 1 s..24 h.
 
@@ -242,15 +294,16 @@ Rutas (por usuario, sin admin):
 - **Estadísticas:** pestaña a pantalla completa con `s` (hoja sobre el escenario atenuado, como el diálogo de actualización). Cuatro secciones con `←/→`, `Tab` o `1..4`: **overview** (cabecera con el rango seleccionado; KPIs de foco, sesiones, `% of finished` —completed/(completed+stopped), las reemplazadas no penalizan— y delta contra la ventana anterior, en una o dos líneas según el ancho; barras de foco de los últimos 7 o 30 días con medio bloque, hoy en accent2 y etiquetas de día con el mes en los cambios; cabecera `records` all-time con racha actual, mejor racha —días con al menos una sesión—, día y hora más activos y sesión más larga con su etiqueta cuando cabe); **activity** (heatmap de 26 semanas con celdas de fondo, 5 niveles y etiquetas de mes/día desde `copy`; foco por hora de inicio y por día de la semana, ambos all-time; gráficas en dos columnas cuando el ancho lo permite y apiladas si no; frase de insight si queda sitio; la sección adapta leyenda, huecos e insight a la altura y puede requerir scroll a 48×22); **presets** (barras horizontales por etiqueta con duración, sesiones y `% of finished`, más el top por foco y la media); **recent** (últimas 20 sesiones con hora de inicio —`yesterday` si cabe, `yest` si no—, planificado, etiqueta y `✓ completed` / `· stopped at 4m` / `· replaced at 8m`). `t` cicla 7/30/90/all solo en el overview; el resto de secciones lo ignora y su hint no lo anuncia. El KPI usa el rango elegido; las barras son siempre la ventana diaria reciente y su note dice `last N days`, nunca el rango. `↑/↓`, `PgUp`/`PgDn`, `Home`/`End` y la rueda desplazan; `Esc` o `s` cierran. Bajo 48×22 no se dibuja y `s` se ignora; a 48×22 no hay recorte horizontal y el activity puede desplazarse en vertical. Abrir la pestaña no toca el timer; un final la cierra para enseñar la celebración, y un stop o un reemplazo desde la bandeja la dejan abierta y refrescan los datos.
 - **Desconectado:** banner “Daemon disconnected — retrying…” y comandos deshabilitados.
 - **Actualización disponible:** a la derecha de la marca y su versión, en la fila de la cabecera, `[Update available →]` en degradado pastel animado (arcoíris de 0,8 de vuelta a S 0,52 / L 0,68, negrita; la fase avanza ~0,1 vuelta/s con el tick de 10 Hz). Es clicable y abre el diálogo de actualización; al pasar el ratón por encima se pinta un fondo suave en toda la etiqueta. La flecha `→` es la pista estática de que abre algo. Si el estado no deja sitio, cae a `[Update →]`; si tampoco entra, no se dibuja. En `mono` usa un degradado de grises sin animación. El modo compacto añade una línea de texto sin click.
-- **Buscar actualizaciones:** `u` en la pantalla principal pide una comprobación manual al daemon. Si ya hay una release conocida, `u` abre el diálogo en vez de volver a comprobar. Mientras comprueba, la línea de estado dice `Checking for updates…`; al terminar muestra un toast interno: `vX available`, `Up to date (latest vX)` o `Update check failed`. `u` funciona también en el modo compacto, pero allí no se dibuja el diálogo; la instalación requiere una ventana de al menos 48×22. La comprobación iniciada desde la bandeja muestra un toast nativo de Windows (ver §12).
-- **Diálogo de actualización:** modal `Update available` con la transición `vActual → vNueva` en el tono apagado del texto secundario (estática en el diálogo de elección; en progreso un brillo suave la recorre), una etiqueta `Installed · <carpeta>` o `Portable · tuick-tack.exe` y los dos tipos en una fila compacta: la copia en uso primera y seleccionada (`› Setup · Installed` o `› Portable · In use`) y la otra al lado (`Portable · Not in use`, `Not installed` o `Not available` si falta el asset). A 44 columnas los dos chips se apilan. `Tab` cambia de copia cuando la release trae ambos assets; el hint anuncia `[Tab] type` cuando cabe. `←`/`→` mueven el foco entre la fila horizontal `install`/`download`, `github` y `later`; `Enter` ejecuta. Si el otro tipo falta, su fila muestra `Not available` y no se puede seleccionar. Al elegir la otra copia aparece una sola línea en ámbar, `This is not the copy you use; settings carry over.` (dos líneas por debajo de 50 columnas); no hay confirmación aparte. Si la release trae notas utilizables, el modal crece a 22 filas a 80×24 y a 30 filas a 120×40 y añade un panel `What's new in vNueva` con cabecera de sección en acento, viñetas, 8/16 líneas visibles y barra de scroll; `↑`/`↓` (una línea), `PgUp`/`PgDn` (una página), `Home`/`End` y la rueda desplazan las notas sin cambiar la copia ni las acciones. Sin notas el diálogo vuelve a 18 filas y no reserva el panel. El hint completo es `[Enter] select · [Tab] type · [↑/↓] notes · [Esc] later`; si no cabe, se quitan por este orden `[g] github`, las notas y `[Tab]` (`g` sigue abriendo GitHub y el botón `github` está a la vista). `g` abre GitHub, `Esc` cierra; `d`/`i` ya no existen y `←`/`→` no se anuncian como atajo. Mientras se instala, el modal pasa a progreso (`Downloading…`, `Verifying…`, `Installing…`) con barra, porcentaje y pasos `Download · Verify · Install · Reopen`. Si hay un countdown corriendo o pausado, aparece `Countdown active` con el tiempo que se perderá y `[Enter] continue` / `[Esc] back`; el daemon exige el `force` de esa segunda confirmación. El resultado del portable muestra la ruta en Descargas, `[o] open folder` y `[Enter] close`; un fallo muestra `Update failed` con `[Enter] try again`, `[g] github` y `[Esc] close`.
+- **Buscar actualizaciones:** `u` en la pantalla principal pide una comprobación manual al daemon. Si ya hay una release conocida, `u` abre el diálogo en vez de volver a comprobar. Mientras comprueba, la línea de estado dice `Checking for updates…`; al terminar muestra un toast interno: `vX available`, `Up to date (latest vX)` o `Update check failed`. `u` funciona también en el modo compacto, pero allí no se dibuja el diálogo; la instalación requiere una ventana de al menos 48×22. La comprobación iniciada desde la bandeja o el menu bar muestra un toast nativo (WinRT en Windows, osascript en macOS; ver §12).
+- **Diálogo de actualización:** modal `Update available` con la transición `vActual → vNueva` en el tono apagado del texto secundario (estática en el diálogo de elección; en progreso un brillo suave la recorre), una etiqueta `Installed · <carpeta>` o `Portable · tuick-tack.exe` (Windows) y los dos tipos en una fila compacta: la copia en uso primera y seleccionada (`› Setup · Installed` o `› Portable · In use`) y la otra al lado (`Portable · Not in use`, `Not installed` o `Not available` si falta el asset). A 44 columnas los dos chips se apilan. `Tab` cambia de copia cuando la release trae ambos assets; el hint anuncia `[Tab] type` cuando cabe. `←`/`→` mueven el foco entre la fila horizontal `install`/`download`, `github` y `later`; `Enter` ejecuta. Si el otro tipo falta, su fila muestra `Not available` y no se puede seleccionar. Al elegir la otra copia aparece una sola línea en ámbar, `This is not the copy you use; settings carry over.` (dos líneas por debajo de 50 columnas); no hay confirmación aparte. Si la release trae notas utilizables, el modal crece a 22 filas a 80×24 y a 30 filas a 120×40 y añade un panel `What's new in vNueva` con cabecera de sección en acento, viñetas, 8/16 líneas visibles y barra de scroll; `↑`/`↓` (una línea), `PgUp`/`PgDn` (una página), `Home`/`End` y la rueda desplazan las notas sin cambiar la copia ni las acciones. Sin notas el diálogo vuelve a 18 filas y no reserva el panel. El hint completo es `[Enter] select · [Tab] type · [↑/↓] notes · [Esc] later`; si no cabe, se quitan por este orden `[g] github`, las notas y `[Tab]` (`g` sigue abriendo GitHub y el botón `github` está a la vista). `g` abre GitHub, `Esc` cierra; `d`/`i` ya no existen y `←`/`→` no se anuncian como atajo. Mientras se instala, el modal pasa a progreso (`Downloading…`, `Verifying…`, `Installing…`) con barra, porcentaje y pasos `Download · Verify · Install · Reopen`. Si hay un countdown corriendo o pausado, aparece `Countdown active` con el tiempo que se perderá y `[Enter] continue` / `[Esc] back`; el daemon exige el `force` de esa segunda confirmación. El resultado del portable muestra la ruta en Descargas, `[o] open folder` y `[Enter] close`; un fallo muestra `Update failed` con `[Enter] try again`, `[g] github` y `[Esc] close`. En macOS no hay chips ni `Tab`: el diálogo muestra una sola acción `download for macOS`, el badge `Installed · <ruta>` o `Portable · Tuick-Tack.app` y los textos `macOS update` y `Unzip it and replace the current Tuick-Tack.app.`; el progreso usa `Download · Verify · Done`.
 
 ### Layout
 
 - Alt screen, cursor oculto, mouse en modo all-motion para chips/botones y el hover del aviso de actualización.
-- **Colocación de ventana recordada:** al conectar, si el daemon anuncia `window` con una posición guardada, la TUI mueve la ventana real del terminal antes de aplicar el tamaño y, si el host la desplaza al redimensionar, la reaplica una vez. Localiza la ventana por título exacto (`Tuick-Tack`) y clase (`ConsoleWindowClass` o `CASCADIA_HOSTING_WINDOW_CLASS`) mediante `internal/termwin`; la clase es necesaria porque en Windows Terminal el proceso solo ve un `PseudoConsoleWindow` oculto. Después, si el tamaño guardado difiere del actual, pide `CSI 8;filas;columnas t` (lo soportan conhost y Windows Terminal moderno; uno que lo ignore se queda como está). Tras aplicar el tamaño, el siguiente `WindowSizeMsg` dispara `tea.ClearScreen` para borrar el reflujo del host, que con `none` dejaría restos de la rejilla anterior. Al colocar la posición, se reaplica durante `windowPosSettle` (2 s) si el host mueve la ventana recién creada (por ejemplo, la cascada de Windows Terminal), y esa posición no se guarda.
+- **Colocación de ventana recordada (solo Windows):** al conectar, si el daemon anuncia `window` con una posición guardada, la TUI mueve la ventana real del terminal antes de aplicar el tamaño y, si el host la desplaza al redimensionar, la reaplica una vez. Localiza la ventana por título exacto (`Tuick-Tack`) y clase (`ConsoleWindowClass` o `CASCADIA_HOSTING_WINDOW_CLASS`) mediante `internal/termwin`; la clase es necesaria porque en Windows Terminal el proceso solo ve un `PseudoConsoleWindow` oculto. Después, si el tamaño guardado difiere del actual, pide `CSI 8;filas;columnas t` (lo soportan conhost y Windows Terminal moderno; uno que lo ignore se queda como está). Tras aplicar el tamaño, el siguiente `WindowSizeMsg` dispara `tea.ClearScreen` para borrar el reflujo del host, que con `none` dejaría restos de la rejilla anterior. Al colocar la posición, se reaplica durante `windowPosSettle` (2 s) si el host mueve la ventana recién creada (por ejemplo, la cascada de Windows Terminal), y esa posición no se guarda.
 - **Solo ventana propia:** `GetConsoleProcessList` decide si la TUI es el único cliente de su consola. Si comparte consola con un shell (p. ej. una pestaña de Windows Terminal o `go run`), no se mueve la ventana ni se guarda su posición; el tamaño sigue funcionando como antes.
 - **Persistencia:** la posición se muestrea cada 500 ms desde el tick existente y se envía al daemon, junto al tamaño, con 300 ms de debounce y otra vez al cerrar con `q`/`Esc`; el `HWND` se cachea. La posición inicial de arranque, la que produce aplicar la preferencia y la cascada del host durante el asentamiento no se guardan. En reconexiones no se reaplica nada, para no pisar un resize o un movimiento del usuario. Mientras la ventana está maximizada o minimizada no se guarda ni tamaño ni posición: se conserva la última colocación normal. Si la posición guardada no cae en ningún monitor (pantalla desconectada), no se mueve y se conserva el valor.
+- **macOS:** no hay colocación de ventana. El daemon omite `window` en el `hello`, la TUI no mueve ni redimensiona el terminal, `window_position`/`window_width`/`window_height` no se escriben y `configureWindow` deja los no-ops. La TUI se abre desde el menu bar con `open-tui.command`.
 - Mínimo con estilos 48×22. El reloj usa escala 1 y pasa a escala 2 desde 100×30. La separación entre piezas es de una fila por debajo de 32 de alto y de dos filas desde 32 (la fila extra del aviso de actualización retrasa el cambio).
 - Entre 22 y 23 filas se usa el modo *tight*: se omite la línea meta (`remaining` / `Type a duration or pick a preset`) y su hueco para que el bloque quepa sin solapes. Desde 24 filas vuelve la meta.
 - Sin panel ni marco: el fondo ambiental ocupa toda la pantalla y el contenido vive en una columna centrada de máximo 100 celdas. En 80×24 quedan 4 celdas de margen a cada lado.
@@ -274,7 +327,7 @@ Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pa
 | Estadísticas | `←/→`/`Tab` sección; `1..4` directo; `t` rango; `↑/↓` `PgUp/PgDn` `Home/End` rueda scroll; `Esc`/`s` cerrar |
 | Sonido | `↑/↓` sonido; `←/→` volumen ±5; `Space` preview; `m` mute; `Esc`/`Enter` cerrar |
 | Gestor | `↑/↓` mover; `Tab` acciones; `←/→` elegir acción; `Enter` iniciar (lista) o ejecutar (acción); `a` añadir; `e` editar; `d` borrar; `r` defaults; `Esc` cerrar; en formulario `Tab` campo, `Enter` guardar, `Esc` cancelar |
-| Actualización | `Tab` tipo; `←/→` acción; `↑/↓` `PgUp`/`PgDn` `Home`/`End` rueda notas; `Enter` ejecutar; `g` GitHub; `Esc` cerrar |
+| Actualización | `←/→` acción; `↑/↓` `PgUp`/`PgDn` `Home`/`End` rueda notas; `Enter` ejecutar; `g` GitHub; `Esc` cerrar. En Windows, `Tab` cambia Setup/Portable; en macOS hay una sola acción `download for macOS` |
 
 ### Parser de duraciones
 
@@ -297,8 +350,8 @@ Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pa
 - Snapshot a 10 Hz; la TUI interpola `remaining` con su propio reloj entre snapshots y corrige al recibir el siguiente.
 - `finish_seq` evita celebrar dos veces. Si la TUI conecta con el timer ya en `finished`, celebra una ráfaga corta.
 - Si llega el final con un modal abierto, se cierra el modal y se celebra.
-- El cierre de la TUI no toca el daemon. Al salir se restaura la terminal y se imprime “The countdown is still running in the tray.”
-- Si el daemon se cierra desde la bandeja, envía `daemon_closing`, la TUI sale sin reintentar y sin relanzar el daemon, e imprime “The daemon quit; closing.” en vez del aviso del timer.
+- El cierre de la TUI no toca el daemon. Al salir se restaura la terminal y se imprime “The countdown is still running in the tray.” en Windows o “The countdown is still running in the menu bar.” en macOS.
+- Si el daemon se cierra desde la bandeja o el menu bar, envía `daemon_closing`, la TUI sale sin reintentar y sin relanzar el daemon, e imprime “The daemon quit; closing.” en vez del aviso del timer.
 
 ## 10. Dirección visual
 
@@ -360,9 +413,9 @@ Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pa
 - 30 fps con `tea.Every(33ms, …)` durante la celebración; después vuelve el tick de 100 ms.
 - RNG con semilla en tests; en producción semilla temporal. La palabra de celebración se deriva de `seed + finish_seq`, se fija al empezar el finish y se mantiene hasta el siguiente.
 
-## 12. Bandeja
+## 12. Bandeja y menu bar
 
-`systray.Run(onReady, onExit)` ocupa el hilo principal; engine + IPC viven en goroutines. La API es global y segura desde goroutines.
+`systray.Run(onReady, onExit)` ocupa el hilo principal; engine + IPC viven en goroutines. La API es global y segura desde goroutines. En Windows es la bandeja del sistema (ICO); en macOS es el menu bar (PNG 32 px con cgo). Sin cgo, macOS compila un tray no-op que mantiene la API del daemon.
 
 ### Menú
 
@@ -378,45 +431,48 @@ Stop
 Sound              ✓
 Sound settings     ▸ Chime · Marimba · Digital · Deep · Preview
 Volume 80%         ▸ -5% · +5% · 0% · 25% · 50% · 75% · 100%
-Start with Windows
+Start with Windows / Start at login
 ──────────────────────────
 Quit
 ```
 
-- **Clic izquierdo:** abre la TUI (`SetOnTapped`).
-- **Clic derecho:** menú. No se define `SetOnSecondaryTapped` para que systray muestre el menú.
-- **Status:** ítem deshabilitado con el tiempo restante; se actualiza a 1 Hz mientras corre.
+- **Clic izquierdo (Windows):** abre la TUI (`SetOnTapped`).
+- **Clic derecho (Windows):** menú. No se define `SetOnSecondaryTapped` para que systray muestre el menú.
+- **Clic en macOS:** abre el menú; la TUI se abre con el ítem **Open Tuick-Tack** (no se usa `SetOnTapped`).
+- **Status:** ítem deshabilitado con el tiempo restante; se actualiza a 1 Hz mientras corre. En macOS el tiempo se pinta junto al icono del menu bar.
 - **Update available:** aparece solo cuando el daemon conoce una release más nueva; `Update available: vX.Y.Z`, habilitado y abre la release en el navegador. Se crea oculto justo después del status, así que al mostrarse conserva esa posición. No admite color: es un menú nativo.
-- **Check for updates:** siempre visible. Pide una comprobación manual al daemon, muestra `Checking for updates…` y se deshabilita mientras corre, y luego queda como `Up to date (vX)` o `Update check failed` (se puede volver a pulsar). Cada comprobación desde aquí lanza además un toast nativo de Windows con el resultado; el de una release nueva abre la página al pulsar el cuerpo.
+- **Check for updates:** siempre visible. Pide una comprobación manual al daemon, muestra `Checking for updates…` y se deshabilita mientras corre, y luego queda como `Up to date (vX)` o `Update check failed` (se puede volver a pulsar). Cada comprobación desde aquí lanza además un toast nativo con el resultado (WinRT en Windows, osascript en macOS); en Windows el de una release nueva abre la página al pulsar el cuerpo, en macOS no hay clic.
 - **Start:** submenú reconstruido cuando cambian los presets; “Custom…” abre la TUI con el input enfocado.
 - **Pause / Resume:** un solo ítem con título dinámico; habilitado según estado.
 - **Stop:** habilitado en running/paused/finished; en finished actúa como dismiss.
 - **Sound:** check; persiste en config y silencia el sonido de fin.
 - **Sound settings:** submenú con los cuatro sonidos y check en el activo; Preview reproduce la selección. Elegir un sonido previsualiza si Sound está activo.
 - **Volume:** submenú con título dinámico; -5%/+5% y atajos 0/25/50/75/100. Cada cambio previsualiza si Sound está activo.
-- **Start with Windows:** check; lee/escribe `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, valor `TuickTack` apuntando a `"tuick-tack.exe" --daemon --hidden`. Sin admin. Al arrancar, el daemon migra un valor antiguo de `tuick-tack-tray.exe` para conservar el ajuste. En builds de `go run` el autostart queda deshabilitado: la ruta del ejecutable es temporal.
-- **Quit:** cierra el loop y llama a `systray.Quit()`; avisa `daemon_closing` a las TUIs conectadas antes de cerrar el pipe, para que la TUI se cierre en vez de relanzar un daemon. Después para el sonido.
+- **Start with Windows / Start at login:** check. En Windows lee/escribe `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, valor `TuickTack` apuntando a `"tuick-tack.exe" --daemon --hidden`; sin admin. Al arrancar, el daemon migra un valor antiguo de `tuick-tack-tray.exe` para conservar el ajuste. En macOS crea/borra `~/Library/LaunchAgents/com.juankyyy.tuick-tack.plist` con `RunAtLoad=true` y `KeepAlive=false`, apuntando al binario del `.app` con `--daemon --hidden`; `launchctl bootstrap/bootout gui/$(id -u)` aplica el cambio y el plist se reescribe al arrancar si la app se movió. En builds de `go run` el autostart queda deshabilitado: la ruta del ejecutable es temporal.
+- **Quit:** cierra el loop y llama a `systray.Quit()`; avisa `daemon_closing` a las TUIs conectadas antes de cerrar el pipe/socket, para que la TUI se cierre en vez de relanzar un daemon. Después para el sonido.
 
 ### Actualizaciones
 
 - El daemon comprueba `https://api.github.com/repos/Juankyyy/tuick-tack/releases/latest` al arrancar (en segundo plano, sin bloquear tray/IPC) y después cada 24 h. Si falla (offline, proxy, 403 por rate limit), reintenta a las 6 h; solo queda en el log, sin toast.
 - La comprobación manual se pide desde la bandeja (**Check for updates**) o desde la TUI con `u`. El daemon la ejecuta en una goroutine (las comprobaciones manuales y automáticas se serializan), actualiza la caché y responde `update_result` al cliente que la pidió; el estado de la bandeja pasa a `Checking…`, `Up to date (vX)` o `Update check failed`.
-- La comprobación iniciada desde la bandeja muestra un toast nativo de Windows con el resultado: `Update available` (con la versión y la release como destino al pulsar), `You're up to date` (con la versión actual) o `Update check failed`. Se usa `Windows.UI.Notifications` vía `github.com/mtunjic/winrt-toast` v1.2.0 (COM puro, sin cgo ni PowerShell). Las comprobaciones automáticas y las iniciadas desde la TUI no muestran toast del sistema; la TUI ya tiene su propio aviso.
-- El toast usa el AUMID `Juankyyy.TuickTack`, registrado una vez en `HKCU\Software\Classes\AppUserModelId` con `DisplayName=Tuick-Tack`. No requiere admin ni acceso directo en el menú Inicio para mostrarse; el `CustomActivator` solo haría falta para recibir callbacks, que no se usan (los toasts con release usan activación por protocolo). Focus Assist o las notificaciones desactivadas para la app pueden ocultarlo; el estado de la bandeja sigue siendo la fuente de verdad.
+- La comprobación iniciada desde la bandeja/menu bar muestra un toast nativo con el resultado: `Update available` (con la versión), `You're up to date` (con la versión actual) o `Update check failed`. En Windows usa `Windows.UI.Notifications` vía `github.com/mtunjic/winrt-toast` v1.2.0 (COM puro, sin cgo ni PowerShell) y el toast de una release nueva abre la página al pulsarlo. En macOS usa `osascript -e 'display notification ...'`; no hay clic. Las comprobaciones automáticas y las iniciadas desde la TUI no muestran toast del sistema; la TUI ya tiene su propio aviso.
+- En Windows el toast usa el AUMID `Juankyyy.TuickTack`, registrado una vez en `HKCU\Software\Classes\AppUserModelId` con `DisplayName=Tuick-Tack`. No requiere admin ni acceso directo en el menú Inicio para mostrarse; el `CustomActivator` solo haría falta para recibir callbacks, que no se usan (los toasts con release usan activación por protocolo). Focus Assist o las notificaciones desactivadas para la app pueden ocultarlo; el estado de la bandeja sigue siendo la fuente de verdad. En macOS las notificaciones las muestra el sistema y el usuario puede desactivarlas en Ajustes.
 - Solo builds de release: `buildinfo.Version == "dev"` no comprueba automáticamente; la comprobación manual sí funciona en `dev`, pero `install_update` y `download_portable` se rechazan en builds `dev` porque el ejecutable es temporal. `tuick-tack --check-updates` hace una pasada y la imprime.
 - Comparación semver propia (`internal/update`): acepta `v`, ignora metadata de build, pre-release antes que release; `dev` ordena antes que cualquier versión.
-- La release expone los assets estables `tuick-tack-setup.exe`, `tuick-tack.exe` y `SHA256SUMS.txt`; `internal/update` los localiza por nombre y calcula el SHA-256 con el `digest` del asset o con el fichero de checksums. Si faltan, la acción correspondiente queda deshabilitada y solo se ofrece la página de la release.
+- La release expone los assets estables `tuick-tack-setup.exe`, `tuick-tack.exe` y `SHA256SUMS.txt` para Windows, y `tuick-tack-macos-universal.zip` + `tuick-tack-macos-universal.zip.sha256` para macOS. `internal/update` los localiza por nombre y calcula el SHA-256 con el `digest` del asset o con el fichero de checksums de la plataforma. Si faltan, la acción correspondiente queda deshabilitada y solo se ofrece la página de la release.
 - El resultado se cachea en memoria (con los assets y el `body` de la release), viaja en el `hello` y se emite como `update` cuando aparece. La TUI lo revalida contra su propia versión.
 - **Notas de la release:** `internal/update` lee `body` del JSON, normaliza los saltos de línea y lo recorta a 16 KiB por límite de rune. La TUI muestra la sección entre el primer `##` que menciona `What's new` y el siguiente `##`; si no existe, cae al body completo. El renderizado (`internal/tui/notes`) quita Markdown, HTML, entidades, ANSI, emojis y cualquier runa que no sea de una celda, y envuelve a 56/34 columnas con sangría colgante.
-- **Instalar update:** el daemon descarga el setup en `%LOCALAPPDATA%\tuick-tack\updates`, verifica el SHA-256 y exige `force` si hay un countdown corriendo o pausado. Después copia el ejecutable actual a un helper temporal, lo arranca oculto y cierra el daemon con `daemon_closing{reason:"update"}`. El helper espera a que el daemon y la TUI liberen sus mutex, ejecuta el setup con `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS`, busca la copia instalada (entrada de desinstalación de Inno) y reabre la TUI. Si el setup falla, relanza la copia anterior y muestra un toast.
-- **Descargar portable:** el daemon descarga `tuick-tack.exe`, verifica el SHA-256 y lo guarda como `tuick-tack-vX.Y.Z.exe` en la carpeta Downloads del usuario (`FOLDERID_Downloads`). No reinicia ni cierra nada; la TUI muestra la ruta y ofrece abrirla en Explorer.
+- **Instalar update (Windows):** el daemon descarga el setup en `%LOCALAPPDATA%\tuick-tack\updates`, verifica el SHA-256 y exige `force` si hay un countdown corriendo o pausado. Después copia el ejecutable actual a un helper temporal, lo arranca oculto y cierra el daemon con `daemon_closing{reason:"update"}`. El helper espera a que el daemon y la TUI liberen sus mutex, ejecuta el setup con `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS`, busca la copia instalada (entrada de desinstalación de Inno) y reabre la TUI. Si el setup falla, relanza la copia anterior y muestra un toast. En macOS `install_update` responde `unsupported` y la TUI no lo ofrece.
+- **Descargar portable (Windows):** el daemon descarga `tuick-tack.exe`, verifica el SHA-256 y lo guarda como `tuick-tack-vX.Y.Z.exe` en la carpeta Downloads del usuario (`FOLDERID_Downloads`). No reinicia ni cierra nada; la TUI muestra la ruta y ofrece abrirla en Explorer.
+- **Descargar para macOS:** el daemon descarga `tuick-tack-macos-universal.zip`, verifica el SHA-256 (digest del asset o `.sha256`), lo guarda como `tuick-tack-vX.Y.Z-macos-universal.zip` en `~/Downloads` y lo revela con `open -R`. No reinicia ni sustituye el `.app`; la TUI muestra la ruta y recuerda descomprimir y reemplazar `Tuick-Tack.app`.
 - Privacidad: una petición HTTPS anónima por comprobación, `User-Agent: tuick-tack/<versión>`, sin telemetría propia. Las descargas solo ocurren tras una confirmación explícita.
-- El setup es por usuario, sin admin. Instala en `{userdocs}\tuick-tack`, crea el acceso al menú Inicio (y opcionalmente al escritorio) y registra el desinstalador; conserva la configuración y el autostart existente. La primera instalación manual debe hacerse con la app vieja cerrada (o el setup pedirá cerrarla); las siguientes actualizaciones desde la TUI ya coordinan el cierre. Sigue sin firma de código.
+- El setup es por usuario, sin admin. Instala en `{userdocs}\tuick-tack`, crea el acceso al menú Inicio (y opcionalmente al escritorio) y registra el desinstalador; conserva la configuración y el autostart existente. La primera instalación manual debe hacerse con la app vieja cerrada (o el setup pedirá cerrarla); las siguientes actualizaciones desde la TUI ya coordinan el cierre. Sigue sin firma de código. En macOS no hay setup: la app se distribuye como `.app` dentro del zip, firmada ad-hoc y sin notarizar; el usuario la mueve a `~/Applications` o `/Applications`.
 
 ### Iconos
 
-- Iconos de bandeja de píxeles duros, rejilla 7×7 con una celda de margen y sin antialiasing; estados play, agujas, pausa y 0 en el color del estado.
-- 4 ICO embebidos (`idle`, `running`, `paused`, `finished`) con 16/20/24/32/40/48/56/64 px. `systray` carga el HICON de 2× (32/40/48/56/64) y el shell lo reduce a 16/20/24/28/32; la rejilla y el margen están pensados para esa reducción.
+- Iconos de bandeja/menu bar de píxeles duros, rejilla 7×7 con una celda de margen y sin antialiasing; estados play, agujas, pausa y 0 en el color del estado.
+- Windows: 4 ICO embebidos (`idle`, `running`, `paused`, `finished`) con 16/20/24/32/40/48/56/64 px. `systray` carga el HICON de 2× (32/40/48/56/64) y el shell lo reduce a 16/20/24/28/32; la rejilla y el margen están pensados para esa reducción.
+- macOS: 4 PNG de 32×32 (`assets/icons/idle.png`, etc.) con la misma rejilla. El fork de Fyne fija el tamaño a 16 pt; el PNG de 32 px se ve nítido en Retina.
 - El `.ico` del ejecutable (`assets/icon.ico`) es una loseta navy de 16×16 celdas con anillo mint y agujas blancas, con 16/24/32/40/48/64/96/128/256 px. `winres` lo embebe completo en el `.syso`; `assets/icon.png` es el máster de 256 px para previews.
 - No se regenera el icono cada segundo: systray escribe cada icono nuevo en un archivo temporal. El tiempo va en el tooltip.
 - Tooltip: `Tuick-Tack · ready`, `Tuick-Tack · 04:31 remaining (5 min)`, `Tuick-Tack · time's up!`.
@@ -431,6 +487,7 @@ Quit
 - La TUI mantiene el mutex `<pipe>-tui-mutex`; una segunda instancia llama a `FocusTUI()` y sale.
 - `FocusTUI` busca una ventana visible con título exacto `Tuick-Tack` y clase `ConsoleWindowClass` o `CASCADIA_HOSTING_WINDOW_CLASS`, la restaura si está minimizada, suelta el foreground lock con un toque de Alt y usa `SetForegroundWindow`; si falla, `SwitchToThisWindow`. El título exacto y la clase evitan coincidir con editores o con OpenChamber.
 - Limitación: si la TUI está en una pestaña no activa de Windows Terminal, el título de la ventana no coincide; no se duplica, pero puede no enfocarse.
+- **macOS:** `Open Tuick-Tack` en el menu bar escribe `~/Library/Application Support/tuick-tack/open-tui.command` (chmod 0700) y lo abre con `open`; el script hace `exec` del binario real para que la TUI herede la terminal del usuario. Esto evita el permiso TCC de AppleScript. No se intenta localizar la ventana de Terminal; una segunda TUI activa Terminal con `open -a` como best effort y sale.
 - No hay búsqueda de un segundo binario: TUI y daemon son el mismo archivo.
 
 ## 13. Sonido
@@ -441,12 +498,13 @@ Quit
   - `digital`: motivo synth de 1.7 s (predeterminado).
   - `deep`: gong grave de 4.0 s.
 - Los WAV viven en `assets/sounds/` y se embeben con `//go:embed`; `go generate ./assets` los regenera de forma determinista.
-- Al preparar la reproducción, el daemon escala las muestras PCM por `volume/100` y escribe una variante en `%LOCALAPPDATA%\tuick-tack\sounds\<sonido>-<volumen>.wav` (escritura atómica, limpieza de variantes antiguas).
-- Reproducción: `winmm.dll!PlaySoundW(path, 0, SND_FILENAME|SND_ASYNC|SND_NODEFAULT)`.
-- Parar: `PlaySoundW(nil, 0, 0)` al dismiss, repetir, nuevo start, cerrar el modal o cambiar de sonido/volumen.
+- Al preparar la reproducción, el daemon escala las muestras PCM por `volume/100` y escribe una variante en `%LOCALAPPDATA%\tuick-tack\sounds\<sonido>-<volumen>.wav` en Windows o `~/Library/Caches/tuick-tack/sounds/<sonido>-<volumen>.wav` en macOS (escritura atómica, limpieza de variantes antiguas).
+- Reproducción Windows: `winmm.dll!PlaySoundW(path, 0, SND_FILENAME|SND_ASYNC|SND_NODEFAULT)`.
+- Reproducción macOS: `afplay <ruta>` con el mismo WAV escalado; el proceso se mata al parar, cambiar de sonido o volumen, o al dismiss.
+- Parar: `PlaySoundW(nil, 0, 0)` en Windows y matar `afplay` en macOS, al dismiss, repetir, nuevo start, cerrar el modal o cambiar de sonido/volumen.
 - Volumen 0 no reproduce nada. `sound=false` silencia el fin; el preview explícito funciona salvo a volumen 0.
-- Elegir sonido o cambiar volumen desde la TUI o la bandeja previsualiza si `sound=true`; el preview no altera el volumen del sistema.
-- Fallo de caché o audio → log y seguir; la bandeja y la TUI avisan igual.
+- Elegir sonido o cambiar volumen desde la TUI o la bandeja/menu bar previsualiza si `sound=true`; el preview no altera el volumen del sistema.
+- Fallo de caché o audio → log y seguir; la bandeja/menu bar y la TUI avisan igual.
 - `SND_MEMORY` no se usa (no combina con `SND_ASYNC`); se usa archivo.
 
 ## 14. Render por celdas
@@ -474,20 +532,20 @@ internal/
   duration/                   # parser
   engine/                     # timer state machine + tests
   protocol/                   # mensajes serde
-  ipc/                        # server/client named pipe
+  ipc/                        # server/client: named pipe (Windows), Unix socket (macOS)
   stats/                      # historial JSONL + agregados de la pestaña
-  daemon/                     # wiring, sound, autostart, logging, update orchestration
-  update/                     # release check, assets, download + SHA-256
-  updater/                    # helper temporal que ejecuta el setup y reabre la TUI
-  install/                    # detecta la copia instalada en el registro de Inno
-  instance/                   # mutex de daemon/TUI compartidos
-  winproc/                    # CreateProcess oculto y consola nueva
+  daemon/                     # wiring, sound, autostart, logging, update orchestration + hojas _windows/_darwin
+  update/                     # release check, assets por GOOS, download + SHA-256
+  updater/                    # helper de Windows que ejecuta el setup (no-op en macOS)
+  install/                    # registro de Inno en Windows; bundle .app en macOS
+  instance/                   # mutex (Windows) / flock (macOS) de daemon y TUI
+  winproc/                    # CreateProcess oculto (Windows) y Setsid (macOS)
   wt/                         # lee el perfil por defecto de Windows Terminal y abre la ventana
-  termwin/                    # localizar y mover la ventana real de la consola
-  explorer/                   # abrir Downloads con el fichero seleccionado
-  browser/                    # ShellExecuteW para abrir la release
-  notify/                     # toasts WinRT: AUMID, resultado de la comprobación
-  tray/                       # systray menu, icons, tooltip
+  termwin/                    # localizar y mover la ventana real de la consola (Windows; no-op en macOS)
+  explorer/                   # abrir Downloads con el fichero seleccionado (Explorer o Finder)
+  browser/                    # ShellExecuteW / open para abrir la release
+  notify/                     # toasts WinRT (Windows) y osascript (macOS)
+  tray/                       # systray menu/menu bar, iconos, tooltip; no-op sin cgo
   tui/
     app.go                    # Bubble Tea model/update
     window.go                 # tamaño y posición de la ventana recordados
@@ -503,7 +561,9 @@ assets/
   sounds/ chime.wav marimba.wav digital.wav deep.wav
   icon.ico                    # ICO multi-tamaño del ejecutable (winres)
   icon.png                    # máster 256 px para previews
+  icon.iconset/               # entradas del .icns de macOS
   icons/ idle.ico running.ico paused.ico finished.ico
+  icons/ idle.png running.png paused.png finished.png   # menu bar de macOS (32 px)
   banner.txt                  # ASCII 2x del nombre (branding, no se embebe)
   banner-compact.txt          # ASCII 1x para terminales de 80
   banner.png                  # PNG transparente, celdas cuadradas
@@ -516,11 +576,19 @@ installer/
   tuick-tack.iss              # setup por usuario (Inno Setup 6)
   wizard-large.png            # panel de marca 164×314
   wizard-small.png            # cabecera 55×55
+macos/
+  Info.plist                  # bundle, LSUIElement, versión
+  launcher                    # wrapper que arranca el daemon
+  README.txt                  # Gatekeeper, datos y upgrade
 scripts/
-  build.ps1
+  build.ps1                   # build de release de Windows
+  build-macos.sh              # build cgo + .app universal + zip + .sha256
 winres/
   winres.json                 # icono, manifiesto y versión del ejecutable
   generate.go                 # directiva go:generate del .syso
+.github/workflows/
+  ci.yml                      # Windows + macOS (vet/test/build, cgo)
+  macos.yml                   # artefacto y adjunto del zip a la release
 ```
 
 Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de GitHub al publicar.
@@ -542,10 +610,13 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - `tools/gen-installer` genera las dos imágenes de marca del asistente (`wizard-large.png` 164×314 con el icono, `12:30` en el 5×7 y el wordmark; `wizard-small.png` 55×55) desde `assets/icon.png` y la paleta Midnight. `go generate ./...` las regenera.
 - `go-winres` genera un único `rsrc_windows_amd64.syso` desde `winres/winres.json` (icono multi-tamaño `assets/icon.ico`, manifiesto y versión); el `.syso` se commitea para que `go build` funcione sin regenerarlo. El script no reescribe `winres.json`: antes de una release hay que actualizar `FileVersion`/`ProductVersion` a la versión y regenerar el `.syso` (la versión del setup sale de `-Version`).
 - `tools/gen-banner` genera `assets/banner.txt` (2x, 118 columnas), `assets/banner-compact.txt` (1x, 59) y `assets/banner.png` (celdas cuadradas) desde el mismo 5×7 de `bigfont` que el countdown. El PNG es transparente y el banner no se embebe en el ejecutable.
-- `CGO_ENABLED=0`; no se necesita compilador C. Inno Setup solo se usa en build; el ejecutable no lo necesita para arrancar.
-- Entrega: carpeta `dist/` con `tuick-tack.exe`, `tuick-tack-setup.exe` (con `-Installer`) y `SHA256SUMS.txt`. Firma de código fuera de alcance (SmartScreen puede avisar).
-- `tuick-tack --version`; `tuick-tack --check-updates` (una comprobación de release y sale); `tuick-tack --install-startup` / `--uninstall-startup` escriben el comando de autostart del propio ejecutable. `--apply-update` es interno del helper y no se documenta como CLI de usuario.
-- README: requisitos, build, uso, teclas, presets, autostart, instalador, actualizaciones, arquitectura, troubleshooting y licencia.
+- Windows: `CGO_ENABLED=0`; no se necesita compilador C. Inno Setup solo se usa en build; el ejecutable no lo necesita para arrancar.
+- Entrega Windows: carpeta `dist/` con `tuick-tack.exe`, `tuick-tack-setup.exe` (con `-Installer`) y `SHA256SUMS.txt`. Sin firma; SmartScreen puede avisar.
+- **macOS:** `scripts/build-macos.sh build -version <ver> -arch <arm64|amd64>` compila con `CGO_ENABLED=1` (systray/cgo) y `-trimpath`; `package` combina las dos arquitecturas con `lipo`, monta `Tuick-Tack.app` desde `macos/Info.plist`, `macos/launcher` y `assets/icon.iconset`, firma ad-hoc binario y bundle, verifica con `codesign`, y escribe `dist/tuick-tack-macos-universal.zip`, `tuick-tack-macos-universal.zip.sha256` y `dist/SHA256SUMS.txt` (solo el zip). Un `CGO_ENABLED=0 GOOS=darwin go build ./...` debe compilar el fallback sin menu bar.
+- La compilación real con cgo y el empaquetado se hacen en macOS o en el CI (`macos-15`, `macos-15-intel`). `go generate ./...` incluye winres e Inno: no ejecutarlo en macOS ni en CI. `go generate ./assets` genera también los PNG de 32 px de la bandeja/menu bar.
+- **Release:** los dos `.exe` y `SHA256SUMS.txt` se publican con `gh release create`; el workflow `macos.yml` se despacha con `tag=vX.Y.Z`, compila el commit del tag, verifica el zip y lo adjunta con su `.sha256` a la release existente. El workflow nunca crea la release. Firma de código/notarización fuera de alcance: la app es ad-hoc y Gatekeeper puede avisar en una descarga del navegador.
+- `tuick-tack --version`; `tuick-tack --check-updates` (una comprobación de release y sale); `tuick-tack --install-startup` / `--uninstall-startup` escriben el autostart del propio ejecutable (registro en Windows, LaunchAgent en macOS). `--apply-update` es interno del helper de Windows y no se documenta como CLI de usuario.
+- README: requisitos, build, uso, teclas, presets, autostart, instalador/zip, actualizaciones, arquitectura, troubleshooting y licencia.
 
 ## 17. Tests y QA
 
@@ -556,20 +627,21 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - `engine`: reloj falso; start/pause/resume/adjust/finish una vez/replace/restart; `finish_seq`.
 - `protocol`: round-trip JSON, versión, errores, comandos de sonido y volumen, `set_background` válido/inválido y compatibilidad con un `config` viejo sin el campo, `set_readable_text` válido/sin `enabled` y `readable_text` puntero (presente/ausente), `set_window_size` y `hello.window` con y sin posición, `update`, `check_update`/`update_result`, `install_update`/`download_portable`, `update_progress`, `daemon_closing` con motivo, `get_stats`/`stats` y tolerancia a tipos desconocidos.
 - `stats`: alta y recarga de JSONL, rechazo de registros inválidos, líneas corruptas saltadas, respaldo de un fichero ilegible, recorte al cap, agregados (día local, hora, día de la semana, totales por rango, top de etiquetas, recientes ordenados, récords) y rachas con huecos y mañana sin sesiones.
-- `ipc`: pipe de test con nombre único, handshake con `update`, start/pause/stop, broadcast, múltiples clientes, reconexión y aviso final entregado antes de cerrar el pipe.
-- `update`: comparación semver y pre-releases, GET contra `httptest` (200/404/403/JSON roto/timeout), `User-Agent`, assets estables/digest, `body`/notas con normalización de CRLF y recorte a 16 KiB en límite de rune, descarga TLS con progreso, SHA-256 correcto e incorrecto, checksums y rechazo de URLs no HTTPS.
-- `install`: nombre visible, `InstallLocation`/`DisplayIcon`/`UninstallString`, comparación de rutas.
-- `updater`: copia del helper a un directorio temporal; el lanzamiento real del setup se prueba a mano.
-- `notify`: construcción del `Notification` (AUMID, título, cuerpo, URL de activación, duración) y validación; el COM real se prueba a mano.
+- `ipc`: pipe de test con nombre único, handshake con `update`, start/pause/stop, broadcast, múltiples clientes, reconexión y aviso final entregado antes de cerrar el pipe; en macOS, socket Unix con ruta corta y limpieza.
+- `update`: comparación semver y pre-releases, GET contra `httptest` (200/404/403/JSON roto/timeout), `User-Agent`, assets estables/digest, asset macOS y checksum `.sha256`, `body`/notas con normalización de CRLF y recorte a 16 KiB en límite de rune, descarga TLS con progreso, SHA-256 correcto e incorrecto, checksums y rechazo de URLs no HTTPS.
+- `install`: nombre visible, `InstallLocation`/`DisplayIcon`/`UninstallString`, comparación de rutas y detección del `.app` en `/Applications`/`~/Applications`.
+- `updater`: copia del helper a un directorio temporal; en macOS `Apply`/`Spawn` devuelven unsupported y `UpdateDir` apunta al caché; el lanzamiento real del setup se prueba a mano.
+- `notify`: construcción del `Notification` (AUMID, título, cuerpo, URL de activación, duración) y validación; en macOS, los argumentos de `osascript`; el COM real se prueba a mano.
 - `browser`: solo `https`, rechazo de `http`, `file` y `javascript`.
 - `canvas`/`bigfont`: dimensiones, clipping, ancho de runas, gradiente; `Render` de celdas transparentes (sin `FG`/`BG` no emite color, con reset al volver a una celda vacía) y `Dim` que solo toca colores presentes.
 - `fx`: RNG con semilla, física, caducidad, sin NaN, límites; fondos deterministas, sin runas anchas, resize y contraste; la aurora conserva el hash del fondo anterior; estrellas solo en la franja superior; luciérnagas con centro y halo en la mitad inferior; Sunset con sol visible, aro brillante limitado y horizonte más claro; `none` deja el canvas intacto y transparente.
 - `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único; persistencia del tamaño y la posición de ventana, conservando la posición cuando el mensaje no la trae; persistencia de `set_background` y `set_readable_text`; parseo y migración del valor de autostart; catálogo de sonidos, escalado PCM y caché; caché de la release (incluidas las notas) y comprobación manual (up to date / available / failed) contra `httptest`; notificación inyectada solo para la bandeja; `Quit` idempotente y marcado como cierre pedido por el usuario; payload con capacidades setup/portable y notas; rechazos de instalación (`unavailable`, `busy`, `unsupported`, `timer_active`) y descarga+spawn con un `spawnUpdater` inyectado; historial con reloj inyectado: completed/stopped/replaced, pausas acumuladas, ajustes en el planificado, `onFinish` repetido no duplica y `get_stats` sale del store.
 - `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; fondos ambientales con `b` (ciclo, toast, persistencia y fallback con daemon viejo) y layout sin runas anchas para cada fondo en 80×24/120×40; `none` con `BackgroundColor`/`ForegroundColor` nil en todos los fondos (la app nunca fija los colores de la terminal), canvas de fondo vacío, flash omitido y compacto transparente; bandas negras ajustadas al texto solo con `none` (cabecera, etiqueta, meta, input, atajos, sub-hint, status y compacto; el contador no), `n` persistido y fallback con daemon viejo, bandas desactivadas → sin bandas, y consulta OSC 11 (fondo claro/oscuro), paleta de escenario oscura en el camino adaptativo (contraste WCAG, sin cambios en fondo oscuro, desconocido u otro fondo) y ausencia de sombras de texto; colocación de ventana (aplicar una vez, ignorar el inicial, debounce, descartar guardados obsoletos, guardado al cerrar, consola compartida sin mover, maximizado sin guardar, repintado completo tras aplicar el tamaño, asentamiento de la posición que no guarda la cascada del host y compatibilidad con daemon viejo); `termwin` se prueba a mano por depender de la ventana real; modal de sonido; aviso de actualización (degradado animado con `animTime`, flecha, fallback corto, hover, click y modo compacto); `u` abre el diálogo si hay release o comprueba si no; diálogo en 48×22/80×24/120×40 con chips de tipo en una fila (copia en uso primero, estados `Installed`/`Not installed`/`In use`/`Not in use`/`Not available`; apilados a 44 columnas), selección con `Tab` (las flechas ya no cambian la copia), fila horizontal de acciones con `←`/`→`, aviso de la otra copia en una línea, aviso de countdown, progreso, resultado portable y fallo; panel de notas con `What's new`, scroll por `↑`/`↓`/`PgUp`/`PgDn`/`Home`/`End`/rueda, barra de scroll, hint dinámico (`[Tab] type`, `[↑/↓] notes`, `[g] github` según ancho y assets) y vuelta a 18 filas sin notas; `Enter`/`g`/`Esc`; aviso secundario `[u] update to vX`; celebración una vez por `finish_seq`; cierre por `daemon_closing` (quit/update) sin reconexión; estadísticas: `s` abre en idle (solo cuando no es sufijo), running, paused y finished; `25m`/`90s` siguen tecleándose; `m` mutea; `s`/`Esc` cierran; secciones con `←/→`/`Tab`/`1..4`, `t` cicla el rango, scroll y rueda, tabs clicables, refresco al reconectar y al parar con la pestaña abierta, cierre con aviso si el daemon es viejo, estado vacío, `s` ignorada en compacto y layout sin runas anchas en 48×22/80×24/120×40.
+- `tui` (macOS): `singleUpdate` muestra una sola acción `download for macOS`, sin chips ni `Tab`, con badge `Portable · Tuick-Tack.app`, textos `macOS update`/`Unzip…` y progreso `Download · Verify · Done`; `New` activa el flag y `versionFromPath` entiende el sufijo del zip; el copy de autostart dice `Start at login` y el de menú bar, `menu bar`.
 - `notes`: extracción de `What's new` (incluida la apóstrofe tipográfica) y fallback al body completo; tablas, enlaces, imágenes, énfasis, code fences, blockquotes y callouts; limpieza de ANSI, controles, emojis, CJK, bidi y entidades; wrapping con sangría colgante, palabras largas y anchos 20/36/56, todo de una celda.
-- Comandos: `go test ./...`, `go vet ./...`, `gofmt -l .`.
+- Comandos: `go test ./...`, `go vet ./...`, `gofmt -l .`; desde Windows, `CGO_ENABLED=0 GOOS=darwin go build ./...` y `GOOS=darwin go vet ./...` como guardrail del puerto.
 
-### Manual
+### Manual — Windows
 
 1. Abrir la TUI sin daemon → se arranca solo y conecta.
 2. Iniciar 1 min; pausar/reanudar desde TUI y bandeja; ajustar ±1 min.
@@ -595,6 +667,23 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 22. Mover y redimensionar la ventana de la TUI, cerrar con `q` y reabrir desde la bandeja: vuelven la misma posición y el mismo tamaño, y `config.json` muestra `window_width`/`window_height` y `window_position`. Repetir cerrando con la X tras medio segundo. En Windows Terminal, comprobar que la ventana se mueve antes de redimensionar (el tamaño no se recorta) y que un terminal que ignore `CSI 8` conserva su tamaño. Maximizar, cerrar y reabrir: vuelve la última colocación normal, nunca la rejilla maximizada. Abrir la TUI desde una pestaña de Windows Terminal o con `go run`: no debe moverse la ventana completa ni guardarse su posición. Reiniciar el daemon con la TUI abierta: la ventana no salta.
 23. Estadísticas: terminar un 5 min, parar otro antes de cero y reemplazar un tercero con un `start` nuevo. Abrir `s`: el overview suma las tres sesiones y el `% of finished` usa completed+stopped (el reemplazado no penaliza); con el rango de 7 días, las barras por día, la racha y el récord de sesión más larga cuadran. Cambiar a 30/90/all: la cabecera muestra el rango, el KPI cambia y el note de las barras dice la ventana real (`last N days`), no el rango. Revisar activity (heatmap de 26 semanas, hora de inicio y día, ambos all-time), presets (totales por etiqueta, sesiones y `% of finished`) y recent (`started`, `yesterday`/`yest`, y los tres outcomes). Reiniciar el daemon y reabrir: el historial sigue y `history.jsonl` tiene una línea por sesión. Repetir a 48×22, 80×24 y 120×40 en los tres temas: a 48 el KPI se parte en dos líneas, el eje por hora cae bajo sus barras, las etiquetas de 30 días no se desplazan y el activity puede pedir scroll; `t` solo cambia el rango en overview. Probar rueda, `PgUp`/`PgDn`, `Home`/`End` y un timer corriendo (abrir y cerrar la pestaña no lo toca).
 
+### Manual — macOS (experimental, pendiente de QA en una Mac)
+
+La compilación cgo y el empaquetado universal los valida el CI (`macos-15` y `macos-15-intel`); esta lista cubre lo que un runner headless no puede comprobar. Sin una Mac disponible, la release se marca como experimental.
+
+- [ ] Mover `Tuick-Tack.app` a `~/Applications`, abrirla con clic derecho > **Open** (o quitar la cuarentena) y confirmar que aparece el icono en el menu bar y no una ventana de terminal.
+- [ ] `Open Tuick-Tack` en el menu bar abre la TUI en Terminal; una segunda TUI activa Terminal (o muestra `already open` si no puede) y no duplica el daemon.
+- [ ] `Start 5 min`, `Pause`, `Resume` y `Stop` desde el menú; el título del menu bar cuenta atrás y al llegar a 0 suena el WAV y el icono cambia a alerta.
+- [ ] Cambiar sonido, volumen y preview desde el menú y desde la TUI; `Sound` apagado silencia el fin.
+- [ ] Cerrar la TUI y comprobar que el daemon, el countdown y el icono siguen; reabrir la TUI y ver el estado.
+- [ ] `Start at login` crea `~/Library/LaunchAgents/com.juankyyy.tuick-tack.plist`, el icono aparece tras cerrar sesión y volver a entrar, y desactivarlo lo elimina. Mover la app y comprobar que el plist se reescribe al arrancar.
+- [ ] **Check for updates** desde el menu bar muestra una notificación del sistema con el resultado; las notificaciones se pueden desactivar en Ajustes y el estado del menú sigue.
+- [ ] Con una release real, `u` en la TUI muestra una sola acción `download for macOS`, sin chips ni `Tab`; descarga el zip en `~/Downloads`, lo verifica y Finder lo revela. Comprobar un fallo de red y un checksum incorrecto: la versión actual sigue.
+- [ ] Sustituir el `.app` por el zip nuevo (cerrando antes el menu bar) y comprobar que config, historial, presets, tema y autostart se conservan.
+- [ ] Config e historial en `~/Library/Application Support/tuick-tack`, caché en `~/Library/Caches/tuick-tack`.
+- [ ] 48×22 (compacto), 80×24 y 120×40 en los tres temas; sin runas anchas, solapes ni recortes; la pestaña de estadísticas se desplaza a 48×22.
+- [ ] Intel y Apple silicon: el zip es universal (`lipo -verify_arch arm64 x86_64`) y abre en ambas; `codesign --verify --deep --strict` pasa.
+
 ### Criterios de aceptación (v1)
 
 - [ ] El timer es preciso y el finish ocurre una sola vez.
@@ -613,6 +702,17 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - [ ] Las estadísticas registran cada sesión (completed/stopped/replaced) con sus tiempos, sobreviven al reinicio del daemon y se leen en 48×22, 80×24 y 120×40.
 - [ ] Tests, vet y gofmt limpios.
 
+### Criterios de aceptación (macOS experimental)
+
+- [ ] `CGO_ENABLED=0 GOOS=darwin go build ./...` y `GOOS=darwin go vet ./...` limpios desde Windows.
+- [ ] El CI de `macos-15` y `macos-15-intel` compila con cgo, pasa tests y produce el zip universal verificado.
+- [ ] El `.app` abre y muestra el menu bar; `Open Tuick-Tack` lanza la TUI; una segunda TUI no duplica el daemon.
+- [ ] Sonido con `afplay`, notificación con `osascript` y autostart con LaunchAgent funcionan en una Mac.
+- [ ] La actualización descarga el zip, verifica SHA-256, lo revela en Finder y no intenta instalar; `install_update` responde unsupported.
+- [ ] Datos en `~/Library/Application Support` y `~/Library/Caches`; el build de macOS no usa el registro ni la config de Windows.
+- [ ] Sin runas anchas en la TUI y layouts correctos a 48×22, 80×24 y 120×40.
+- [ ] Gatekeeper/notarización documentados; la release se marca experimental si no hay QA en una Mac.
+
 ## 18. Hitos
 
 | Hito | Entregable | Hecho cuando |
@@ -623,6 +723,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 | **M3 · TUI funcional** | canvas, bigfont, layout, input, presets, modales | Se puede iniciar/pausar/ajustar/gestionar desde la TUI |
 | **M4 · Estilo + celebración** | aurora, polvo, barra, confeti, finish | Confeti a 0 una vez, 30 fps, 80×24 y 120×40 |
 | **M5 · Integración + release** | menú completo, iconos, abrir TUI, build, README | Criterios de aceptación completos; `dist/` listo |
+| **M6 · macOS** | capa de plataforma, menu bar, `.app` universal, update y CI | CI macOS arm64/amd64 verde y zip verificado; QA visual en una Mac pendiente |
 
 ## 19. Riesgos y mitigaciones
 
@@ -645,6 +746,12 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 | Notificaciones de Windows desactivadas o Focus Assist | El toast no se ve; el estado de la bandeja sigue mostrando el resultado |
 | AUMID sin acceso directo | Verificado en Windows 10/11; si Windows lo rechazara, el estado de la bandeja sigue y el error queda en el log |
 | Muchas animaciones consumen CPU | 10 Hz normal, 30 fps solo celebración; presupuesto < 8 ms/frame |
+| Gatekeeper bloquea el `.app` descargado | Firma ad-hoc y README con clic derecho > Open o `xattr -dr com.apple.quarantine`; sin notarización asumida |
+| cgo solo compila en macOS | CI con `macos-15`/`macos-15-intel` y build sin cgo como fallback headless |
+| TCC al abrir Terminal desde el menu bar | `.command` en Application Support + `open`; no se usa AppleScript |
+| Autostart con la app movida | El plist se reescribe al arrancar; se recomienda `~/Applications` |
+| El update no puede reemplazar el `.app` solo | Descarga + verificación + Finder; el usuario cierra la app y sustituye |
+| Intel desaparece en 2027 | Binario universal ahora; decidir después |
 
 ## 20. Fuera de alcance / futuro
 
@@ -653,7 +760,9 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - Toast nativo de Windows con AUMID para el fin del countdown (el aviso de actualizaciones ya usa uno).
 - Hotkeys globales.
 - MSIX, actualización automática sin confirmación, firma de código.
-- macOS/Linux.
+- Linux.
+- Notarización y Developer ID en macOS, auto-reemplazo silencioso del `.app`, instalador/desinstalador tipo Inno y App Store/sandbox.
+- Memoria de posición y tamaño de la ventana de la TUI en macOS.
 - Sonidos personalizados por el usuario.
 - Sincronización de presets entre máquinas.
 - Entrada de estadísticas en el menú de la bandeja, exportación CSV y heatmap de 52 semanas (el historial guarda `paused_ms` para futuras métricas de pausas).
@@ -707,6 +816,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
  "url":"https://github.com/Juankyyy/tuick-tack/releases/tag/v0.3.0","setup":true,"portable":true,"notes":"## What's new in v0.3.0\n..."}
 {"type":"update_progress","kind":"setup","phase":"downloading","received":1048576,"total":5596614}
 {"type":"update_progress","kind":"portable","phase":"done","path":"C:\\Users\\A\\Downloads\\tuick-tack-v0.3.0.exe"}
+{"type":"update_progress","kind":"portable","phase":"done","path":"/Users/A/Downloads/tuick-tack-v0.4.0-macos-universal.zip"}
 {"type":"stats","stats":{"daily":[{"date":"2026-11-18","ms":1500000,"n":2}],
  "hourly":[{"ms":0,"n":0}],"weekday":[{"ms":0,"n":0}],
  "labels":[{"label":"5 min","ms":1500000,"n":2,"completed":1,"stopped":1}],
@@ -721,6 +831,7 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
  "label":"5 min","preset_id":"p5","finish_seq":3,"end_at_unix_ms":1762839120000}
 ```
 
-### Nombre de pipe
+### Transporte local
 
-`\\.\pipe\tuick-tack-<usuario>-<sesión>` — usuario saneado a `[a-z0-9_]`; sesión obtenida con `ProcessIdToSessionId`.
+- Windows: `\\.\pipe\tuick-tack-<usuario>-<sesión>` — usuario saneado a `[a-z0-9_]`; sesión obtenida con `ProcessIdToSessionId`.
+- macOS: `~/Library/Caches/tuick-tack/daemon-<uid>.sock`, modo `0600`; si la ruta supera 100 bytes el daemon falla con un error claro. El socket huérfano se borra si el connect falla.
