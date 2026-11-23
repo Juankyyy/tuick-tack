@@ -82,7 +82,7 @@ jobs:
           (cd dist && shasum -a 256 -c SHA256SUMS.txt)
           plutil -lint dist/Tuick-Tack.app/Contents/Info.plist
           codesign --verify --deep --strict --verbose=2 dist/Tuick-Tack.app
-          lipo -verify_arch arm64 x86_64 dist/Tuick-Tack.app/Contents/MacOS/tuick-tack
+          lipo dist/Tuick-Tack.app/Contents/MacOS/tuick-tack -verify_arch arm64 x86_64
           unzip -Z1 dist/tuick-tack-macos-universal.zip
           unzip -Z1 dist/tuick-tack-macos-universal.zip | grep -qx 'README.txt'
           unzip -Z1 dist/tuick-tack-macos-universal.zip | grep -qx 'Tuick-Tack.app/Contents/Info.plist'
@@ -91,7 +91,7 @@ jobs:
           rm -rf dist/unzipped
           ditto -x -k dist/tuick-tack-macos-universal.zip dist/unzipped
           codesign --verify --deep --strict --verbose=2 dist/unzipped/Tuick-Tack.app
-          lipo -verify_arch arm64 x86_64 dist/unzipped/Tuick-Tack.app/Contents/MacOS/tuick-tack
+          lipo dist/unzipped/Tuick-Tack.app/Contents/MacOS/tuick-tack -verify_arch arm64 x86_64
       - uses: actions/upload-artifact@v7
         with:
           name: tuick-tack-macos-universal
