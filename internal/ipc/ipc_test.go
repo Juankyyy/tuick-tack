@@ -2,14 +2,9 @@ package ipc_test
 
 import (
 	"encoding/json"
-	"fmt"
-	"os"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/Microsoft/go-winio"
 
 	"tuick-tack/internal/config"
 	"tuick-tack/internal/engine"
@@ -84,17 +79,10 @@ func (b *fakeBackend) Command(c *ipc.Session, msg protocol.ClientMessage) {
 	}
 }
 
-var pipeCounter atomic.Uint64
-
-func testPipePath(t *testing.T) string {
-	t.Helper()
-	return fmt.Sprintf(`\\.\pipe\tuick-tack-test-%d-%d`, os.Getpid(), pipeCounter.Add(1))
-}
-
 func startServer(t *testing.T, path string) (*ipc.Server, *fakeBackend) {
 	t.Helper()
 	b := newFakeBackend()
-	srv := ipc.NewServer(path, "dev", b)
+	srv := ipc.NewServer(path, "dev", b, true)
 	b.srv = srv
 	if err := srv.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -244,8 +232,7 @@ func TestProtocolMismatch(t *testing.T) {
 	path := testPipePath(t)
 	_, _ = startServer(t, path)
 
-	timeout := 2 * time.Second
-	conn, err := winio.DialPipe(path, &timeout)
+	conn, err := rawDial(path)
 	if err != nil {
 		t.Fatalf("dial raw: %v", err)
 	}
@@ -341,7 +328,7 @@ func TestServerPathUnique(t *testing.T) {
 	srv, _ := startServer(t, path)
 	defer srv.Close()
 	b2 := newFakeBackend()
-	srv2 := ipc.NewServer(path, "dev", b2)
+	srv2 := ipc.NewServer(path, "dev", b2, true)
 	if err := srv2.Start(); err == nil {
 		srv2.Close()
 		t.Fatal("second server on the same pipe path should fail")

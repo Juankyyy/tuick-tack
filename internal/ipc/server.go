@@ -1,18 +1,14 @@
-// Package ipc implements the local named-pipe transport between the TUI and
-// the daemon.
+// Package ipc implements the local transport between the TUI and the daemon:
+// a named pipe on Windows and a Unix domain socket on macOS. The JSON protocol
+// and the connection handling are shared.
 package ipc
 
 import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"os"
-	"strings"
 	"sync"
 	"time"
-
-	"github.com/Microsoft/go-winio"
-	"golang.org/x/sys/windows"
 
 	"tuick-tack/internal/config"
 	"tuick-tack/internal/engine"
@@ -32,57 +28,12 @@ type Backend interface {
 	Command(*Session, protocol.ClientMessage)
 }
 
-// PipePath returns the per-user, per-session pipe name from SPEC §4.
-func PipePath() (string, error) {
-	user := os.Getenv("USERNAME")
-	if user == "" {
-		user = "user"
-	}
-	user = strings.ToLower(user)
-	var b strings.Builder
-	for _, r := range user {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_':
-			b.WriteRune(r)
-		default:
-			if b.Len() > 0 && !strings.HasSuffix(b.String(), "_") {
-				b.WriteByte('_')
-			}
-		}
-		if b.Len() >= 24 {
-			break
-		}
-	}
-	name := strings.Trim(b.String(), "_")
-	if name == "" {
-		name = "user"
-	}
-
-	var session uint32
-	_ = windows.ProcessIdToSessionId(uint32(os.Getpid()), &session)
-	return fmt.Sprintf(`\\.\pipe\tuick-tack-%s-%d`, name, session), nil
-}
-
-func pipeSecurityDescriptor() (string, error) {
-	token, err := windows.OpenCurrentProcessToken()
-	if err != nil {
-		return "", err
-	}
-	defer token.Close()
-	user, err := token.GetTokenUser()
-	if err != nil {
-		return "", err
-	}
-	// Protected DACL: SYSTEM and the current user only. go-winio creates the
-	// pipe with FILE_PIPE_REJECT_REMOTE_CLIENTS, so remote access is denied.
-	return fmt.Sprintf("D:P(A;;GA;;;SY)(A;;GA;;;%s)", user.User.Sid.String()), nil
-}
-
 // Server accepts clients and broadcasts state/config messages.
 type Server struct {
-	path    string
-	version string
-	backend Backend
+	path       string
+	version    string
+	backend    Backend
+	withWindow bool
 
 	ln         net.Listener
 	mu         sync.Mutex
@@ -103,40 +54,33 @@ type outbound struct {
 	ack  chan struct{}
 }
 
-// NewServer creates a server for path. Start must be called before Dial.
-func NewServer(path, appVersion string, backend Backend) *Server {
+// NewServer creates a server for path. withWindow makes the handshake carry the
+// TUI window placement; macOS omits it because the app does not move windows.
+// Start must be called before Dial.
+func NewServer(path, appVersion string, backend Backend, withWindow bool) *Server {
 	return &Server{
 		path:       path,
 		version:    appVersion,
 		backend:    backend,
+		withWindow: withWindow,
 		clients:    make(map[*Session]struct{}),
 		acceptDone: make(chan struct{}),
 	}
 }
 
-// Start opens the pipe and starts accepting clients in a background goroutine.
+// Start opens the transport and starts accepting clients in a background
+// goroutine.
 func (s *Server) Start() error {
-	sd, err := pipeSecurityDescriptor()
+	ln, err := listen(s.path)
 	if err != nil {
-		return fmt.Errorf("pipe security: %w", err)
-	}
-	// Explicit buffers: with the default zero sizes a write can block until the
-	// client posts a read, which can stall a broadcast or the shutdown notice.
-	// 64 KiB holds the 10 Hz snapshots while the TUI is busy rendering.
-	ln, err := winio.ListenPipe(s.path, &winio.PipeConfig{
-		SecurityDescriptor: sd,
-		InputBufferSize:    64 * 1024,
-		OutputBufferSize:   64 * 1024,
-	})
-	if err != nil {
-		return fmt.Errorf("listen pipe: %w", err)
+		return fmt.Errorf("listen %s: %w", s.path, err)
 	}
 	s.ln = ln
 	go s.acceptLoop()
 	return nil
 }
 
-// Path returns the pipe path.
+// Path returns the pipe or socket path.
 func (s *Server) Path() string { return s.path }
 
 func (s *Server) acceptLoop() {
@@ -187,7 +131,7 @@ func (s *Server) handleConn(conn net.Conn) {
 
 	// Queue the handshake and the first snapshot before the writer starts, so
 	// they are the first two messages the client sees.
-	helloReply := protocol.NewHello(s.version, s.backend.Config(), s.backend.Update())
+	helloReply := protocol.NewHello(s.version, s.backend.Config(), s.backend.Update(), s.withWindow)
 	c.enqueue(helloReply)
 	c.enqueue(protocol.NewState(s.backend.Snapshot()))
 

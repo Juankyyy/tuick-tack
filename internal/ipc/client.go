@@ -8,8 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Microsoft/go-winio"
-
 	"tuick-tack/internal/protocol"
 )
 
@@ -33,7 +31,7 @@ func DialWithin(path string, timeout time.Duration) (*Client, protocol.HelloMess
 	if timeout <= 0 {
 		timeout = time.Second
 	}
-	conn, err := winio.DialPipe(path, &timeout)
+	conn, err := dial(path, timeout)
 	if err != nil {
 		return nil, protocol.HelloMessage{}, err
 	}

@@ -111,7 +111,7 @@ func TestHelloAndConfigRoundTrip(t *testing.T) {
 	c.WindowWidth, c.WindowHeight = 140, 45
 	c.WindowPosition = &config.WindowPosition{X: -120, Y: 100}
 	upd := &UpdatePayload{Latest: "v0.2.0", URL: "https://github.com/Juankyyy/tuick-tack/releases/tag/v0.2.0", Notes: "## What's new\n\n- Faster\n"}
-	hello := NewHello("dev", c, upd)
+	hello := NewHello("dev", c, upd, true)
 	data, _ := json.Marshal(hello)
 	back, err := DecodeServer(data)
 	if err != nil {
@@ -168,7 +168,7 @@ func TestConfigWithoutBackgroundDecodesEmpty(t *testing.T) {
 }
 
 func TestHelloAlwaysAdvertisesWindowSupport(t *testing.T) {
-	hello := NewHello("dev", config.Default(), nil)
+	hello := NewHello("dev", config.Default(), nil, true)
 	if hello.Window == nil || hello.Window.Width != 0 || hello.Window.Height != 0 {
 		t.Fatalf("fresh hello should advertise an unset window: %#v", hello.Window)
 	}
@@ -178,6 +178,20 @@ func TestHelloAlwaysAdvertisesWindowSupport(t *testing.T) {
 	data, _ := json.Marshal(hello)
 	if !strings.Contains(string(data), `"window"`) || strings.Contains(string(data), `"position"`) {
 		t.Fatalf("window support must be visible without a phantom position: %s", data)
+	}
+}
+
+func TestHelloOmitsWindowWhenUnsupported(t *testing.T) {
+	c := config.Default()
+	c.WindowWidth, c.WindowHeight = 140, 45
+	c.WindowPosition = &config.WindowPosition{X: 10, Y: 20}
+	hello := NewHello("dev", c, nil, false)
+	if hello.Window != nil {
+		t.Fatalf("unsupported hello must not advertise a window: %#v", hello.Window)
+	}
+	data, _ := json.Marshal(hello)
+	if strings.Contains(string(data), `"window"`) {
+		t.Fatalf("window must be omitted on the wire: %s", data)
 	}
 }
 
@@ -194,7 +208,7 @@ func TestUpdateRoundTrip(t *testing.T) {
 	}
 
 	// The handshake may omit the update entirely.
-	hello := NewHello("dev", config.Default(), nil)
+	hello := NewHello("dev", config.Default(), nil, true)
 	if hello.Update != nil {
 		t.Fatalf("nil update should stay nil: %+v", hello.Update)
 	}

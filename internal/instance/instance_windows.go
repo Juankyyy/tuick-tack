@@ -1,6 +1,5 @@
-// Package instance owns the per-user named mutexes that keep one daemon and one
-// TUI per session. The updater also uses them to wait for the old processes to
-// exit before it replaces or reinstalls the executable.
+//go:build windows
+
 package instance
 
 import (
@@ -30,12 +29,29 @@ func TUIMutexName(pipe string) string {
 	return ObjectName(pipe) + tuiMutexSuffix
 }
 
+// Lock is an acquired named mutex. Release closes the handle, which frees the
+// name for the next process.
+type Lock struct {
+	handle windows.Handle
+}
+
+// Release closes the mutex handle. It is safe on a nil lock and safe to call
+// more than once.
+func (l *Lock) Release() error {
+	if l == nil || l.handle == 0 {
+		return nil
+	}
+	h := l.handle
+	l.handle = 0
+	return windows.CloseHandle(h)
+}
+
 // Acquire creates the named mutex. already is true when another process owns
-// it; the returned handle must stay open for the owner's lifetime.
-func Acquire(name string) (handle windows.Handle, already bool, err error) {
+// it; the returned lock must stay open for the owner's lifetime.
+func Acquire(name string) (lock *Lock, already bool, err error) {
 	ptr, err := windows.UTF16PtrFromString(name)
 	if err != nil {
-		return 0, false, err
+		return nil, false, err
 	}
 	h, err := windows.CreateMutex(nil, false, ptr)
 	if err != nil {
@@ -43,21 +59,21 @@ func Acquire(name string) (handle windows.Handle, already bool, err error) {
 			_ = windows.CloseHandle(h)
 		}
 		if errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
-			return 0, true, nil
+			return nil, true, nil
 		}
-		return 0, false, err
+		return nil, false, err
 	}
-	return h, false, nil
+	return &Lock{handle: h}, false, nil
 }
 
 // AcquireTUI takes the TUI singleton mutex. already is true when another TUI
 // owns it; release must be called when the TUI exits.
 func AcquireTUI(pipe string) (release func(), already bool, err error) {
-	h, already, err := Acquire(TUIMutexName(pipe))
+	lock, already, err := Acquire(TUIMutexName(pipe))
 	if err != nil || already {
 		return func() {}, already, err
 	}
-	return func() { _ = windows.CloseHandle(h) }, false, nil
+	return func() { _ = lock.Release() }, false, nil
 }
 
 // TUIRunning reports whether a TUI owns the singleton mutex. It only opens the
@@ -90,12 +106,12 @@ func WaitTUIFree(pipe string, timeout time.Duration) (release func(), err error)
 func waitFree(name string, timeout time.Duration) (release func(), err error) {
 	deadline := time.Now().Add(timeout)
 	for {
-		h, already, err := Acquire(name)
+		lock, already, err := Acquire(name)
 		if err != nil {
 			return func() {}, err
 		}
 		if !already {
-			return func() { _ = windows.CloseHandle(h) }, nil
+			return func() { _ = lock.Release() }, nil
 		}
 		if time.Now().After(deadline) {
 			return func() {}, errors.New("instance: timed out waiting for " + name)

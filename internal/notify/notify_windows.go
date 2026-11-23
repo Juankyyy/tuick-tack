@@ -1,6 +1,5 @@
-// Package notify shows native Windows toast notifications for the result of a
-// manual release check. The toast identity is a per-user AppUserModelID; no
-// Start menu shortcut is needed to display it.
+// Package notify shows a native notification for the result of a manual
+// release check: a Windows toast or a macOS Notification Center banner.
 package notify
 
 import (

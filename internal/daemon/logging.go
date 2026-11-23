@@ -11,7 +11,8 @@ import (
 	"tuick-tack/internal/buildinfo"
 )
 
-// CacheDir returns %LOCALAPPDATA%\tuick-tack (os.UserCacheDir).
+// CacheDir returns the per-user cache directory (os.UserCacheDir):
+// %LOCALAPPDATA%\tuick-tack on Windows, ~/Library/Caches/tuick-tack on macOS.
 func CacheDir() (string, error) {
 	dir, err := os.UserCacheDir()
 	if err != nil {

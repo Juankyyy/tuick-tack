@@ -11,8 +11,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/sys/windows"
-
 	"tuick-tack/internal/browser"
 	"tuick-tack/internal/buildinfo"
 	"tuick-tack/internal/config"
@@ -60,7 +58,7 @@ type Daemon struct {
 	portableMu     sync.Mutex
 	portableActive bool
 
-	// notifier is the native Windows toast used for manual checks started from
+	// notifier is the native notification used for manual checks started from
 	// the tray. Tests inject a recorder; nil disables it.
 	notifier func(title, message, launch string) error
 
@@ -126,7 +124,7 @@ func Run() int {
 		logger.Println("another daemon is already running; exiting")
 		return 0
 	}
-	defer windows.CloseHandle(mutex)
+	defer func() { _ = mutex.Release() }()
 	logger.Printf("pipe: %s", pipe)
 
 	path, err := config.DefaultPath()
@@ -200,7 +198,7 @@ func Run() int {
 	}
 	d.tray = tray.New(d)
 
-	server := ipc.NewServer(pipe, buildinfo.Version, d)
+	server := ipc.NewServer(pipe, buildinfo.Version, d, supportsWindowPlacement)
 	d.server = server
 	if err := server.Start(); err != nil {
 		logger.Printf("ipc server: %v", err)
@@ -411,7 +409,7 @@ func (d *Daemon) notifyUpdate(info update.Info, checkErr error) {
 		message = copy.T(copy.NotifyUpToDateBody, buildinfo.Version)
 	}
 	if err := d.notifier(title, message, launch); err != nil {
-		d.logger.Printf("windows notification: %v", err)
+		d.logger.Printf("notification: %v", err)
 	}
 }
 

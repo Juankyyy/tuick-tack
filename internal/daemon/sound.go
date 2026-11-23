@@ -10,21 +10,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"unsafe"
-
-	"golang.org/x/sys/windows"
 
 	"tuick-tack/assets"
 	"tuick-tack/internal/config"
 )
-
-const (
-	sndAsync     = 0x0001
-	sndNoDefault = 0x0002
-	sndFilename  = 0x00020000
-)
-
-var playSoundProc = windows.NewLazySystemDLL("winmm.dll").NewProc("PlaySoundW")
 
 // soundAssets maps the stable config IDs to the embedded WAVs. Keeping the map
 // here makes a missing asset a compile-time-adjacent test failure instead of a
@@ -37,8 +26,8 @@ var soundAssets = map[string][]byte{
 }
 
 // soundPlayer extracts the selected sound at the configured volume into the
-// cache and plays it through PlaySoundW. Failures are non-fatal: the countdown
-// still finishes and the tray alerts visually.
+// cache and plays it with the platform player. Failures are non-fatal: the
+// countdown still finishes and the tray alerts visually.
 type soundPlayer struct {
 	mu       sync.Mutex
 	cacheDir string
@@ -47,7 +36,7 @@ type soundPlayer struct {
 	path     string
 }
 
-// newSoundPlayer returns a player rooted at %LOCALAPPDATA%\tuick-tack. The
+// newSoundPlayer returns a player rooted at the per-user cache directory. The
 // sounds subdirectory is created lazily by Prepare. A zero player is usable and
 // just returns an error instead of playing.
 func newSoundPlayer(cacheDir string) (*soundPlayer, error) {
@@ -71,8 +60,8 @@ func (p *soundPlayer) Prepare(name string, volume int) error {
 	return p.prepareLocked(name, volume)
 }
 
-// Play starts the selected sound asynchronously. PlaySoundW returns
-// immediately. It prepares the file on demand if the config changed.
+// Play starts the selected sound asynchronously. It prepares the file on
+// demand if the config changed.
 func (p *soundPlayer) Play(name string, volume int) error {
 	if p == nil {
 		return errors.New("sound is not available")
@@ -100,7 +89,7 @@ func (p *soundPlayer) Stop() {
 }
 
 func (p *soundPlayer) stopLocked() {
-	_, _, _ = playSoundProc.Call(0, 0, 0)
+	stopPlayback()
 }
 
 func (p *soundPlayer) prepareLocked(name string, volume int) error {
@@ -267,20 +256,4 @@ func scaleWAV(data []byte, volume int) ([]byte, error) {
 		binary.LittleEndian.PutUint16(out[i:i+2], uint16(int16(value)))
 	}
 	return out, nil
-}
-
-func playFile(path string) error {
-	ptr, err := windows.UTF16PtrFromString(path)
-	if err != nil {
-		return err
-	}
-	res, _, callErr := playSoundProc.Call(
-		uintptr(unsafe.Pointer(ptr)), 0, sndFilename|sndAsync|sndNoDefault)
-	if res == 0 {
-		if callErr != nil && !errors.Is(callErr, windows.ERROR_SUCCESS) {
-			return fmt.Errorf("PlaySoundW: %w", callErr)
-		}
-		return errors.New("PlaySoundW failed")
-	}
-	return nil
 }

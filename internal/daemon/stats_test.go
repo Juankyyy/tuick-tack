@@ -1,10 +1,8 @@
 package daemon
 
 import (
-	"fmt"
 	"io"
 	"log"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -162,8 +160,8 @@ func TestGetStatsOverPipe(t *testing.T) {
 		t.Fatalf("store rows = %d", store.Len())
 	}
 
-	pipe := fmt.Sprintf(`\\.\pipe\tuick-tack-test-stats-%d-%d`, os.Getpid(), time.Now().UnixNano())
-	server := ipc.NewServer(pipe, "test", d)
+	pipe := testEndpoint(t)
+	server := ipc.NewServer(pipe, "test", d, true)
 	if err := server.Start(); err != nil {
 		t.Fatalf("start server: %v", err)
 	}

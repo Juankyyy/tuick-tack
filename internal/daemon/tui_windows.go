@@ -50,11 +50,11 @@ func FocusTUI() bool {
 		return false
 	}
 
-	if windows.GetForegroundWindow() == target {
+	if windows.GetForegroundWindow() == windows.HWND(target) {
 		return true
 	}
-	if r, _, _ := procIsIconic.Call(uintptr(target)); r != 0 {
-		_, _, _ = procShowWindow.Call(uintptr(target), windows.SW_RESTORE)
+	if r, _, _ := procIsIconic.Call(target); r != 0 {
+		_, _, _ = procShowWindow.Call(target, windows.SW_RESTORE)
 	}
 
 	// SetForegroundWindow is blocked by the foreground lock when another
@@ -65,13 +65,13 @@ func FocusTUI() bool {
 		_, _, _ = procKeybdEvent.Call(uintptr(vkMenu), 0, 0, 0)
 		_, _, _ = procKeybdEvent.Call(uintptr(vkMenu), 0, keyEventKeyUp, 0)
 	}
-	if r, _, _ := procSetForegroundWindow.Call(uintptr(target)); r != 0 {
+	if r, _, _ := procSetForegroundWindow.Call(target); r != 0 {
 		return true
 	}
 	// SwitchToThisWindow (Alt+Tab's API) is the lock-free fallback for hosts
 	// that still reject SetForegroundWindow.
 	if err := procSwitchToThisWindow.Find(); err == nil {
-		_, _, _ = procSwitchToThisWindow.Call(uintptr(target), 1)
+		_, _, _ = procSwitchToThisWindow.Call(target, 1)
 	}
 	return true
 }

@@ -33,13 +33,11 @@ go generate ./...                # regenerate sounds/icons/banners, installer ar
 - Hot reload: none. Restart the TUI; the daemon can stay running and keeps the timer.
 - CI: GitHub Actions, `.github/workflows/ci.yml`, on every push and pull request.
   `windows-latest` is the reference and runs `go vet ./...`, `go test ./...` and
-  `go build ./...` with `CGO_ENABLED=0`; a red check blocks merges. `macos-15` (arm64)
-  and `macos-15-intel` (amd64) run `go run ./tools/darwin-check -arch <arch>`, which builds
-  every package for darwin without cgo and compares the failures with
-  `tools/darwin-check/baseline.txt`: a new failure fails the check, and a package that
-  starts building must be removed from the baseline. `.github/workflows/macos.yml` is the
-  manual base of the macOS packaging workflow. Never run `go generate` or Inno Setup in CI:
-  they are Windows-only.
+  `go build ./...` with `CGO_ENABLED=0`. `macos-15` (arm64) and `macos-15-intel`
+  (amd64) run the same vet, tests and build without cgo, so any shared code that
+  imports a Windows-only API fails there. A red check blocks merges.
+  `.github/workflows/macos.yml` is the manual base of the macOS packaging workflow.
+  Never run `go generate` or Inno Setup in CI: they are Windows-only.
 
 ## Architecture
 

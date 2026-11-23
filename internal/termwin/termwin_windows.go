@@ -57,12 +57,14 @@ func OwnsConsole() bool {
 
 // Find returns the visible top-level window that hosts the TUI. It matches the
 // exact window title and the console host class, so other windows whose title
-// merely contains the app name are ignored. The result is not cached.
-func Find(name string) (windows.HWND, bool) {
-	var found windows.HWND
+// merely contains the app name are ignored. The result is not cached. The
+// handle is returned as uintptr so the package API does not expose a Win32 type;
+// Windows callers convert it to windows.HWND.
+func Find(name string) (uintptr, bool) {
+	var found uintptr
 	callback := windows.NewCallback(func(hwnd windows.HWND, _ uintptr) uintptr {
 		if matches(hwnd, name) {
-			found = hwnd
+			found = uintptr(hwnd)
 			return 0
 		}
 		return 1
@@ -74,16 +76,16 @@ func Find(name string) (windows.HWND, bool) {
 var cached struct {
 	mu   sync.Mutex
 	name string
-	hwnd windows.HWND
+	hwnd uintptr
 }
 
 // window returns the window handle, resolving it once and reusing it while it
 // stays alive. The TUI owns its window for the process lifetime.
-func window(name string) windows.HWND {
+func window(name string) uintptr {
 	cached.mu.Lock()
 	defer cached.mu.Unlock()
 	if cached.hwnd != 0 && cached.name == name {
-		if windows.IsWindow(cached.hwnd) {
+		if windows.IsWindow(windows.HWND(cached.hwnd)) {
 			return cached.hwnd
 		}
 		cached.hwnd = 0
@@ -155,13 +157,13 @@ func matches(hwnd windows.HWND, name string) bool {
 	return nameClass == consoleWindowClass || nameClass == terminalWindowClass
 }
 
-func isZoomed(hwnd windows.HWND) bool {
-	r, _, _ := procIsZoomed.Call(uintptr(hwnd))
+func isZoomed(hwnd uintptr) bool {
+	r, _, _ := procIsZoomed.Call(hwnd)
 	return r != 0
 }
 
-func isIconic(hwnd windows.HWND) bool {
-	r, _, _ := procIsIconic.Call(uintptr(hwnd))
+func isIconic(hwnd uintptr) bool {
+	r, _, _ := procIsIconic.Call(hwnd)
 	return r != 0
 }
 

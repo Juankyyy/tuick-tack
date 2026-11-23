@@ -1,9 +1,7 @@
-# Windows is the reference platform: every push and pull request must keep
-# vet, tests and a full build green. macOS runs the cross-build guardrail while
-# the port is in progress: tools/darwin-check compares the packages that still
-# do not build for darwin with tools/darwin-check/baseline.txt, so a new
-# breakage fails and a package that starts building must leave the baseline.
-# Phase 1 replaces the macOS step with the full vet, test and build matrix.
+# Windows is the reference platform and macOS is a supported build target. Both
+# run vet, tests and a full build with CGO_ENABLED=0 on every push and pull
+# request. macOS tests must stay green without cgo: the real menu bar needs cgo
+# and is added in the menu-bar phase, behind the tray no-op.
 name: CI
 
 on:
@@ -43,6 +41,8 @@ jobs:
     name: macOS ${{ matrix.arch }} (no cgo)
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
+    env:
+      CGO_ENABLED: "0"
     strategy:
       fail-fast: false
       matrix:
@@ -57,5 +57,9 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: darwin build baseline
-        run: go run ./tools/darwin-check -arch ${{ matrix.arch }}
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./... -count=1
+      - name: go build
+        run: go build ./...

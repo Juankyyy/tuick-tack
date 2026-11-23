@@ -3,17 +3,11 @@ package daemon
 import (
 	"errors"
 	"fmt"
-	"os"
 	"time"
-
-	"golang.org/x/sys/windows"
 
 	"tuick-tack/internal/instance"
 	"tuick-tack/internal/ipc"
 	"tuick-tack/internal/protocol"
-	"tuick-tack/internal/termwin"
-	"tuick-tack/internal/winproc"
-	"tuick-tack/internal/wt"
 )
 
 // TUILaunchFlag is the internal flag a TUI receives when the launcher (tray,
@@ -23,16 +17,6 @@ const TUILaunchFlag = "launch-handled"
 
 // tuiLaunchMarker is the command-line form of TUILaunchFlag.
 const tuiLaunchMarker = "--" + TUILaunchFlag
-
-// LaunchDaemon starts the background daemon as a hidden copy of the current
-// executable. CREATE_NO_WINDOW keeps its console out of sight.
-func LaunchDaemon() error {
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	return winproc.StartHidden(exe, "--daemon", "--hidden")
-}
 
 // Ensure connects to the daemon, launching it when necessary and retrying for
 // up to three seconds. The returned client has completed the handshake.
@@ -60,9 +44,9 @@ func Ensure(pipe string) (*ipc.Client, protocol.HelloMessage, error) {
 
 // OpenTUI launches the terminal UI from the same executable in a new window or
 // focuses the running one. It is used by the tray's left click and Custom…
-// item. When Windows Terminal is the default terminal, the new window uses the
-// user's default profile, so the transparent "none" background keeps their
-// acrylic, opacity or background image. The app only reads that profile.
+// item. Each platform decides how to open a terminal; Windows prefers the
+// user's Windows Terminal default profile, macOS writes and opens a .command
+// script so AppleScript and its automation permission are not needed.
 func OpenTUI() error {
 	pipe, err := ipc.PipePath()
 	if err != nil {
@@ -78,14 +62,13 @@ func OpenTUI() error {
 	if err != nil {
 		return err
 	}
-	return launchTUI(exe, wt.LaunchDefault, winproc.StartConsole)
+	return openTUI(exe)
 }
 
-// launchTUI opens the TUI through Windows Terminal with the user's default
-// profile when possible and falls back to a normal console window otherwise. A
-// broken or absent Windows Terminal must never leave the user without a TUI.
-// Both paths pass the launch marker so the child does not try the Windows
-// Terminal handoff again.
+// launchTUI opens the TUI through a preferred launcher and falls back to the
+// normal console window if the preferred path is unavailable. A broken or
+// absent terminal must never leave the user without a TUI. Both paths pass the
+// launch marker so the child does not try the handoff again.
 func launchTUI(exe string, launch func(string, ...string) (bool, error), fallback func(string, ...string) error) error {
 	if ok, _ := launch(exe, tuiLaunchMarker); ok {
 		return nil
@@ -96,27 +79,9 @@ func launchTUI(exe string, launch func(string, ...string) (bool, error), fallbac
 	return nil
 }
 
-// RelaunchTUI reopens a directly launched TUI in a Windows Terminal window
-// that uses the user's default profile. A shortcut, Explorer or the installer
-// starts tuick-tack.exe in a console window that Windows Terminal hosts with
-// the "Defaults" profile, so it loses the user's acrylic. Relaunching through
-// wt gives the TUI the same appearance as a normal terminal without writing
-// any terminal setting.
-//
-// handled is true when the caller should exit: an existing TUI was focused, or
-// the new window was started. When handled is false the caller should run
-// normally in the current window. err is only meaningful when handled is true:
-// it reports a focus failure.
-func RelaunchTUI(pipe string) (handled bool, err error) {
-	return relaunchTUI(relaunchEnv{
-		running:     TUIRunning(pipe),
-		ownsConsole: termwin.OwnsConsole(),
-		focus:       FocusTUI,
-		executable:  SelfExecutable,
-		launch:      wt.LaunchDefault,
-	})
-}
-
+// relaunchEnv is the platform-independent part of RelaunchTUI. The Windows
+// launcher fills it with the console and Windows Terminal checks; macOS returns
+// handled=false directly and never calls it.
 type relaunchEnv struct {
 	running     bool
 	ownsConsole bool
@@ -125,7 +90,13 @@ type relaunchEnv struct {
 	launch      func(string, ...string) (bool, error)
 }
 
-func relaunchTUI(env relaunchEnv) (bool, error) {
+// relaunchTUI decides whether the current process should hand the TUI over to
+// a new window instead of running in the current console. handled is true when
+// the caller should exit: an existing TUI was focused, or the new window was
+// started. When handled is false the caller should run normally in the current
+// window. err is only meaningful when handled is true: it reports a focus
+// failure.
+func relaunchTUI(env relaunchEnv) (handle bool, err error) {
 	if env.running {
 		if !env.focus() {
 			return true, errors.New("TUI is already open but its window was not found")
@@ -155,14 +126,14 @@ func relaunchTUI(env relaunchEnv) (bool, error) {
 	return true, nil
 }
 
-// InstanceMutexName derives a per-session mutex name from the pipe path.
+// InstanceMutexName derives a per-session lock name from the pipe path.
 func InstanceMutexName(pipe string) string {
 	return instance.DaemonMutexName(pipe)
 }
 
-// AcquireInstance creates the named mutex used to enforce a single daemon.
-// alreadyRunning is true when another process owns it; the returned handle must
+// AcquireInstance creates the lock used to enforce a single daemon.
+// alreadyRunning is true when another process owns it; the returned lock must
 // stay open for the daemon's lifetime.
-func AcquireInstance(name string) (handle windows.Handle, alreadyRunning bool, err error) {
+func AcquireInstance(name string) (lock *instance.Lock, alreadyRunning bool, err error) {
 	return instance.Acquire(name)
 }

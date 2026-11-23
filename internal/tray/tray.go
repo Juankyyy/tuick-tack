@@ -1,53 +1,19 @@
-// Package tray owns the Windows notification-area icon and its menu.
-//
-// systray is global and must run on the main goroutine. The tray pulls the
-// current snapshot/config through Actions; the daemon calls Refresh on changes
-// and once per second while a countdown runs.
+//go:build windows || (darwin && cgo)
+
 package tray
 
 import (
 	"log"
-	"strings"
 	"sync"
-	"time"
 
 	"fyne.io/systray"
 
-	"tuick-tack/assets"
 	"tuick-tack/internal/config"
-	"tuick-tack/internal/duration"
 	"tuick-tack/internal/engine"
 	"tuick-tack/internal/tui/copy"
 )
 
-// Actions is the daemon API used by menu items.
-type Actions interface {
-	Snapshot() engine.State
-	Config() config.Config
-	SoundEnabled() bool
-	AutostartEnabled() bool
-	UpdateAvailable() (latest, url string, ok bool)
-	// UpdateCheck returns idle, checking, up_to_date or failed plus the current
-	// version for the menu label.
-	UpdateCheck() (state, current string)
-	OpenTUI()
-	StartPreset(config.Preset)
-	StartCustom()
-	TogglePause()
-	Stop()
-	ToggleSound()
-	SetSoundName(string)
-	SetVolume(int)
-	PreviewSound()
-	ToggleAutostart()
-	OpenUpdate()
-	CheckUpdates()
-	Quit()
-}
-
-var volumeLevels = []int{0, 25, 50, 75, 100}
-
-// Tray is the single notification-area controller.
+// Tray is the single notification-area or menu-bar controller.
 type Tray struct {
 	actions Actions
 
@@ -111,7 +77,7 @@ func (t *Tray) onReady() {
 		return
 	}
 	systray.SetOnTapped(t.actions.OpenTUI)
-	systray.SetIcon(assets.IdleIcon)
+	systray.SetIcon(iconFor(engine.Idle))
 
 	t.status = systray.AddMenuItem(copy.T(copy.TrayReady), copy.T(copy.TrayCurrentTooltip))
 	t.status.Disable()
@@ -355,79 +321,4 @@ func (t *Tray) rebuildStartLocked(presets []config.Preset) {
 	custom := t.start.AddSubMenuItem(copy.T(copy.TrayCustom), copy.T(copy.TrayCustomTooltip))
 	t.children = append(t.children, custom)
 	go clicks(custom, t.actions.StartCustom)
-}
-
-func samePresets(a, b []config.Preset) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func presetMenuLabel(p config.Preset) string {
-	short := duration.Short(time.Duration(p.Seconds) * time.Second)
-	label := strings.TrimSpace(p.Label)
-	if label == "" || strings.EqualFold(label, short) {
-		return short
-	}
-	return label + " · " + short
-}
-
-// updateMenuLabel is the tray entry for a newer release.
-func updateMenuLabel(latest string) string {
-	return copy.T(copy.TrayUpdateAvailable, latest)
-}
-
-// updateCheckMenu renders the manual check entry for the daemon state.
-func updateCheckMenu(state, current string) (label string, enabled bool) {
-	switch state {
-	case "checking":
-		return copy.T(copy.TrayUpdateChecking), false
-	case "up_to_date":
-		return copy.T(copy.TrayUpdateUpToDate, current), true
-	case "failed":
-		return copy.T(copy.TrayUpdateFailed), true
-	default:
-		return copy.T(copy.TrayUpdateCheck), true
-	}
-}
-
-func statusText(st engine.State) (menu, tooltip string) {
-	label := strings.TrimSpace(st.Label)
-	switch st.Status {
-	case engine.Running:
-		left := duration.Format(st.Remaining)
-		if label != "" {
-			return copy.T(copy.TrayRunning, left), copy.T(copy.TrayRunningTooltip, left, label)
-		}
-		return copy.T(copy.TrayRunning, left), copy.T(copy.TrayRunning, left)
-	case engine.Paused:
-		left := duration.Format(st.Remaining)
-		if label != "" {
-			return copy.T(copy.TrayPaused, left), copy.T(copy.TrayPausedTooltip, left, label)
-		}
-		return copy.T(copy.TrayPaused, left), copy.T(copy.TrayPaused, left)
-	case engine.Finished:
-		return copy.T(copy.TrayFinished), copy.T(copy.TrayFinished)
-	default:
-		return copy.T(copy.TrayReady), copy.T(copy.TrayReady)
-	}
-}
-
-func iconFor(status engine.Status) []byte {
-	switch status {
-	case engine.Running:
-		return assets.RunningIcon
-	case engine.Paused:
-		return assets.PausedIcon
-	case engine.Finished:
-		return assets.FinishedIcon
-	default:
-		return assets.IdleIcon
-	}
 }

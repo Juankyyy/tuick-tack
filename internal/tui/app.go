@@ -20,7 +20,6 @@ import (
 	"tuick-tack/internal/install"
 	"tuick-tack/internal/ipc"
 	"tuick-tack/internal/protocol"
-	"tuick-tack/internal/termwin"
 	"tuick-tack/internal/tui/copy"
 	"tuick-tack/internal/tui/fx"
 	"tuick-tack/internal/tui/notes"
@@ -288,17 +287,15 @@ type Model struct {
 	statsScroll  int
 }
 
-// New creates the TUI model. It reads the per-user uninstall entry so the
-// update dialog can highlight the action that matches this copy.
+// New creates the TUI model. It reads the per-user install entry so the update
+// dialog can highlight the action that matches this copy, and configures the
+// platform's terminal-window support.
 func New(pipe string) *Model {
 	m := newModel(pipe, time.Now, time.Now().UnixNano())
 	info, _ := install.Current()
 	m.installInfo = info
 	m.applyWindow = resizeTerminal
-	m.windowOwned = termwin.OwnsConsole()
-	m.windowPositionFn = func() (int, int, bool) { return termwin.Position(buildinfo.Name) }
-	m.moveWindow = func(x, y int) bool { return termwin.Move(buildinfo.Name, x, y) }
-	m.windowMaximizedFn = func() bool { return termwin.Maximized(buildinfo.Name) }
+	configureWindow(m)
 	return m
 }
 

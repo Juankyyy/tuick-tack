@@ -3,7 +3,6 @@ package daemon
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -19,34 +18,6 @@ const (
 	// Windows creates for it.
 	autostartArgs = " --daemon --hidden"
 )
-
-// SelfExecutable returns the absolute path of the running executable.
-func SelfExecutable() (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Abs(exe)
-}
-
-// AutostartExecutable returns the executable path to register for sign-in. It
-// rejects `go run` builds: their cache path is temporary, so registering one
-// would leave a broken Run entry after the development session.
-func AutostartExecutable() (string, error) {
-	exe, err := SelfExecutable()
-	if err != nil {
-		return "", err
-	}
-	if isDevelopmentPath(exe) {
-		return "", errors.New("autostart is unavailable for development builds")
-	}
-	return exe, nil
-}
-
-func isDevelopmentPath(exe string) bool {
-	lower := strings.ToLower(exe)
-	return strings.Contains(lower, `\go-build`) || strings.Contains(lower, `/go-build`)
-}
 
 // AutostartCommand returns the Run value that starts the daemon at sign-in.
 func AutostartCommand(exePath string) string {
@@ -89,21 +60,6 @@ func autostartPath(value string) string {
 		value = value[:i]
 	}
 	return strings.TrimSpace(value)
-}
-
-func sameExecutable(value, exePath string) bool {
-	value = strings.TrimSpace(value)
-	value = strings.Trim(value, `"`)
-	value = strings.TrimSpace(value)
-	if value == "" || exePath == "" {
-		return false
-	}
-	a, errA := filepath.Abs(value)
-	b, errB := filepath.Abs(exePath)
-	if errA != nil || errB != nil {
-		return strings.EqualFold(value, exePath)
-	}
-	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
 }
 
 // SetAutostart adds or removes HKCU\...\Run\TuickTack without admin rights.
@@ -173,18 +129,4 @@ func MigrateAutostart(exePath string) (bool, error) {
 		return false, fmt.Errorf("write Run value: %w", err)
 	}
 	return true, nil
-}
-
-// InstallStartup registers the daemon for sign-in.
-func InstallStartup() error {
-	exe, err := AutostartExecutable()
-	if err != nil {
-		return err
-	}
-	return SetAutostart(exe, true)
-}
-
-// UninstallStartup removes the sign-in registration.
-func UninstallStartup() error {
-	return SetAutostart("", false)
 }

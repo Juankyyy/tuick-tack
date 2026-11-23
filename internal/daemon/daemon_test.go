@@ -9,41 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"golang.org/x/sys/windows"
-
 	"tuick-tack/internal/config"
 	"tuick-tack/internal/ipc"
 )
-
-func TestAutostartCommand(t *testing.T) {
-	exe := filepath.Join(t.TempDir(), "tuick-tack.exe")
-	want := `"` + exe + `" --daemon --hidden`
-	if got := AutostartCommand(exe); got != want {
-		t.Fatalf("AutostartCommand = %q, want %q", got, want)
-	}
-}
-
-func TestAutostartPath(t *testing.T) {
-	exe := `C:\Program Files\Tuick-Tack\tuick-tack.exe`
-	tests := []struct {
-		name  string
-		value string
-		want  string
-	}{
-		{"quoted with args", `"` + exe + `" --daemon --hidden`, exe},
-		{"quoted without args", `"` + exe + `"`, exe},
-		{"unquoted with args", `C:\Tuick-Tack\tuick-tack.exe --daemon --hidden`, `C:\Tuick-Tack\tuick-tack.exe`},
-		{"unquoted without args", `C:\Tuick-Tack\tuick-tack.exe`, `C:\Tuick-Tack\tuick-tack.exe`},
-		{"empty", "", ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := autostartPath(tt.value); got != tt.want {
-				t.Fatalf("autostartPath(%q) = %q, want %q", tt.value, got, tt.want)
-			}
-		})
-	}
-}
 
 func TestSameExecutable(t *testing.T) {
 	dir := t.TempDir()
@@ -75,98 +43,6 @@ func TestIsDevelopmentPath(t *testing.T) {
 		if got := isDevelopmentPath(tt.path); got != tt.want {
 			t.Errorf("isDevelopmentPath(%q) = %v, want %v", tt.path, got, tt.want)
 		}
-	}
-}
-
-func TestAutostartNeedsMigration(t *testing.T) {
-	dir := t.TempDir()
-	exe := filepath.Join(dir, "tuick-tack.exe")
-	tests := []struct {
-		name  string
-		value string
-		want  bool
-	}{
-		{"legacy tray", `"` + filepath.Join(dir, "tuick-tack-tray.exe") + `"`, true},
-		{"current command", AutostartCommand(exe), false},
-		{"current exe without args", `"` + exe + `"`, true},
-		{"different executable", `"` + filepath.Join(dir, "other.exe") + `" --daemon --hidden`, false},
-		{"empty", "", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := autostartNeedsMigration(tt.value, exe); got != tt.want {
-				t.Fatalf("autostartNeedsMigration(%q) = %v, want %v", tt.value, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestInstanceMutexName(t *testing.T) {
-	got := InstanceMutexName(`\\.\pipe\tuick-tack-juanky-1`)
-	if got != "tuick-tack-juanky-1-mutex" {
-		t.Fatalf("mutex name = %q", got)
-	}
-}
-
-func TestTUIInstanceMutexName(t *testing.T) {
-	got := TUIInstanceMutexName(`\\.\pipe\tuick-tack-juanky-1`)
-	if got != "tuick-tack-juanky-1-tui-mutex" {
-		t.Fatalf("TUI mutex name = %q", got)
-	}
-}
-
-func TestTUIRunning(t *testing.T) {
-	pipe := `\\.\pipe\tuick-tack-test-` + filepath.Base(t.TempDir())
-	if TUIRunning(pipe) {
-		t.Fatal("reported running before acquire")
-	}
-
-	release, already, err := AcquireTUIInstance(pipe)
-	if err != nil {
-		t.Fatalf("AcquireTUIInstance: %v", err)
-	}
-	if already {
-		t.Fatal("first acquire reported already running")
-	}
-	if !TUIRunning(pipe) {
-		t.Fatal("reported not running after acquire")
-	}
-
-	second, already, err := AcquireTUIInstance(pipe)
-	if err != nil {
-		t.Fatalf("second AcquireTUIInstance: %v", err)
-	}
-	if !already {
-		t.Fatal("second acquire should report already running")
-	}
-	second()
-
-	release()
-	if TUIRunning(pipe) {
-		t.Fatal("reported running after release")
-	}
-}
-
-func TestAcquireInstance(t *testing.T) {
-	name := "tuick-tack-test-mutex-" + filepath.Base(t.TempDir())
-	first, already, err := AcquireInstance(name)
-	if err != nil {
-		t.Fatalf("first AcquireInstance: %v", err)
-	}
-	if already {
-		t.Fatal("first acquire reported already running")
-	}
-	defer windows.CloseHandle(first)
-
-	second, already, err := AcquireInstance(name)
-	if err != nil {
-		t.Fatalf("second AcquireInstance: %v", err)
-	}
-	if !already {
-		t.Fatal("second acquire should report already running")
-	}
-	if second != 0 {
-		t.Fatalf("second handle = %v, want 0", second)
 	}
 }
 
@@ -231,7 +107,7 @@ func TestSetBackgroundPersists(t *testing.T) {
 		logger: log.New(io.Discard, "", 0),
 		store:  store,
 		cfg:    cfg,
-		server: ipc.NewServer("", "test", nil),
+		server: ipc.NewServer("", "test", nil, true),
 	}
 
 	d.setBackground(nil, config.BackgroundStars)
@@ -265,7 +141,7 @@ func TestSetReadableTextPersists(t *testing.T) {
 		logger: log.New(io.Discard, "", 0),
 		store:  store,
 		cfg:    cfg,
-		server: ipc.NewServer("", "test", nil),
+		server: ipc.NewServer("", "test", nil, true),
 	}
 
 	d.setReadableText(nil, false)

@@ -363,21 +363,25 @@ type ErrorMessage struct {
 
 func (ErrorMessage) isServerMessage() {}
 
-// NewHello builds the handshake reply.
-func NewHello(appVersion string, c config.Config, upd *UpdatePayload) HelloMessage {
+// NewHello builds the handshake reply. withWindow is false on macOS, where the
+// daemon does not advertise the window placement: the TUI then never sends
+// set_window_size and does not try to move the terminal window.
+func NewHello(appVersion string, c config.Config, upd *UpdatePayload, withWindow bool) HelloMessage {
 	m := HelloMessage{
 		Type:       TypeHello,
 		Protocol:   Version,
 		AppVersion: appVersion,
 		Config:     NewConfigPayload(c),
-		Window: &WindowSizePayload{
+	}
+	if withWindow {
+		m.Window = &WindowSizePayload{
 			Width:  c.WindowWidth,
 			Height: c.WindowHeight,
-		},
-	}
-	if c.WindowPosition != nil {
-		pos := *c.WindowPosition
-		m.Window.Position = &pos
+		}
+		if c.WindowPosition != nil {
+			pos := *c.WindowPosition
+			m.Window.Position = &pos
+		}
 	}
 	if upd != nil {
 		payload := *upd
