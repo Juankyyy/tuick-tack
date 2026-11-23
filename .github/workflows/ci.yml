@@ -1,0 +1,61 @@
+# Windows is the reference platform: every push and pull request must keep
+# vet, tests and a full build green. macOS runs the cross-build guardrail while
+# the port is in progress: tools/darwin-check compares the packages that still
+# do not build for darwin with tools/darwin-check/baseline.txt, so a new
+# breakage fails and a package that starts building must leave the baseline.
+# Phase 1 replaces the macOS step with the full vet, test and build matrix.
+name: CI
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./... -count=1
+      - name: go build
+        run: go build ./...
+
+  darwin:
+    name: macOS ${{ matrix.arch }} (no cgo)
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: amd64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: darwin build baseline
+        run: go run ./tools/darwin-check -arch ${{ matrix.arch }}

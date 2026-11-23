@@ -1,0 +1,37 @@
+# Base of the macOS workflow. Phase 0 only proves the no-cgo cross-build
+# against the documented baseline on both architectures. Later phases grow this
+# file into the real package workflow: cgo build, lipo, the .app bundle, the
+# ad-hoc signature and the universal zip for the release.
+name: macOS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  no-cgo:
+    name: macOS ${{ matrix.arch }} (no cgo)
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: amd64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: darwin build baseline
+        run: go run ./tools/darwin-check -arch ${{ matrix.arch }}
