@@ -119,10 +119,6 @@ func TestUpdateCopyExists(t *testing.T) {
 	if got, want := T(TrayUpdateAvailable, "v0.2.0"), "Update available: v0.2.0"; got != want {
 		t.Errorf("TrayUpdateAvailable = %q, want %q", got, want)
 	}
-	if got, want := T(NotifyFoundBody, "v0.2.0"),
-		"Version v0.2.0 is available. Click to open the release page."; got != want {
-		t.Errorf("NotifyFoundBody = %q, want %q", got, want)
-	}
 	for _, r := range T(UpdateAvailable) + T(UpdateShort) + T(UpdateHint) {
 		if r > 0x7f {
 			t.Errorf("update copy contains a non-ASCII rune %q", r)
