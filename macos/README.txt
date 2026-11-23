@@ -17,7 +17,8 @@ Data
 Notes
   - Keep the app in a stable location. If you move it, the login item path is
     rewritten on the next launch.
-  - There is no installer or automatic update yet. To upgrade, quit the menu bar
-    app, replace Tuick-Tack.app and open the new copy.
+  - There is no installer, and the app never replaces itself. To upgrade, press `u` in the
+    TUI, download the macOS update, then quit the menu bar app, unzip the file and replace
+    Tuick-Tack.app.
   - The app is ad-hoc signed (no Developer ID) and not notarized; macOS 13 or
     later, Apple silicon and Intel are supported by the universal build.

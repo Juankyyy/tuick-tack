@@ -42,9 +42,10 @@ countdown, the sound and the tray icon keep running.
 
 ## macOS (experimental)
 
-The macOS port is in progress. There is no signed release yet; the **macOS** GitHub Actions
-workflow builds a universal `tuick-tack-macos-universal.zip` artifact (Apple silicon and
-Intel, macOS 13+) that contains `Tuick-Tack.app` and a `README.txt`.
+The macOS port is in progress. The **macOS** GitHub Actions workflow builds a universal
+`tuick-tack-macos-universal.zip` (Apple silicon and Intel, macOS 13+) that contains
+`Tuick-Tack.app` and a `README.txt`; a manual run attaches it, with its `.sha256`, to the
+matching GitHub release.
 
 The build is ad-hoc signed and not notarized, so Gatekeeper blocks the first launch. After
 unzipping, right-click `Tuick-Tack.app` and choose **Open**, or remove the quarantine flag:
@@ -58,8 +59,9 @@ stable location: the login item points at the app. Settings and statistics live 
 `~/Library/Application Support/tuick-tack`, cache and logs in
 `~/Library/Caches/tuick-tack`, and the optional login item in
 `~/Library/LaunchAgents/com.juankyyy.tuick-tack.plist`. The app stays in the menu bar; open
-the TUI from there. There is no installer or in-app update on macOS yet: replace the app to
-upgrade.
+the TUI from there. The TUI can check the release and download the new universal zip; it
+verifies the SHA-256, reveals the file in Finder and leaves the current app running, so quit
+the menu bar app, unzip it and replace `Tuick-Tack.app`.
 
 ## Features
 
@@ -247,6 +249,10 @@ losing the scroll position. Releases without notes keep the shorter dialog.
 - **Download portable:** downloads the new `tuick-tack.exe` into Downloads as
   `tuick-tack-vX.Y.Z.exe`, verifies it and leaves the current app running. Use it when you
   prefer the portable copy.
+- **macOS:** the dialog has one `download` action for `tuick-tack-macos-universal.zip`; the
+  daemon verifies it, saves it in Downloads as `tuick-tack-vX.Y.Z-macos-universal.zip` and
+  reveals it in Finder. Nothing is replaced automatically: quit the menu bar app, unzip the
+  file and replace `Tuick-Tack.app`.
 
 Feedback and safety:
 
@@ -354,9 +360,10 @@ the app.
 
 `build` compiles one architecture with cgo; `package` combines the two with `lipo`, builds
 `dist/Tuick-Tack.app` from `macos/` and `assets/icon.iconset`, signs it ad-hoc and writes
-`dist/tuick-tack-macos-universal.zip` plus `dist/SHA256SUMS.txt`. It needs `lipo`,
-`iconutil`, `codesign` and `ditto`, all part of macOS. CI runs the same script in
-`.github/workflows/macos.yml`.
+`dist/tuick-tack-macos-universal.zip`, its `.sha256` and `dist/SHA256SUMS.txt`. It needs
+`lipo`, `iconutil`, `codesign` and `ditto`, all part of macOS. CI runs the same script in
+`.github/workflows/macos.yml`; dispatching it with a `tag` attaches the zip and its `.sha256`
+to that release.
 
 - Behavior and full design: [`SPEC.md`](SPEC.md)
 - Conventions and workflow: [`AGENTS.md`](AGENTS.md)
