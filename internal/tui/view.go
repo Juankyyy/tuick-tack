@@ -1558,12 +1558,12 @@ func (m *Model) drawUpdate(c *canvas.Canvas, base rect) {
 		title = copy.T(copy.UpdateTimerTitle)
 	case updateStepProgress:
 		if m.updateKind == "portable" {
-			title = copy.T(copy.UpdatePortableTitle)
+			title = copy.T(m.updateText().title)
 		} else {
 			title = copy.T(copy.UpdateInProgress)
 		}
 	case updateStepPortableDone:
-		title = copy.T(copy.UpdatePortableTitle)
+		title = copy.T(m.updateText().title)
 	case updateStepFailed:
 		title = copy.T(copy.UpdateFailed)
 	}
@@ -1578,7 +1578,8 @@ func (m *Model) drawUpdate(c *canvas.Canvas, base rect) {
 		m.ensureUpdateFocus()
 		layout := m.updateChooserLayout()
 		m.drawUpdateTransition(c, x, y, w, false)
-		badge := copy.T(copy.UpdatePortableBadge)
+		text := m.updateText()
+		badge := copy.T(text.badge)
 		if m.installInfo.Installed {
 			badge = copy.T(copy.UpdateInstalledBadge, m.installInfo.Dir)
 		}
@@ -1597,7 +1598,7 @@ func (m *Model) drawUpdate(c *canvas.Canvas, base rect) {
 			if m.updateType == updateTypeSetup {
 				items = append(items, button{copy.T(copy.UpdateInstallShort), hitUpdateInstall, false})
 			} else {
-				items = append(items, button{copy.T(copy.UpdateDownloadShort), hitUpdatePortable, false})
+				items = append(items, button{copy.T(text.download), hitUpdatePortable, false})
 			}
 		}
 		items = append(items,
@@ -1651,7 +1652,8 @@ func (m *Model) drawUpdate(c *canvas.Canvas, base rect) {
 		m.drawCenteredIn(c, x, y+8, w, copy.T(copy.UpdateWait), canvas.Fg(m.pal.Muted))
 
 	case updateStepPortableDone:
-		m.drawCenteredIn(c, x, y, w, copy.T(copy.UpdatePortableSaved), canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
+		text := m.updateText()
+		m.drawCenteredIn(c, x, y, w, copy.T(text.saved), canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
 		path := m.updatePath
 		if w < 55 {
 			if i := strings.LastIndexAny(path, `\/`); i >= 0 {
@@ -1659,7 +1661,7 @@ func (m *Model) drawUpdate(c *canvas.Canvas, base rect) {
 			}
 		}
 		m.drawCenteredIn(c, x, y+2, w, fitText(path, w), canvas.Fg(m.pal.Accent))
-		m.drawCenteredIn(c, x, y+4, w, copy.T(copy.UpdatePortableDone), canvas.Fg(m.pal.Muted))
+		m.drawCenteredIn(c, x, y+4, w, copy.T(text.done), canvas.Fg(m.pal.Muted))
 		by := r.y + r.h - 3
 		m.drawButtons(c, by, r.x+2, r.w-4, []button{
 			{copy.T(copy.UpdateOpenFolder), hitUpdateOpenFolder, false},
@@ -1684,6 +1686,11 @@ func (m *Model) drawUpdate(c *canvas.Canvas, base rect) {
 // fit, and the stacked full-width rows used before the notes pane existed when
 // they do not. The selection follows m.updateType, not the copy in use.
 func (m *Model) drawUpdateTypes(c *canvas.Canvas, x, y, w, rows int) {
+	if m.singleUpdate {
+		// The universal zip replaces the .app in place; there is no second
+		// copy to choose, so the chips and the "in use" status are noise.
+		return
+	}
 	current := m.currentUpdateType()
 	other := m.otherUpdateType(current)
 	if rows == 1 {

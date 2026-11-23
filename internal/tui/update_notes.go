@@ -148,8 +148,11 @@ func (m *Model) updateTypePairWidth() int {
 }
 
 // updateTypeRows returns 1 when both type chips fit on one centered row and 2
-// when they must stack.
+// when they must stack. macOS has no type chooser, so it uses no rows.
 func (m *Model) updateTypeRows(width int) int {
+	if m.singleUpdate {
+		return 0
+	}
 	if m.updateTypePairWidth() <= width {
 		return 1
 	}
@@ -157,7 +160,7 @@ func (m *Model) updateTypeRows(width int) int {
 }
 
 func (m *Model) bothUpdateTypes() bool {
-	if m.update == nil {
+	if m.update == nil || m.singleUpdate {
 		return false
 	}
 	current := m.currentUpdateType()
@@ -177,7 +180,7 @@ func (m *Model) updateTypeNoteText() (string, bool) {
 	if m.updateType == updateTypeSetup {
 		return copy.T(copy.UpdateCurrentSetup), false
 	}
-	return copy.T(copy.UpdateCurrentPortable), false
+	return copy.T(m.updateText().current), false
 }
 
 func (m *Model) updateTypeNoteLines(width int) []string {

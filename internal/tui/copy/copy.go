@@ -108,6 +108,17 @@ const (
 	UpdateHintPortable       = Key("update.hint.portable")
 	UpdateHintFailed         = Key("update.hint.failed")
 
+	// macOS publishes one universal .app zip, so the TUI swaps the Windows
+	// portable wording for these keys when singleUpdate is set.
+	UpdateMacPortableBadge = Key("update.mac.portable")
+	UpdateMacCurrent       = Key("update.mac.current")
+	UpdateMacTitle         = Key("update.mac.title")
+	UpdateMacSaved         = Key("update.mac.saved")
+	UpdateMacDone          = Key("update.mac.done")
+	UpdateMacUnavailable   = Key("update.mac.unavailable")
+	UpdateMacDownloadShort = Key("update.mac.download.short")
+	ToastMacPortable       = Key("toast.update.mac.portable")
+
 	NotifyFoundTitle    = Key("notify.found.title")
 	NotifyFoundBody     = Key("notify.found.body")
 	NotifyUpToDateTitle = Key("notify.uptodate.title")
@@ -479,6 +490,14 @@ var texts = map[Key]string{
 	UpdateHintWarn:           "[Enter] continue · [Esc] back",
 	UpdateHintPortable:       "[o] open folder · [Enter] close",
 	UpdateHintFailed:         "[Enter] try again · [g] github · [Esc] close",
+	UpdateMacPortableBadge:   "Portable · Tuick-Tack.app",
+	UpdateMacCurrent:         "Downloads the .zip; replace Tuick-Tack.app.",
+	UpdateMacTitle:           "macOS update",
+	UpdateMacSaved:           "macOS update downloaded",
+	UpdateMacDone:            "Unzip it and replace the current Tuick-Tack.app.",
+	UpdateMacUnavailable:     "Update download is not available",
+	UpdateMacDownloadShort:   "download for macOS",
+	ToastMacPortable:         "macOS update %s saved to Downloads",
 	NotifyFoundTitle:         "Update available",
 	NotifyFoundBody:          "Version %s is available. Click to open the release page.",
 	NotifyUpToDateTitle:      "You're up to date",

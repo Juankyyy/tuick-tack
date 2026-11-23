@@ -43,6 +43,10 @@ func (d *Daemon) cachedUpdate() (update.Info, bool) {
 // runs it after the daemon and TUI exit. force is true only after the TUI has
 // warned about an active countdown.
 func (d *Daemon) installUpdate(c *ipc.Session, force bool) {
+	if !update.InstallSupported {
+		d.updateProgress(updateKindSetup, updatePhaseFailed, 0, 0, "", "unsupported")
+		return
+	}
 	info, ok := d.cachedUpdate()
 	if !ok || !info.CanInstall() {
 		d.updateProgress(updateKindSetup, updatePhaseFailed, 0, 0, "", "unavailable")
@@ -161,7 +165,7 @@ func (d *Daemon) downloadPortable(c *ipc.Session) {
 		d.failPortable("write", err)
 		return
 	}
-	name := "tuick-tack-" + sanitizeVersion(info.Version) + ".exe"
+	name := "tuick-tack-" + sanitizeVersion(info.Version) + downloadSuffix
 	dst := filepath.Join(dir, name)
 
 	d.ensureDownloader()
@@ -180,7 +184,10 @@ func (d *Daemon) downloadPortable(c *ipc.Session) {
 		d.failPortable(downloadCode(err), err)
 		return
 	}
-	d.logger.Printf("update: portable %s saved to %s", info.Version, dst)
+	d.logger.Printf("update: download %s saved to %s", info.Version, dst)
+	if err := revealDownload(dst); err != nil {
+		d.logger.Printf("update: reveal download: %v", err)
+	}
 	d.updateProgress(updateKindPortable, updatePhaseDone, asset.Size, asset.Size, dst, "")
 }
 

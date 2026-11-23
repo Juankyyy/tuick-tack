@@ -13,36 +13,6 @@ import (
 	"testing"
 )
 
-func TestInfoAssets(t *testing.T) {
-	info := Info{
-		Version:        "v9.9.9",
-		URL:            "https://github.com/Juankyyy/tuick-tack/releases/tag/v9.9.9",
-		SetupURL:       "https://example.test/setup.exe",
-		SetupDigest:    "",
-		PortableURL:    "https://example.test/tuick-tack.exe",
-		PortableDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		ChecksumsURL:   "https://example.test/SHA256SUMS.txt",
-	}
-	if !info.CanInstall() {
-		t.Fatal("setup with checksums should be installable")
-	}
-	if !info.CanDownloadPortable() {
-		t.Fatal("portable with digest should be downloadable")
-	}
-	if asset, ok := info.SetupAsset(); !ok || asset.Name != AssetSetup || asset.URL != info.SetupURL {
-		t.Fatalf("setup asset = %+v, %v", asset, ok)
-	}
-	if asset, ok := info.ChecksumsAsset(); !ok || asset.Name != AssetChecksums {
-		t.Fatalf("checksums asset = %+v, %v", asset, ok)
-	}
-
-	info.SetupURL = ""
-	info.PortableURL = ""
-	if info.CanInstall() || info.CanDownloadPortable() {
-		t.Fatal("empty URLs should disable both actions")
-	}
-}
-
 func TestCheckerLatestAssets(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{
@@ -51,6 +21,8 @@ func TestCheckerLatestAssets(t *testing.T) {
 			"assets": [
 				{"name":"tuick-tack-setup.exe","browser_download_url":"https://example.test/setup.exe","size":12,"digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
 				{"name":"tuick-tack.exe","browser_download_url":"https://example.test/tuick-tack.exe","size":34},
+				{"name":"tuick-tack-macos-universal.zip","browser_download_url":"https://example.test/tuick-tack-macos-universal.zip","size":56,"digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+				{"name":"tuick-tack-macos-universal.zip.sha256","browser_download_url":"https://example.test/tuick-tack-macos-universal.zip.sha256"},
 				{"name":"SHA256SUMS.txt","browser_download_url":"https://example.test/SHA256SUMS.txt"},
 				{"name":"ignored.bin","browser_download_url":"http://insecure.test/ignored"}
 			]
@@ -72,12 +44,16 @@ func TestCheckerLatestAssets(t *testing.T) {
 	if info.PortableURL != "https://example.test/tuick-tack.exe" || info.PortableSize != 34 {
 		t.Fatalf("portable = %+v", info)
 	}
+	if info.MacOSURL != "https://example.test/tuick-tack-macos-universal.zip" || info.MacOSSize != 56 {
+		t.Fatalf("macOS asset = %+v", info)
+	}
+	if info.MacOSSumsURL != "https://example.test/tuick-tack-macos-universal.zip.sha256" {
+		t.Fatalf("macOS checksums = %q", info.MacOSSumsURL)
+	}
 	if info.ChecksumsURL != "https://example.test/SHA256SUMS.txt" {
 		t.Fatalf("checksums = %q", info.ChecksumsURL)
 	}
-	if !info.CanInstall() || !info.CanDownloadPortable() {
-		t.Fatal("the release should support both actions")
-	}
+	checkPlatformCapabilities(t, info)
 }
 
 func TestDownloaderChecksums(t *testing.T) {

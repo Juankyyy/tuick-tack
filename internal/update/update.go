@@ -27,11 +27,14 @@ const (
 	// RetryInterval is the shorter delay used after a failed check.
 	RetryInterval = 6 * time.Hour
 
-	// AssetSetup and AssetPortable are the stable release asset names. The
-	// updater finds them by exact name so the release tag stays free-form.
+	// Stable release asset names. The updater finds them by exact name so the
+	// release tag stays free-form. Windows publishes the setup and the portable
+	// executable; macOS publishes the universal .app zip and its own checksum.
 	AssetSetup     = "tuick-tack-setup.exe"
 	AssetPortable  = "tuick-tack.exe"
 	AssetChecksums = "SHA256SUMS.txt"
+	AssetMacOS     = "tuick-tack-macos-universal.zip"
+	AssetMacOSSums = "tuick-tack-macos-universal.zip.sha256"
 
 	// requestTimeout bounds one request. The daemon also cancels the request
 	// when it exits.
@@ -72,6 +75,15 @@ type Info struct {
 	PortableDigest string
 	PortableSize   int64
 	ChecksumsURL   string
+
+	// MacOSURL is the universal .app zip. macOS treats it as its portable
+	// asset, so the daemon and the TUI keep one download flow on both systems.
+	// MacOSSumsURL is the zip's own .sha256; the Windows SHA256SUMS.txt only
+	// lists the .exe files and is not a macOS fallback.
+	MacOSURL     string
+	MacOSDigest  string
+	MacOSSize    int64
+	MacOSSumsURL string
 }
 
 // SetupAsset returns the installer asset when the release publishes it.
@@ -79,21 +91,13 @@ func (i Info) SetupAsset() (Asset, bool) {
 	return i.asset(AssetSetup, i.SetupURL, i.SetupDigest, i.SetupSize)
 }
 
-// PortableAsset returns the portable executable asset when published.
-func (i Info) PortableAsset() (Asset, bool) {
-	return i.asset(AssetPortable, i.PortableURL, i.PortableDigest, i.PortableSize)
-}
-
-// ChecksumsAsset returns SHA256SUMS.txt when published.
-func (i Info) ChecksumsAsset() (Asset, bool) {
-	if i.ChecksumsURL == "" {
-		return Asset{}, false
-	}
-	return Asset{Name: AssetChecksums, URL: i.ChecksumsURL}, true
-}
-
-// CanInstall reports whether the setup asset can be downloaded and verified.
+// CanInstall reports whether the release can be installed in place. Only
+// Windows ships the setup and the helper that restarts the app; macOS replaces
+// the .app by hand and answers unsupported.
 func (i Info) CanInstall() bool {
+	if !InstallSupported {
+		return false
+	}
 	asset, ok := i.SetupAsset()
 	if !ok {
 		return false
@@ -101,14 +105,18 @@ func (i Info) CanInstall() bool {
 	return hasSHA256(asset.Digest) || i.ChecksumsURL != ""
 }
 
-// CanDownloadPortable reports whether the portable executable can be
-// downloaded and verified.
+// CanDownloadPortable reports whether the platform's download asset can be
+// fetched and verified.
 func (i Info) CanDownloadPortable() bool {
 	asset, ok := i.PortableAsset()
 	if !ok {
 		return false
 	}
-	return hasSHA256(asset.Digest) || i.ChecksumsURL != ""
+	if hasSHA256(asset.Digest) {
+		return true
+	}
+	_, ok = i.ChecksumsAsset()
+	return ok
 }
 
 func (i Info) asset(name, url, digest string, size int64) (Asset, bool) {
@@ -205,6 +213,10 @@ func (c Checker) Latest(ctx context.Context) (Info, error) {
 			info.PortableURL, info.PortableSize, info.PortableDigest = assetURL, a.Size, strings.TrimSpace(a.Digest)
 		case AssetChecksums:
 			info.ChecksumsURL = assetURL
+		case AssetMacOS:
+			info.MacOSURL, info.MacOSSize, info.MacOSDigest = assetURL, a.Size, strings.TrimSpace(a.Digest)
+		case AssetMacOSSums:
+			info.MacOSSumsURL = assetURL
 		}
 	}
 	return info, nil

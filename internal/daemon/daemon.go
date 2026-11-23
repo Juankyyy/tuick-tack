@@ -388,9 +388,9 @@ func (d *Daemon) checkUpdates(c *ipc.Session, notifyUser bool) {
 	}
 }
 
-// notifyUpdate sends the result of a tray-initiated check as a Windows toast.
-// The notification is best effort: a failure is logged and the tray label still
-// carries the result.
+// notifyUpdate sends the result of a tray-initiated check as a native
+// notification. The notification is best effort: a failure is logged and the
+// tray label still carries the result.
 func (d *Daemon) notifyUpdate(info update.Info, checkErr error) {
 	if d.notifier == nil {
 		return

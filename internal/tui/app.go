@@ -267,6 +267,9 @@ type Model struct {
 	updateErr      string
 	updateType     string
 	updateFocus    hitAction
+	// singleUpdate is true on macOS, where the release publishes one universal
+	// .app zip instead of the Windows Setup/Portable pair.
+	singleUpdate bool
 
 	updateNotes    []notes.Line
 	updateNotesKey string
@@ -294,6 +297,7 @@ func New(pipe string) *Model {
 	m := newModel(pipe, time.Now, time.Now().UnixNano())
 	info, _ := install.Current()
 	m.installInfo = info
+	m.singleUpdate = platformMacOS
 	m.applyWindow = resizeTerminal
 	configureWindow(m)
 	return m
@@ -499,7 +503,7 @@ func (m *Model) handleServerEvent(msg serverEventMsg) tea.Cmd {
 			m.showToast(copy.T(copy.StatsUnavailable))
 		case m.modal == modalUpdate && ev.Code == protocol.CodeInvalidCommand:
 			m.updateStep = updateStepFailed
-			m.updateErr = copy.T(copy.UpdateUnavailable)
+			m.updateErr = copy.T(m.updateText().unavailable)
 		case m.checkingUpdate && ev.Code == protocol.CodeInvalidCommand:
 			m.checkingUpdate = false
 			m.showToast(copy.T(copy.ErrorUpdate))
@@ -760,9 +764,51 @@ const (
 	updateTypePortable = "portable"
 )
 
+// updateCopyText is the copy that names the downloaded artifact. Windows has
+// the portable .exe; macOS has the universal .app zip.
+type updateCopyText struct {
+	badge       copy.Key
+	current     copy.Key
+	title       copy.Key
+	saved       copy.Key
+	done        copy.Key
+	unavailable copy.Key
+	download    copy.Key
+	toast       copy.Key
+}
+
+func (m *Model) updateText() updateCopyText {
+	if m.singleUpdate {
+		return updateCopyText{
+			badge:       copy.UpdateMacPortableBadge,
+			current:     copy.UpdateMacCurrent,
+			title:       copy.UpdateMacTitle,
+			saved:       copy.UpdateMacSaved,
+			done:        copy.UpdateMacDone,
+			unavailable: copy.UpdateMacUnavailable,
+			download:    copy.UpdateMacDownloadShort,
+			toast:       copy.ToastMacPortable,
+		}
+	}
+	return updateCopyText{
+		badge:       copy.UpdatePortableBadge,
+		current:     copy.UpdateCurrentPortable,
+		title:       copy.UpdatePortableTitle,
+		saved:       copy.UpdatePortableSaved,
+		done:        copy.UpdatePortableDone,
+		unavailable: copy.UpdateUnavailable,
+		download:    copy.UpdateDownloadShort,
+		toast:       copy.ToastPortable,
+	}
+}
+
 // currentUpdateType is the kind of copy that is running. The type chooser
-// shows it first and selects it by default.
+// shows it first and selects it by default. macOS has a single download, so it
+// always uses the portable slot even when the .app is installed.
 func (m *Model) currentUpdateType() string {
+	if m.singleUpdate {
+		return updateTypePortable
+	}
 	if m.installInfo.Installed {
 		return updateTypeSetup
 	}
@@ -815,6 +861,9 @@ func (m *Model) ensureUpdateType() {
 // and the other one when both assets exist. The chooser hint advertises it at
 // widths that can hold the label.
 func (m *Model) toggleUpdateType() {
+	if m.singleUpdate {
+		return
+	}
 	m.ensureUpdateType()
 	current := m.currentUpdateType()
 	other := m.otherUpdateType(current)
@@ -990,7 +1039,7 @@ func (m *Model) startPrimaryUpdate() tea.Cmd {
 
 func (m *Model) startInstallUpdate(force bool) tea.Cmd {
 	if m.update == nil || !m.update.Setup {
-		m.showToast(copy.T(copy.UpdateUnavailable))
+		m.showToast(copy.T(m.updateText().unavailable))
 		return nil
 	}
 	m.updateType = updateTypeSetup
@@ -1016,7 +1065,7 @@ func (m *Model) startInstallUpdate(force bool) tea.Cmd {
 
 func (m *Model) startPortableDownload() tea.Cmd {
 	if m.update == nil || !m.update.Portable {
-		m.showToast(copy.T(copy.UpdateUnavailable))
+		m.showToast(copy.T(m.updateText().unavailable))
 		return nil
 	}
 	m.updateType = updateTypePortable
@@ -1038,7 +1087,7 @@ func (m *Model) startPortableDownload() tea.Cmd {
 func (m *Model) handleUpdateProgress(msg protocol.UpdateProgressMessage) {
 	if m.modal != modalUpdate {
 		if msg.Phase == "done" {
-			m.showToast(copy.T(copy.ToastPortable, versionFromPath(msg.Path)))
+			m.showToast(copy.T(m.updateText().toast, versionFromPath(msg.Path)))
 		}
 		return
 	}
@@ -1057,7 +1106,7 @@ func (m *Model) handleUpdateProgress(msg protocol.UpdateProgressMessage) {
 			return
 		}
 		m.updateStep = updateStepFailed
-		m.updateErr = updateErrorText(msg.Error)
+		m.updateErr = m.updateErrorText(msg.Error)
 	case "done":
 		m.updateStep = updateStepPortableDone
 	default:
@@ -1065,7 +1114,7 @@ func (m *Model) handleUpdateProgress(msg protocol.UpdateProgressMessage) {
 	}
 }
 
-func updateErrorText(code string) string {
+func (m *Model) updateErrorText(code string) string {
 	switch code {
 	case "timer_active":
 		return copy.T(copy.UpdateTimerActive)
@@ -1076,7 +1125,7 @@ func updateErrorText(code string) string {
 	case "write":
 		return copy.T(copy.UpdateWrite)
 	case "unavailable", "unsupported":
-		return copy.T(copy.UpdateUnavailable)
+		return copy.T(m.updateText().unavailable)
 	case "setup_failed":
 		return copy.T(copy.UpdateSetupFailed)
 	default:
@@ -1107,7 +1156,7 @@ func versionFromPath(path string) string {
 	if i := strings.LastIndexAny(base, `\/`); i >= 0 {
 		base = base[i+1:]
 	}
-	base = strings.TrimSuffix(base, ".exe")
+	base = strings.TrimSuffix(base, platformDownloadSuffix)
 	base = strings.TrimPrefix(base, "tuick-tack-")
 	return base
 }

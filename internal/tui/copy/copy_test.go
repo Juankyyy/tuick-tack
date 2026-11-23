@@ -103,6 +103,8 @@ func TestUpdateCopyExists(t *testing.T) {
 		UpdateCurrentSetup, UpdateCurrentPortable, UpdateInstallShort,
 		UpdateNotesTitle, UpdateHintSelect, UpdateHintTab, UpdateHintNotes, UpdateHintGithub,
 		UpdateHintLater, UpdateHintWarn, UpdateHintPortable, UpdateHintFailed,
+		UpdateMacPortableBadge, UpdateMacCurrent, UpdateMacTitle, UpdateMacSaved,
+		UpdateMacDone, UpdateMacUnavailable, UpdateMacDownloadShort, ToastMacPortable,
 		ToastUpdateFound, ToastUpToDate,
 		NotifyFoundTitle, NotifyFoundBody, NotifyUpToDateTitle, NotifyUpToDateBody,
 		NotifyFailedTitle, NotifyFailedBody,
