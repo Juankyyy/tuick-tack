@@ -34,6 +34,9 @@ func PipePath() (string, error) {
 // removed when nothing accepts a connection on it; a live daemon keeps its
 // socket and the second server fails to start. The socket is mode 0600.
 func listen(path string) (net.Listener, error) {
+	if len(path) > unixSocketLimit {
+		return nil, fmt.Errorf("socket path is %d bytes, the limit is %d: %s", len(path), unixSocketLimit, path)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
