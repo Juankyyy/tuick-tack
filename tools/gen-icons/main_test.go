@@ -180,6 +180,50 @@ func TestWriteICO(t *testing.T) {
 	}
 }
 
+// TestAppIconSet pins the ten names and sizes iconutil requires. A future edit
+// that changes a size or a name would otherwise only fail in the macOS package
+// job.
+func TestAppIconSet(t *testing.T) {
+	want := map[string]int{
+		"icon_16x16.png":      16,
+		"icon_16x16@2x.png":   32,
+		"icon_32x32.png":      32,
+		"icon_32x32@2x.png":   64,
+		"icon_128x128.png":    128,
+		"icon_128x128@2x.png": 256,
+		"icon_256x256.png":    256,
+		"icon_256x256@2x.png": 512,
+		"icon_512x512.png":    512,
+		"icon_512x512@2x.png": 1024,
+	}
+	if len(appIconSet) != len(want) {
+		t.Fatalf("iconset has %d entries, want %d", len(appIconSet), len(want))
+	}
+	seen := make(map[string]bool, len(want))
+	for _, entry := range appIconSet {
+		size, ok := want[entry.name]
+		if !ok {
+			t.Errorf("unexpected iconset file %q", entry.name)
+			continue
+		}
+		if seen[entry.name] {
+			t.Errorf("duplicate iconset file %q", entry.name)
+		}
+		seen[entry.name] = true
+		if entry.size != size {
+			t.Errorf("%s: %d px, want %d", entry.name, entry.size, size)
+		}
+		if entry.size%16 != 0 {
+			t.Errorf("%s: %d px is not a whole multiple of the 16x16 grid", entry.name, entry.size)
+		}
+	}
+	for name := range want {
+		if !seen[name] {
+			t.Errorf("missing iconset file %q", name)
+		}
+	}
+}
+
 func TestDeterministic(t *testing.T) {
 	s := solidSprite(finishedRows, finishedColor)
 	var a, b bytes.Buffer

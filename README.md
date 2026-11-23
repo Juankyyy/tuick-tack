@@ -40,6 +40,27 @@ Get-FileHash .\tuick-tack-setup.exe -Algorithm SHA256
 On first launch the TUI starts a hidden daemon and connects to it. Close the TUI and the
 countdown, the sound and the tray icon keep running.
 
+## macOS (experimental)
+
+The macOS port is in progress. There is no signed release yet; the **macOS** GitHub Actions
+workflow builds a universal `tuick-tack-macos-universal.zip` artifact (Apple silicon and
+Intel, macOS 13+) that contains `Tuick-Tack.app` and a `README.txt`.
+
+The build is ad-hoc signed and not notarized, so Gatekeeper blocks the first launch. After
+unzipping, right-click `Tuick-Tack.app` and choose **Open**, or remove the quarantine flag:
+
+```bash
+xattr -dr com.apple.quarantine Tuick-Tack.app
+```
+
+Move it to `~/Applications` (recommended, no admin) or `/Applications`, and keep it in a
+stable location: the login item points at the app. Settings and statistics live in
+`~/Library/Application Support/tuick-tack`, cache and logs in
+`~/Library/Caches/tuick-tack`, and the optional login item in
+`~/Library/LaunchAgents/com.juankyyy.tuick-tack.plist`. The app stays in the menu bar; open
+the TUI from there. There is no installer or in-app update on macOS yet: replace the app to
+upgrade.
+
 ## Features
 
 | Feature | What you get |
@@ -288,8 +309,10 @@ scripts/build.ps1     portable and installer release build
 
 ## Development
 
-Requires Windows 10/11, Go 1.26+ and PowerShell 7. CGO is disabled, so no C compiler is needed.
-Building the installer also needs Inno Setup 6 (`winget install -e --id JRSoftware.InnoSetup`).
+On Windows, development requires Windows 10/11, Go 1.26+ and PowerShell 7. CGO is disabled,
+so no C compiler is needed. Building the installer also needs Inno Setup 6
+(`winget install -e --id JRSoftware.InnoSetup`). On macOS the build needs Xcode Command Line
+Tools: cgo links the menu bar through systray.
 
 ```powershell
 go mod download                  # install dependencies
@@ -320,6 +343,20 @@ dist/
 Run `dist\tuick-tack.exe` for the portable copy, or run `dist\tuick-tack-setup.exe` to
 install it for the current user. Inno Setup is only needed to build the setup, not to run
 the app.
+
+### macOS build
+
+```bash
+./scripts/build-macos.sh build -version v0.0.0 -arch arm64
+./scripts/build-macos.sh package -version v0.0.0 \
+  -arm64 dist/tuick-tack-darwin-arm64 -amd64 dist/tuick-tack-darwin-amd64
+```
+
+`build` compiles one architecture with cgo; `package` combines the two with `lipo`, builds
+`dist/Tuick-Tack.app` from `macos/` and `assets/icon.iconset`, signs it ad-hoc and writes
+`dist/tuick-tack-macos-universal.zip` plus `dist/SHA256SUMS.txt`. It needs `lipo`,
+`iconutil`, `codesign` and `ditto`, all part of macOS. CI runs the same script in
+`.github/workflows/macos.yml`.
 
 - Behavior and full design: [`SPEC.md`](SPEC.md)
 - Conventions and workflow: [`AGENTS.md`](AGENTS.md)

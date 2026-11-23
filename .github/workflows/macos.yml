@@ -1,11 +1,19 @@
-# Base of the macOS workflow. It runs the full vet, tests and build without cgo
-# on both architectures, then builds with cgo to compile the real menu bar. The
-# packaging phase grows this file into lipo, the .app bundle, the ad-hoc
-# signature and the universal zip for the release.
+# macOS build and packaging. Every push to dev produces an ad-hoc signed dev
+# artifact; a manual run can stamp a version. The package job combines both
+# architectures with lipo, builds Tuick-Tack.app from macos/, signs it ad-hoc
+# and writes the universal zip plus SHA256SUMS.txt. The release upload is added
+# in the update/release phase.
 name: macOS
 
 on:
+  push:
+    branches: [dev]
   workflow_dispatch:
+    inputs:
+      version:
+        description: Version to stamp (vX.Y.Z); dev keeps 0.0.0 in Info.plist
+        required: false
+        default: dev
 
 permissions:
   contents: read
@@ -14,13 +22,14 @@ concurrency:
   group: macos-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  VERSION: ${{ github.event.inputs.version || 'dev' }}
+
 jobs:
-  check:
-    name: macOS ${{ matrix.arch }} (no cgo)
+  build:
+    name: Build ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
-    env:
-      CGO_ENABLED: "0"
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -39,9 +48,54 @@ jobs:
         run: go vet ./...
       - name: go test
         run: go test ./... -count=1
-      - name: go build
-        run: go build ./...
-      - name: go build (cgo tray)
+      - name: go build (no cgo)
         env:
-          CGO_ENABLED: "1"
+          CGO_ENABLED: "0"
         run: go build ./...
+      - name: build ${{ matrix.arch }} binary
+        run: bash scripts/build-macos.sh build -version "$VERSION" -arch ${{ matrix.arch }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tuick-tack-darwin-${{ matrix.arch }}
+          path: dist/tuick-tack-darwin-${{ matrix.arch }}
+          if-no-files-found: error
+
+  package:
+    name: Package universal app
+    needs: build
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: tuick-tack-darwin-*
+          path: dist
+          merge-multiple: true
+      - name: package Tuick-Tack.app
+        run: |
+          bash scripts/build-macos.sh package -version "$VERSION" \
+            -arm64 dist/tuick-tack-darwin-arm64 \
+            -amd64 dist/tuick-tack-darwin-amd64
+      - name: verify the artifact
+        run: |
+          (cd dist && shasum -a 256 -c SHA256SUMS.txt)
+          plutil -lint dist/Tuick-Tack.app/Contents/Info.plist
+          codesign --verify --deep --strict --verbose=2 dist/Tuick-Tack.app
+          lipo -verify_arch arm64 x86_64 dist/Tuick-Tack.app/Contents/MacOS/tuick-tack
+          unzip -Z1 dist/tuick-tack-macos-universal.zip
+          unzip -Z1 dist/tuick-tack-macos-universal.zip | grep -qx 'README.txt'
+          unzip -Z1 dist/tuick-tack-macos-universal.zip | grep -qx 'Tuick-Tack.app/Contents/Info.plist'
+          unzip -Z1 dist/tuick-tack-macos-universal.zip | grep -qx 'Tuick-Tack.app/Contents/MacOS/launcher'
+          unzip -Z1 dist/tuick-tack-macos-universal.zip | grep -qx 'Tuick-Tack.app/Contents/MacOS/tuick-tack'
+          rm -rf dist/unzipped
+          ditto -x -k dist/tuick-tack-macos-universal.zip dist/unzipped
+          codesign --verify --deep --strict --verbose=2 dist/unzipped/Tuick-Tack.app
+          lipo -verify_arch arm64 x86_64 dist/unzipped/Tuick-Tack.app/Contents/MacOS/tuick-tack
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tuick-tack-macos-universal
+          path: |
+            dist/tuick-tack-macos-universal.zip
+            dist/SHA256SUMS.txt
+          if-no-files-found: error

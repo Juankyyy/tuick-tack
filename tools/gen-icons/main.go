@@ -7,7 +7,8 @@
 // icon is a 16x16 grid on a navy tile. Every ICO entry is rendered at its own
 // size without antialiasing; the small entries are never downsampled from a
 // 256 px master. The ICO carries the sizes Windows asks for, and winres embeds
-// the same file in the executable.
+// the same file in the executable; assets/icon.iconset is the same artwork at
+// the macOS sizes, ready for iconutil.
 package main
 
 import (
@@ -28,6 +29,24 @@ var (
 	traySizes = []int{16, 20, 24, 32, 40, 48, 56, 64}
 	// appSizes covers Explorer and the Start menu. 256 is the PNG master too.
 	appSizes = []int{16, 24, 32, 40, 48, 64, 96, 128, 256}
+	// appIconSet is the macOS iconset iconutil turns into icon.icns. Every entry
+	// is rendered from the 16x16 grid at an exact integer cell size, so the
+	// pixel art never blurs on any display.
+	appIconSet = []struct {
+		name string
+		size int
+	}{
+		{"icon_16x16.png", 16},
+		{"icon_16x16@2x.png", 32},
+		{"icon_32x32.png", 32},
+		{"icon_32x32@2x.png", 64},
+		{"icon_128x128.png", 128},
+		{"icon_128x128@2x.png", 256},
+		{"icon_256x256.png", 256},
+		{"icon_256x256@2x.png", 512},
+		{"icon_512x512.png", 512},
+		{"icon_512x512@2x.png", 1024},
+	}
 
 	idleColor     = rgba(0x10B981) // emerald 500
 	runningColor  = rgba(0x3B82F6) // blue 500
@@ -195,7 +214,13 @@ func main() {
 	if err := writePNG(filepath.Join(root, "assets", "icon.png"), appSprite.render(256)); err != nil {
 		fail(err)
 	}
-	fmt.Println("gen-icons: wrote assets/icon.ico and assets/icon.png")
+	iconsetDir := filepath.Join(root, "assets", "icon.iconset")
+	for _, entry := range appIconSet {
+		if err := writePNG(filepath.Join(iconsetDir, entry.name), appSprite.render(entry.size)); err != nil {
+			fail(err)
+		}
+	}
+	fmt.Println("gen-icons: wrote assets/icon.ico, assets/icon.png and assets/icon.iconset")
 }
 
 func fail(err error) {

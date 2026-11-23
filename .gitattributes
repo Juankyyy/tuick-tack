@@ -3,3 +3,8 @@
 *.go text eol=lf
 assets/banner.txt text eol=lf
 assets/banner-compact.txt text eol=lf
+# A CRLF shebang breaks LaunchServices before the app starts; plists stay
+# consistent for the macOS packaging.
+*.sh text eol=lf
+macos/launcher text eol=lf
+*.plist text eol=lf

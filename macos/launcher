@@ -1,0 +1,10 @@
+#!/bin/sh
+# CFBundleExecutable for Tuick-Tack.app. Opening the app starts the background
+# daemon; the menu bar item opens the TUI, which reuses the same binary. The
+# bundle is LSUIElement, so it has no Dock icon or app menu of its own.
+#
+# The wrapper cannot be called Tuick-Tack: the real binary is tuick-tack in the
+# same directory and macOS volumes are case-insensitive by default. LaunchServices
+# arguments are not forwarded: the daemon only accepts its documented flags and a
+# stray one would abort startup.
+exec "$(dirname "$0")/tuick-tack" --daemon

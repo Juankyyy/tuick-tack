@@ -7,8 +7,8 @@
 - Stack: Go 1.26+ (pinned Bubble Tea v2/go-winio require it), Bubble Tea v2.1.1, Lipgloss v2.1.0, `fyne.io/systray` v1.12.2, `github.com/Microsoft/go-winio` v0.6.4, `github.com/mtunjic/winrt-toast` v1.2.0 (pure-Go WinRT toasts), `golang.org/x/sys`; the Windows build stays `CGO_ENABLED=0`. macOS builds without cgo for the headless fallback and with cgo for the real menu bar.
 - App code lives in `cmd/` and `internal/`. Platform code is split by file suffix (`_windows.go`, `_darwin.go`) and build tags; shared code never imports a platform API. The Windows leaves cover the systray, `ShellExecuteW`, WinRT toasts, named pipes, the registry, `PlaySoundW`, CreateProcess and the Windows Terminal/console window; the macOS leaves cover syscalls, the Unix socket, flock, the LaunchAgent, afplay and `open`.
 - Platform features that cannot live in the shared layer stay in the native layer behind small, documented bridges: systray/menu (`internal/tray`; ICO on Windows, 32 px PNG on macOS, no-op without cgo), sound (`internal/daemon/sound.go` plus `play_windows.go`/`play_darwin.go`), autostart (`autostart_windows.go` registry / `autostart_darwin.go` LaunchAgent), IPC (`internal/ipc/pipe_windows.go` / `pipe_darwin.go`), instance locks (`internal/instance`), browser, notifications (WinRT / osascript), explorer, process and window helpers, and the installer/update helper. Inno Setup 6 is a Windows-only build-time dependency; macOS needs cgo only for systray.
-- Current state: v1 complete on Windows plus the macOS port phases 0–2 (CI, platform layer without the menu bar, real menu bar with PNG icons). Next: the `.app` bundle and packaging, then the macOS update flow and docs/QA; `SPEC.md` is still the Windows functional source until the docs phase. Releases are published on GitHub when the user asks for one.
-- Generated assets (`assets/sounds/*.wav`, `assets/icon.ico`, `assets/icon.png`, `assets/icons/*.ico`, `assets/icons/*.png`, `assets/banner.txt`, `assets/banner-compact.txt`, `assets/banner.png`, `installer/wizard-large.png`, `installer/wizard-small.png`, the `.syso` file under `cmd/`) are committed; do not hand-edit them. Regenerate with `go generate ./...` / `scripts/build.ps1`. The branding banner comes from the same 5×7 bigfont grid as the countdown and is not embedded in the executable: `banner.txt` is the 2x ASCII (118 columns) and `banner-compact.txt` the 1x version (59 columns).
+- Current state: v1 complete on Windows plus the macOS port phases 0–3 (CI, platform layer, real menu bar, universal `.app` packaging). Next: the macOS update flow and docs/QA; `SPEC.md` is still the Windows functional source until the docs phase. Releases are published on GitHub when the user asks for one.
+- Generated assets (`assets/sounds/*.wav`, `assets/icon.ico`, `assets/icon.png`, `assets/icon.iconset/*.png`, `assets/icons/*.ico`, `assets/icons/*.png`, `assets/banner.txt`, `assets/banner-compact.txt`, `assets/banner.png`, `installer/wizard-large.png`, `installer/wizard-small.png`, the `.syso` file under `cmd/`) are committed; do not hand-edit them. Regenerate with `go generate ./...` / `scripts/build.ps1`. The branding banner comes from the same 5×7 bigfont grid as the countdown and is not embedded in the executable: `banner.txt` is the 2x ASCII (118 columns) and `banner-compact.txt` the 1x version (59 columns).
 - The tray states are a 7×7 pixel grid and the executable icon a 16×16 grid, drawn without antialiasing by `tools/gen-icons`; keep the ICO sizes, the 32 px PNG variants and the 2× HICON caveat from `SPEC.md` §12.
 
 ## Commands
@@ -30,14 +30,26 @@ go generate ./...                # regenerate sounds/icons/banners, installer ar
 .\scripts\build.ps1 -Version v1.0.0 -Installer # portable + Inno setup + checksums
 ```
 
+On macOS (Xcode Command Line Tools; cgo links the menu bar):
+
+```bash
+./scripts/build-macos.sh build -version v0.0.0 -arch arm64
+./scripts/build-macos.sh package -version v0.0.0 \
+  -arm64 dist/tuick-tack-darwin-arm64 -amd64 dist/tuick-tack-darwin-amd64
+```
+
 - Hot reload: none. Restart the TUI; the daemon can stay running and keeps the timer.
 - CI: GitHub Actions, `.github/workflows/ci.yml`, on every push and pull request.
   `windows-latest` is the reference and runs `go vet ./...`, `go test ./...` and
   `go build ./...` with `CGO_ENABLED=0`. `macos-15` (arm64) and `macos-15-intel`
-  (amd64) run the same vet, tests and build without cgo, so any shared code that
-  imports a Windows-only API fails there. A red check blocks merges.
-  `.github/workflows/macos.yml` is the manual base of the macOS packaging workflow.
-  Never run `go generate` or Inno Setup in CI: they are Windows-only.
+  (amd64) run the same vet, tests and build without cgo, plus a `CGO_ENABLED=1`
+  build that compiles the real menu bar. A red check blocks merges.
+  `.github/workflows/macos.yml` runs on push to `dev` and manual dispatch: it builds
+  both architectures with cgo, combines them with `lipo`, packages `Tuick-Tack.app`
+  (Info.plist, wrapper, `icon.icns`, ad-hoc signature) and uploads the universal zip
+  and `SHA256SUMS.txt` as an artifact. The release upload comes in the update phase.
+  Never run `go generate ./...` in CI: it includes the Windows `.syso` and installer
+  steps.
 
 ## Architecture
 
@@ -50,25 +62,27 @@ internal/
   duration/             duration parser
   engine/               timer state machine
   protocol/             IPC message types
-  ipc/                  named-pipe server/client
+  ipc/                  IPC server/client (named pipe on Windows, Unix socket on macOS)
   stats/                session history (JSONL) and the Statistics aggregates
-  daemon/               wiring, sound, autostart, logging
+  daemon/               wiring, sound, autostart, launch, logging, platform leaves
   update/               GitHub release check, assets, SHA-256 downloader
-  updater/              temporary helper that runs the setup and reopens the TUI
-  install/              reads the Inno uninstall entry (installed vs portable)
-  instance/             daemon/TUI mutex names and acquisition
-  winproc/              CreateProcess helpers (hidden daemon, new console)
-  wt/                   read-only Windows Terminal default profile + launch
-  termwin/              locate and move the real console window (conhost/WT)
-  explorer/             open the downloaded portable in Explorer
-  browser/              ShellExecuteW for https links
-  notify/               native Windows toasts (WinRT, AUMID)
-  tray/                 systray menu, icons, tooltip
+  updater/              Windows helper that runs the setup and reopens the TUI (no-op on macOS)
+  install/              installed vs portable (Inno entry on Windows, .app bundle on macOS)
+  instance/             daemon/TUI singleton locks (named mutex, flock)
+  winproc/              process startup (CreateProcess, Setsid)
+  wt/                   read-only Windows Terminal default profile + launch (Windows)
+  termwin/              locate and move the console window (Windows; no-op on macOS)
+  explorer/             reveal a download in Explorer or Finder
+  browser/              open https links (ShellExecuteW, open)
+  notify/               native notifications (WinRT toast, osascript)
+  tray/                 systray menu, icons, tooltip; no-op on macOS without cgo
   tui/                  Bubble Tea model/view, canvas, bigfont, theme, fx, copy, notes
-installer/              Inno Setup script and branded wizard images
-assets/                 sounds/*.wav, icon.ico, icons/, banner.txt, banner-compact.txt, banner.png, screenshot.png
+installer/              Inno Setup script and branded wizard images (Windows)
+macos/                  Info.plist, wrapper script and portable README for Tuick-Tack.app
+assets/                 sounds/*.wav, icon.ico, icon.png, icon.iconset/, icons/, banners, screenshot
 tools/                  gen-sounds, gen-icons, gen-banner, gen-installer
-scripts/build.ps1
+scripts/build.ps1       Windows release build
+scripts/build-macos.sh  macOS build + universal .app packaging
 winres/                 go-winres metadata
 ```
 
@@ -78,7 +92,7 @@ winres/                 go-winres metadata
 - Dependencies pinned for a reason keep a comment next to them; do not bump until the packages are compatible. Bubble Tea/Lipgloss v2 use the `charm.land/...` module paths and the v2 API; `systray` v1.12.2 is the Fyne fork with left/right-click callbacks and package-level menu state.
 - Keep time-dependent logic testable by injecting a clock; never call `time.Now()` in domain logic that has tests. `time.Now()` belongs in `main`/wiring; tests use a fake clock. The engine relies on the monotonic reading inside `time.Time`.
 - Config schema version is `6`. Bump it and add a migration before adding/changing fields; back up a corrupt config and fall back to defaults.
-- No cgo: build with `CGO_ENABLED=0`. `systray` and `go-winio` are pure Go on Windows.
+- No cgo on Windows: build with `CGO_ENABLED=0`. macOS builds with cgo for the real menu bar (`systray`) and without cgo for the headless fallback; `systray` and `go-winio` are pure Go on Windows.
 - No wide runes or emoji in the TUI. Every glyph must be one terminal cell; test layouts at 80×24 and 120×40.
 - All TUI rendering goes through `internal/tui/canvas`; do not scatter raw ANSI outside the canvas serializer.
 - `systray.Run` must run on the main goroutine; do not call systray APIs before `onReady`. The rest of its API is safe from other goroutines.
