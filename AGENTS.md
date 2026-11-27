@@ -2,7 +2,7 @@
 
 ## Project
 
-**Tuick-Tack** is a personal focus countdown app: a modern terminal UI (TUI) plus a background daemon that owns the timer, presets, sound and the tray menu. Windows 10/11 is the only supported platform. The macOS port is frozen: its code and manual workflows stay in `dev` for a possible one-off build, but it is not part of the normal CI, release or QA flow.
+**Tuick-Tack** is a personal focus countdown app: a modern terminal UI (TUI) plus a background daemon that owns the timer, presets, sound and the tray menu. Windows 10/11 is the only supported platform. The macOS port is frozen: its code and manual workflows stay in `dev` for a possible one-off build, but it is not part of the normal CI, release or QA flow. On Windows the daemon can also draw a small remaining-time overlay over the left side of the taskbar.
 
 - Stack: Go 1.26+ (pinned Bubble Tea v2/go-winio require it), Bubble Tea v2.1.1, Lipgloss v2.1.0, `fyne.io/systray` v1.12.2, `github.com/Microsoft/go-winio` v0.6.4, `github.com/mtunjic/winrt-toast` v1.2.0 (pure-Go WinRT toasts), `golang.org/x/sys`; the Windows build stays `CGO_ENABLED=0`. The frozen macOS leaves can still build without cgo (headless fallback) or with cgo (menu bar), but only on a manual dispatch.
 - App code lives in `cmd/` and `internal/`. Platform code is split by file suffix (`_windows.go`, `_darwin.go`) and build tags; shared code never imports a platform API. The Windows leaves cover the systray, `ShellExecuteW`, WinRT toasts, named pipes, the registry, `PlaySoundW`, CreateProcess and the Windows Terminal/console window; the macOS leaves cover syscalls, the Unix socket, flock, the LaunchAgent, afplay and `open`. The macOS leaves are frozen and receive no new work.
@@ -78,6 +78,7 @@ internal/
   ipc/                  IPC server/client (named pipe on Windows; frozen macOS Unix socket)
   stats/                session history (JSONL) and the Statistics aggregates
   daemon/               wiring, sound, autostart, launch, logging, platform leaves
+  minitimer/            Windows taskbar overlay; no-op on the frozen macOS port
   update/               GitHub release check, assets, SHA-256 downloader
   updater/              Windows helper that runs the setup and reopens the TUI (frozen macOS no-op)
   install/              installed vs portable (Inno entry on Windows; frozen .app detection)
@@ -99,16 +100,17 @@ scripts/build-macos.sh  frozen macOS build + .app packaging (manual only)
 winres/                 go-winres metadata
 ```
 
-- State management: the **daemon is the single source of truth** (timer, presets, theme, background, sound selection, volume, remembered TUI window placement, tray). The TUI is a client; it renders snapshots and interpolates locally for smoothness. `finish_seq` dedupes celebrations. No client-side timer truth, no external state library.
+- State management: the **daemon is the single source of truth** (timer, presets, theme, background, sound selection, volume, remembered TUI window placement, mini timer toggle, tray). The TUI is a client; it renders snapshots and interpolates locally for smoothness. `finish_seq` dedupes celebrations. No client-side timer truth, no external state library.
 - Local persistence: JSON config at `%APPDATA%\tuick-tack\config.json`; the daemon is the only writer; atomic writes; no DB. Session history for the Statistics tab lives next to it in `%APPDATA%\tuick-tack\history.jsonl` (append-only JSONL, cap 2000, atomic trim): it is data, not settings, and does not make config.json a second store. The Windows registry is used **only** for autostart (`HKCU\...\Run`), the per-user AUMID registration (`HKCU\Software\Classes\AppUserModelId\Juankyyy.TuickTack`, `DisplayName`), the standard Inno uninstall entry (read-only from the app; written by the setup) and the read-only default-terminal delegation (`HKCU\Console\%%Startup`) used to choose the TUI window profile; never for app state. Do not add SQLite or a second config store.
 - Localization: all user-facing copy lives in `internal/tui/copy`; UI code reads it via `copy.T(...)`. Do not hardcode labels, tooltips, dialogs or toasts in widgets. The v1 UI is English; if Spanish is added later, its messages live in the same package.
 - Dependencies pinned for a reason keep a comment next to them; do not bump until the packages are compatible. Bubble Tea/Lipgloss v2 use the `charm.land/...` module paths and the v2 API; `systray` v1.12.2 is the Fyne fork with left/right-click callbacks and package-level menu state.
 - Keep time-dependent logic testable by injecting a clock; never call `time.Now()` in domain logic that has tests. `time.Now()` belongs in `main`/wiring; tests use a fake clock. The engine relies on the monotonic reading inside `time.Time`.
-- Config schema version is `6`. Bump it and add a migration before adding/changing fields; back up a corrupt config and fall back to defaults.
+- Config schema version is `7`. Bump it and add a migration before adding/changing fields; back up a corrupt config and fall back to defaults. `mini_timer` is a presentation toggle and starts enabled.
 - No cgo on Windows: build with `CGO_ENABLED=0`. The frozen macOS port still builds with cgo for the real menu bar (`systray`) and without cgo for the headless fallback, but only on manual dispatch; `systray` and `go-winio` are pure Go on Windows.
 - No wide runes or emoji in the TUI. Every glyph must be one terminal cell; test layouts at 80×24 and 120×40.
 - All TUI rendering goes through `internal/tui/canvas`; do not scatter raw ANSI outside the canvas serializer.
 - `systray.Run` must run on the main goroutine; do not call systray APIs before `onReady`. The rest of its API is safe from other goroutines.
+- Mini timer (Windows): `internal/minitimer` is a separate `WS_EX_NOACTIVATE` topmost popup over the left taskbar area. It polls the daemon snapshot/config, hides on idle, TUI focus, fullscreen, auto-hide or a shell overlay, and renders only the remaining time plus its progress bar with `canvas`/`bigfont`. The focus check reads the foreground title/class directly; the click path uses `termwin.Find`, which now uses `FindWindowW` instead of `EnumWindows` so it never allocates a Win32 callback per click. The TUI toggles it with `M` (`toggle_mini_timer`, additive) and the Help shows that row. It owns a `runtime.LockOSThread` message loop; never put it in the TUI render loop or make it a second source of truth. macOS compiles the no-op.
 - The daemon must remain fully usable with the TUI closed (tray, timer, selected sound at the configured volume).
 - TUI launch: when Windows Terminal is the default terminal, the tray and a direct launch reopen the TUI in a new Windows Terminal window with the user's default profile (`internal/wt`, read-only), so `none` keeps the user's acrylic, opacity or background image. Otherwise they fall back to a normal console window. Never write to Windows Terminal's settings or set the terminal's default colors (no OSC 10/11). Direct launches pass the internal `--launch-handled` marker so the relaunch cannot loop.
 - The IPC protocol is versioned. Bump the protocol version for incompatible message changes; do not silently break the TUI/daemon pair.
@@ -228,6 +230,7 @@ autostart. Antes de anunciar una release Windows:
 
 - [ ] TUI a 48×22, 80×24 y 120×40; sin runas anchas ni solapes.
 - [ ] Tray: icono por estado, clic izquierdo abre/enfoca, menú completo, Quit cierra la TUI.
+- [ ] Mini timer: checkbox en la bandeja (por defecto on, persiste) y tecla `M` en la TUI; el Help muestra `[M] mini timer`; widget sobre la barra con tiempo+barra en running/paused/finished, oculto en idle y con la TUI enfocada; 100/125/150 %.
 - [ ] Timer con la TUI cerrada, sonido al volumen elegido y fin una sola vez.
 - [ ] Autostart on/off; `--daemon --hidden` no abre consola.
 - [ ] Update: setup y portable, aviso de countdown, fallo de red y checksum incorrecto.
@@ -253,6 +256,7 @@ completa.
 ## Antes de decir que algo está terminado
 
 - [ ] `go vet ./...`, `go test ./...` y `go build ./...` (o `scripts/build.ps1 -Installer`) en verde.
+- [ ] Pruebas de `internal/minitimer` verdes; overlay probado a 100/125/150 %, con auto-hide, fullscreen, reinicio de Explorer y la TUI enfocada.
 - [ ] Opcional, solo si se toca el puerto congelado: `CGO_ENABLED=0 GOOS=darwin go build ./...` y `GOOS=darwin go vet ./...` limpios. No es requisito para Windows.
 - [ ] Assets generados regenerados y commiteados; `.syso` regenerado si cambió el icono; imágenes del instalador regeneradas con `go generate ./...`.
 - [ ] `SPEC.md` / `README.md` / `AGENTS.md` actualizados si cambió el comportamiento o la UI.

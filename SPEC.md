@@ -1,6 +1,6 @@
 # Tuick-Tack — SPEC
 
-> **Estado:** v1 Windows; port macOS congelado · **Fecha:** 2026-11-26
+> **Estado:** v1 Windows + mini timer; port macOS congelado · **Fecha:** 2026-11-26
 > **Plataformas:** Windows 10/11 x64 (soportada) · macOS 13+ universal (congelada, builds manuales) · **Licencia:** GPL-3.0 (repo)
 > **Stack:** Go 1.26+ + Bubble Tea v2 + Lipgloss v2 + systray + go-winio (Windows) / Unix socket (macOS, congelado)
 > **Repo:** `tuick-tack` (v1 Windows; port macOS congelado en `dev`; builds locales `portable`/`setup`; el zip macOS solo se genera a mano)
@@ -20,6 +20,8 @@ Tuick-Tack es una app de escritorio para Windows 10/11 (el port macOS está cong
 
 El countdown, el sonido y el icono siguen funcionando aunque se cierre la TUI. Al llegar a 0 suena el sonido elegido al volumen configurado y, si la TUI está abierta, se celebra con confeti a pantalla completa. Presets por defecto 5/10/15 min, presets personalizados con nombre y duración, y entrada libre de minutos.
 
+En Windows, el daemon también puede dibujar un **mini timer** superpuesto al hueco izquierdo de la barra de tareas: solo el tiempo restante y una barra de progreso, con el tema activo. Se oculta en idle, cuando la TUI tiene el foco, con la barra auto-oculta o en fullscreen.
+
 Windows es la única plataforma soportada y no cambia de comportamiento. El port macOS está congelado: comparte la base de código y conserva sus bridges (bandeja, IPC, sonido, autostart y actualización), documentados en §4, pero no se compila en CI, no se publica con las releases normales y no se amplía.
 
 ## 2. Decisiones clave
@@ -30,6 +32,7 @@ Windows es la única plataforma soportada y no cambia de comportamiento. El port
 | Plataformas | Windows 10/11 x64 (soportada); macOS 13+ universal (congelada, build manual) sobre una sola base de código |
 | TUI | `charm.land/bubbletea/v2` v2.1.1 + `charm.land/lipgloss/v2` v2.1.0 |
 | Bandeja | `fyne.io/systray` v1.12.2: Go puro en Windows; cgo/Cocoa en macOS. Sin cgo en macOS, tray no-op |
+| Mini timer | Overlay Win32 `WS_EX_NOACTIVATE` sobre el hueco izquierdo de la barra de tareas; toggle en la bandeja, menú del widget o `M`; solo Windows |
 | IPC | Named pipe de `github.com/Microsoft/go-winio` en Windows; Unix domain socket en macOS; mensajes JSON iguales |
 | Instancia | Mutex con nombre de Win32 en Windows; `flock` en macOS |
 | Autostart | Registro `HKCU\...\Run` en Windows; LaunchAgent en `~/Library/LaunchAgents` en macOS |
@@ -66,6 +69,7 @@ Windows y solo se validan en un build manual pedido expresamente.
 - Estilo cuidado: fondo ambiental a pantalla completa, cabecera de dos alturas, dígitos grandes con degradado y barra de progreso viva con checkpoints.
 - El countdown y el sonido sobreviven al cierre de la TUI.
 - La TUI, el daemon, los presets, los temas, los fondos, las estadísticas y el aviso de actualización en Windows; el port macOS congelado conserva la misma base y sus bridges.
+- Mini timer opcional en Windows: tiempo restante y barra sobre el hueco izquierdo de la barra, oculto en idle y con la TUI enfocada.
 - Configuración persistente, temas, autostart opcional, build reproducible del `.exe` portable y de un setup por usuario en Windows. El `.app` universal queda como referencia congelada y solo se genera a mano.
 
 ### No objetivos v1
@@ -73,6 +77,7 @@ Windows y solo se validan en un build manual pedido expresamente.
 - Varios timers simultáneos o cola de timers.
 - Persistencia del timer en curso tras reiniciar el daemon.
 - Linux (la app cubre Windows; macOS está congelado).
+- Mini timer nativo o embebido en la barra de tareas; es un overlay independiente y no se inyecta en Explorer.
 - Toast nativo de Windows para el fin del countdown (las comprobaciones de actualizaciones sí usan uno, ver §12).
 - MSIX, descarga o instalación automática sin confirmación, firma de código.
 - Notarización y Developer ID en macOS, auto-reemplazo silencioso de `Tuick-Tack.app` e instalador/desinstalador tipo Inno en macOS (fuera de alcance mientras el port siga congelado).
@@ -97,6 +102,7 @@ Windows y solo se validan en un build manual pedido expresamente.
 - **Daemon** = proceso `--daemon`. Es la única fuente de verdad: motor, config, sonido, bandeja/menu bar. En Windows, al arrancar desde el registro libera su consola con `--hidden`; en macOS `--hidden` se acepta como no-op y el LaunchAgent arranca el binario con `--daemon --hidden`.
 - **TUI** = proceso sin argumentos. Se conecta por el pipe o el socket; si el daemon no está, lanza una copia oculta de sí mismo con `--daemon` y reintenta. En macOS el daemon escribe `open-tui.command` en `~/Library/Application Support/tuick-tack/` y lo abre con `open`, para no pedir permisos TCC de AppleScript.
 - Una sola TUI por sesión. En Windows el tray enfoca la ventana abierta; en macOS una segunda TUI activa Terminal con `open -a` como best effort (sin localizar la ventana) y sale. Los comandos afectan al único timer.
+- **Mini timer (Windows):** el daemon crea una ventana `WS_POPUP` con `WS_EX_TOOLWINDOW|WS_EX_TOPMOST|WS_EX_NOACTIVATE` sobre el hueco izquierdo de la barra de tareas. Tiene su propio hilo y message loop (`runtime.LockOSThread`), separado de `systray`; consulta snapshot/config del daemon, se oculta en idle, con la TUI enfocada, en fullscreen, con auto-hide o con un flyout del shell delante, y pinta solo tiempo + barra con `canvas`/`bigfont`. No es una segunda fuente de verdad ni una integración nativa en Explorer.
 - **IPC:** en Windows el pipe es local, por usuario y sesión: `\\.\pipe\tuick-tack-<usuario>-<sesión>`, con ACL para el usuario actual y acceso remoto denegado. En macOS es un Unix domain socket en `~/Library/Caches/tuick-tack/daemon-<uid>.sock`, con modo `0600`; si la ruta supera 100 bytes el daemon falla con un error claro (no hay fallback). Un socket huérfano se borra si el connect falla.
 - **Instancia única:** mutex con nombre (`CreateMutexW`) + fallo al escuchar el pipe en Windows; `flock` sobre `daemon.lock`/`tui.lock` en `~/Library/Caches/tuick-tack` en macOS. Si ya hay daemon, el segundo proceso sale con código 0.
 - Si el daemon se reinicia se pierde el timer en curso (documentado).
@@ -111,6 +117,7 @@ La lógica compartida no llama a APIs de plataforma. Cada capacidad vive detrás
 | IPC | Named pipe `go-winio`, ACL por usuario | Unix socket `0600` en `~/Library/Caches/tuick-tack/daemon-<uid>.sock` |
 | Instancia única | `CreateMutexW` + pipe | `flock` de `daemon.lock`/`tui.lock` |
 | Menú | Bandeja `systray`, ICO; clic izquierdo abre/enfoca la TUI | Menu bar `systray` con cgo y PNG 32 px; el clic abre el menú y `Open Tuick-Tack` abre la TUI |
+| Mini timer | Overlay `WS_EX_NOACTIVATE` en el hueco izquierdo de la barra; toggle en la bandeja, menú del widget o `M` | No hay overlay; el menu bar ya muestra el tiempo |
 | Segunda TUI | Enfoca la ventana existente | Activa Terminal con `open -a` (best effort) y sale |
 | Sonido | `PlaySoundW` con WAV escalado | `afplay` con el mismo WAV escalado |
 | Autostart | `HKCU\...\Run`, `--daemon --hidden` | LaunchAgent `com.juankyyy.tuick-tack.plist` |
@@ -202,6 +209,7 @@ Cliente → daemon:
 | `set_theme` | `name` |
 | `set_background` | `name` (`aurora`, `stars`, `fireflies`, `rain`, `waves`, `grid`, `none`) |
 | `set_readable_text` | `enabled` (`bool`) |
+| `toggle_mini_timer` | — (aditivo y sin campos; solo Windows) |
 | `set_sound` | `enabled` |
 | `set_sound_name` | `sound_name` |
 | `set_volume` | `volume` |
@@ -233,6 +241,8 @@ Daemon → cliente:
 
 `notes` es el `body` de la release (Markdown UTF-8) recortado a 16 KiB. No es estado de la app: la TUI extrae su sección `What's new`, la limpia y la pinta en el diálogo; el daemon solo lo cachea y lo transporta.
 
+`mini_timer` **no viaja por el protocolo**: la TUI no conoce su estado (la bandeja es la fuente visual), pero puede alternarlo con el comando aditivo `toggle_mini_timer`, sin campos. Un daemon viejo responde `invalid_command`; no sube `Protocol`.
+
 `get_stats` y `stats` son aditivos: un daemon viejo responde `invalid_command` y la TUI cierra la pestaña con un aviso; un cliente viejo ignora `stats`. El daemon responde solo al cliente que lo pidió, como `update_result`. La TUI pide el agregado al abrir la pestaña, al reconectar y cuando un snapshot muestra un stop o un reemplazo con la pestaña abierta (un final la cierra para celebrar); el resto del tiempo no hay tráfico extra.
 
 El tamaño y la posición de ventana no se difunden: son geometría del cliente, no estado compartido. El daemon los guarda en config (solo Windows) y los devuelve en el siguiente `hello`; no hace broadcast ni refresca la bandeja.
@@ -254,10 +264,11 @@ Rutas de config e historial vía `os.UserConfigDir`/`os.UserCacheDir`; el histor
 
 ```json
 {
-  "version": 6,
+  "version": 7,
   "theme": "midnight",
   "background": "aurora",
   "readable_text": true,
+  "mini_timer": true,
   "sound": true,
   "sound_name": "digital",
   "volume": 80,
@@ -275,10 +286,11 @@ Rutas de config e historial vía `os.UserConfigDir`/`os.UserCacheDir`; el histor
 - Semilla de defaults en el primer arranque; presets editables/borrables; “Restore defaults” en el gestor.
 - `background` es el fondo ambiental: `aurora` (el original, por defecto), `stars`, `fireflies`, `rain`, `waves`, `grid` (Sunset) o `none`. `b` cicla en idle/running/paused/finished y el daemon lo guarda; el tema solo cambia la paleta. La aurora conserva el polvo original (y marea lo comparte); estrellas, luciérnagas, lluvia, Sunset y none van sin el polvo extra. `none` no pinta ninguna celda de fondo: se ve el fondo real de la terminal (color, imagen o acrylic); los paneles, botones, barra y modales de la UI sí conservan su propio fondo. El flash de celebración se omite con `none`; el confeti sigue.
 - `readable_text` (por defecto `true`) activa las bandas negras de lectura. Solo se dibujan con `none`: el texto que flota sobre la terminal (cabecera, etiqueta, meta, input, atajos, sub-hint, enlace de actualización, status/toast/error y compacto) lleva detrás una banda negra ajustada al texto con una celda de margen y tinta clara del tema. El contador no lleva banda y conserva su sombra de bloque. `n` las activa/desactiva y el daemon guarda el ajuste; con las bandas desactivadas vuelve la adaptación por OSC 11.
+- `mini_timer` (por defecto `true`) activa el overlay de la barra de tareas en Windows. Solo es presentación: no cambia el timer; no viaja en el `config` de la TUI y la bandeja, el menú del widget y la tecla `M` son sus controles. En macOS no tiene efecto porque el menu bar ya muestra el tiempo.
 - Sonido por defecto `digital`; volumen por defecto 80, rango 0..100 y pasos de 5 en la UI.
 - `window_width`/`window_height` son el tamaño de terminal preferido en celdas y se omiten mientras no haya preferencia (0). Solo los escribe el daemon cuando la TUI reporta un resize.
 - `window_position` es el borde superior izquierdo exterior de la ventana en píxeles de pantalla (admite negativos en multi-monitor) y se omite mientras no haya preferencia. Solo lo escribe el daemon cuando la TUI reporta un movimiento. Una posición fuera de rango se descarta al normalizar en vez de invalidar toda la config.
-- Migración v1 → v6, v2 → v6, v3 → v6, v4 → v6 y v5 → v6 al cargar: conserva theme, sound, presets, sonido, volumen, tamaño y posición; v1 fija `sound_name=digital` y `volume=80`; v1–v4 fijan `background=aurora`; la posición queda sin definir en v1–v3; v1–v5 fijan `readable_text=true`. El daemon guarda la config migrada al arrancar.
+- Migración a v7 al cargar: conserva theme, sound, presets, sonido, volumen, tamaño y posición; v1 fija `sound_name=digital` y `volume=80`; v1–v4 fijan `background=aurora`; la posición queda sin definir en v1–v3; v1–v5 fijan `readable_text=true`; v1–v6 fijan `mini_timer=true`. El daemon guarda la config migrada al arrancar.
 - Escritura atómica (temporal en el mismo directorio + rename). Config corrupta: backup `config.bad-<timestamp>.json` y defaults.
 - Historial de sesiones: una línea JSON por countdown terminado (`started_ms`, `planned_ms`, `elapsed_ms`, `paused_ms?`, `label`, `preset_id?`, `outcome`). `outcome` es `completed` (llega a 0, también ajustando), `stopped` (stop explícito) o `replaced` (un `start` lo sustituye). No se registra un daemon que muere con el timer vivo, igual que el timer no se restaura. Cap 2000 registros con recorte atómico e histéresis (256); las líneas inválidas se saltan y un fichero ilegible se respalda como `history.bad-<timestamp>.jsonl` y arranca vacío. **No vive en `config.json`**: es un log de datos, no ajustes versionados, y no se añade un segundo store de configuración ni una base de datos.
 - El daemon es el único escritor. Para el historial guarda el inicio de pared al arrancar, acumula las pausas y suma los ajustes al planificado, de modo que el registro refleja el objetivo final y el tiempo real. El cálculo de días, horas y rachas usa la zona local y un reloj inyectable en tests.
@@ -299,7 +311,7 @@ Rutas de config e historial vía `os.UserConfigDir`/`os.UserCacheDir`; el histor
 - **Sonido:** modal `v` con on/off, lista Chime/Marimba/Digital/Deep, volumen 0–100 en pasos de 5, preview con `Space` y mute con `m`. Elegir sonido o cambiar volumen previsualiza si el sonido está activo.
 - **Fondos ambientales:** `b` cicla `aurora` (el original), `stars`, `fireflies`, `rain`, `waves`, `grid` (visible como **Sunset**) y `none`, con toast y persistencia en config. La aurora es el default y conserva el polvo de 30 motas; marea lo comparte. Estrellas, luciérnagas, lluvia, Sunset y none no añaden polvo. `none` deja el fondo de la terminal visible: el canvas no pinta celdas vacías y la app nunca fija `BackgroundColor`/`ForegroundColor` (tampoco con los demás fondos), así que no altera el color por defecto ni el acrílico de la terminal; los elementos de UI y la sombra del contador mantienen sus fondos, y el flash de celebración se omite. Con `none`, por defecto el texto que flota directamente sobre la terminal (marca, versión, estado, sub-línea, etiqueta, meta, input, atajos, sub-hint, enlace de actualización, status/toast/error y compacto) se pinta sobre una banda negra ajustada al texto con una celda de margen y tinta clara del tema; el contador no lleva banda y conserva su sombra de bloque. `n` activa/desactiva las bandas y el daemon guarda `readable_text`. Con las bandas desactivadas, la TUI pregunta el color real del fondo por OSC 11 (`tea.RequestBackgroundColor`) al arrancar, al entrar en `none` y al conectar; si es claro, ese texto y el contador usan una tinta oscura derivada del tema con contraste WCAG (7:1 texto, 4.5:1 secundario, 3:1 grande/decorativo). Si el terminal no responde a OSC 11 o el fondo es oscuro, se conserva la paleta actual; con cualquier otro fondo no hay bandas ni adaptación. En compacto, `none` tampoco rellena el fondo: las bandas se ajustan a cada línea. `b` se ignora mientras hay texto en el input y en modo compacto. Los efectos leen el progreso, la pausa y los últimos 10 s, pero solo pintan fondo: el texto, el flash de celebración y el confeti no cambian.
 - **Confirmación de cancelar:** overlay “Stop the countdown? Enter yes · Esc no”.
-- **Ayuda:** overlay `?` con título "Help" y dos columnas agrupadas —Timer, Duration, Panels, Display y App— con las teclas en una columna fija, las acciones alineadas y las notas en gris; `[n]` bandas de lectura (solo con `none`). Por debajo de 80 columnas usa una variante compacta de una columna; no hay scroll. Los atajos internos de presets y sonido no se duplican: cada panel los muestra al abrirse.
+- **Ayuda:** overlay `?` con título "Help" y dos columnas agrupadas —Timer, Duration, Panels, Display y App— con las teclas en una columna fija, las acciones alineadas y las notas en gris; `[n]` bandas de lectura (solo con `none`) y, solo en Windows, `[M]` mini timer. Por debajo de 80 columnas usa una variante compacta de una columna; no hay scroll. Los atajos internos de presets y sonido no se duplican: cada panel los muestra al abrirse.
 - **Estadísticas:** pestaña a pantalla completa con `s` (hoja sobre el escenario atenuado, como el diálogo de actualización). Cuatro secciones con `←/→`, `Tab` o `1..4`: **overview** (cabecera con el rango seleccionado; KPIs de foco, sesiones, `% of finished` —completed/(completed+stopped), las reemplazadas no penalizan— y delta contra la ventana anterior, en una o dos líneas según el ancho; barras de foco de los últimos 7 o 30 días con medio bloque, hoy en accent2 y etiquetas de día con el mes en los cambios; cabecera `records` all-time con racha actual, mejor racha —días con al menos una sesión—, día y hora más activos y sesión más larga con su etiqueta cuando cabe); **activity** (heatmap de 26 semanas con celdas de fondo, 5 niveles y etiquetas de mes/día desde `copy`; foco por hora de inicio y por día de la semana, ambos all-time; gráficas en dos columnas cuando el ancho lo permite y apiladas si no; frase de insight si queda sitio; la sección adapta leyenda, huecos e insight a la altura y puede requerir scroll a 48×22); **presets** (barras horizontales por etiqueta con duración, sesiones y `% of finished`, más el top por foco y la media); **recent** (últimas 20 sesiones con hora de inicio —`yesterday` si cabe, `yest` si no—, planificado, etiqueta y `✓ completed` / `· stopped at 4m` / `· replaced at 8m`). `t` cicla 7/30/90/all solo en el overview; el resto de secciones lo ignora y su hint no lo anuncia. El KPI usa el rango elegido; las barras son siempre la ventana diaria reciente y su note dice `last N days`, nunca el rango. `↑/↓`, `PgUp`/`PgDn`, `Home`/`End` y la rueda desplazan; `Esc` o `s` cierran. Bajo 48×22 no se dibuja y `s` se ignora; a 48×22 no hay recorte horizontal y el activity puede desplazarse en vertical. Abrir la pestaña no toca el timer; un final la cierra para enseñar la celebración, y un stop o un reemplazo desde la bandeja la dejan abierta y refrescan los datos.
 - **Desconectado:** banner “Daemon disconnected — retrying…” y comandos deshabilitados.
 - **Actualización disponible:** a la derecha de la marca y su versión, en la fila de la cabecera, `[Update available →]` en degradado pastel animado (arcoíris de 0,8 de vuelta a S 0,52 / L 0,68, negrita; la fase avanza ~0,1 vuelta/s con el tick de 10 Hz). Es clicable y abre el diálogo de actualización; al pasar el ratón por encima se pinta un fondo suave en toda la etiqueta. La flecha `→` es la pista estática de que abre algo. Si el estado no deja sitio, cae a `[Update →]`; si tampoco entra, no se dibuja. En `mono` usa un degradado de grises sin animación. El modo compacto añade una línea de texto sin click.
@@ -329,14 +341,16 @@ Las pistas de la TUI usan el formato `[tecla] acción` (por ejemplo, `[Space] pa
 
 | Contexto | Acción |
 |---|---|
-| Idle | dígitos/`:`/`h`/`m`/`s` escriben; `Backspace` borra; `Enter` inicia; `←/→` seleccionan preset; `p` gestor; `t` tema; `v` sonido; `m` mute; `s` estadísticas; `u` busca actualizaciones; `?` ayuda; `q` salir de la TUI |
-| Running | `Space` pausa; `Esc` confirma cancelar; `+`/`-` ±1 min; `v` sonido; `m` mute; `s` estadísticas; `u` busca actualizaciones; `?` ayuda; `q` salir |
-| Paused | `Space` reanuda; `Esc` confirma cancelar; `+`/`-` ±1 min; `v` sonido; `m` mute; `s` estadísticas; `u` busca actualizaciones; `?` ayuda |
-| Finished | `Enter`/`Esc` cierran; `r` repiten; `v` sonido; `m` mute; `s` estadísticas; `u` busca actualizaciones |
+| Idle | dígitos/`:`/`h`/`m`/`s` escriben; `Backspace` borra; `Enter` inicia; `←/→` seleccionan preset; `p` gestor; `t` tema; `v` sonido; `m` mute; `s` estadísticas; `M` mini timer; `u` busca actualizaciones; `?` ayuda; `q` salir de la TUI |
+| Running | `Space` pausa; `Esc` confirma cancelar; `+`/`-` ±1 min; `v` sonido; `m` mute; `s` estadísticas; `M` mini timer; `u` busca actualizaciones; `?` ayuda; `q` salir |
+| Paused | `Space` reanuda; `Esc` confirma cancelar; `+`/`-` ±1 min; `v` sonido; `m` mute; `s` estadísticas; `M` mini timer; `u` busca actualizaciones; `?` ayuda |
+| Finished | `Enter`/`Esc` cierran; `r` repiten; `v` sonido; `m` mute; `s` estadísticas; `M` mini timer; `u` busca actualizaciones |
 | Estadísticas | `←/→`/`Tab` sección; `1..4` directo; `t` rango; `↑/↓` `PgUp/PgDn` `Home/End` rueda scroll; `Esc`/`s` cerrar |
 | Sonido | `↑/↓` sonido; `←/→` volumen ±5; `Space` preview; `m` mute; `Esc`/`Enter` cerrar |
 | Gestor | `↑/↓` mover; `Tab` acciones; `←/→` elegir acción; `Enter` iniciar (lista) o ejecutar (acción); `a` añadir; `e` editar; `d` borrar; `r` defaults; `Esc` cerrar; en formulario `Tab` campo, `Enter` guardar, `Esc` cancelar |
 | Actualización | `←/→` acción; `↑/↓` `PgUp`/`PgDn` `Home`/`End` rueda notas; `Enter` ejecutar; `g` GitHub; `Esc` cerrar. En Windows, `Tab` cambia Setup/Portable; en el port macOS congelado hay una sola acción `download for macOS` |
+
+`M` (mini timer) solo existe en Windows; en macOS el overlay no existe, así que la tecla y la fila de Help no se muestran.
 
 ### Parser de duraciones
 
@@ -443,6 +457,7 @@ Sound              ✓
 Sound settings     ▸ Chime · Marimba · Digital · Deep · Preview
 Volume 80%         ▸ -5% · +5% · 0% · 25% · 50% · 75% · 100%
 Start with Windows / Start at login
+Mini timer         ✓
 ──────────────────────────
 Quit
 ```
@@ -460,7 +475,23 @@ Quit
 - **Sound settings:** submenú con los cuatro sonidos y check en el activo; Preview reproduce la selección. Elegir un sonido previsualiza si Sound está activo.
 - **Volume:** submenú con título dinámico; -5%/+5% y atajos 0/25/50/75/100. Cada cambio previsualiza si Sound está activo.
 - **Start with Windows / Start at login:** check. En Windows lee/escribe `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, valor `TuickTack` apuntando a `"tuick-tack.exe" --daemon --hidden`; sin admin. Al arrancar, el daemon migra un valor antiguo de `tuick-tack-tray.exe` para conservar el ajuste. En macOS crea/borra `~/Library/LaunchAgents/com.juankyyy.tuick-tack.plist` con `RunAtLoad=true` y `KeepAlive=false`, apuntando al binario del `.app` con `--daemon --hidden`; `launchctl bootstrap/bootout gui/$(id -u)` aplica el cambio y el plist se reescribe al arrancar si la app se movió. En builds de `go run` el autostart queda deshabilitado: la ruta del ejecutable es temporal.
+- **Mini timer:** check solo en Windows. Activa el overlay de la barra de tareas y persiste en `mini_timer`; por defecto está activado. En macOS el ítem no se crea: el menu bar ya muestra el tiempo junto al icono.
 - **Quit:** cierra el loop y llama a `systray.Quit()`; avisa `daemon_closing` a las TUIs conectadas antes de cerrar el pipe/socket, para que la TUI se cierre en vez de relanzar un daemon. Después para el sonido.
+
+### Mini timer (solo Windows)
+
+Windows 11 no permite incrustar widgets de terceros en la barra de tareas: los deskbands desaparecieron y el panel de Widgets exige MSIX e identidad de paquete. El mini timer es una **ventana propia**, no una integración nativa: se superpone al hueco izquierdo de `Shell_TrayWnd` y no inyecta nada en Explorer.
+
+- **Ventana:** `WS_POPUP` con `WS_EX_TOOLWINDOW|WS_EX_TOPMOST|WS_EX_NOACTIVATE`, sin entrada en Alt+Tab ni en la barra, mostrada con `SW_SHOWNOACTIVATE`. Tiene su propio hilo y message loop (`runtime.LockOSThread`), separado del loop de `systray`, y se destruye al cerrar el daemon.
+- **Posición:** barra horizontal (inferior o superior) a 8 px del borde izquierdo y centrada en vertical. A 100 % la base mide 128×30 px: rejilla de 42×9 celdas de 3 px, borde de 1 px y barra de 108×3. El ancho crece a 143 px cuando el tiempo es `10:00:00`–`24:00:00` (47 celdas); la barra sigue centrada y no se estira. A 125 % la celda es de 4 px y a 150 % de 5 px; todo escala en bloques enteros (sin interpolación).
+- **Contenido:** solo el tiempo restante en el bigfont 5×7 de la TUI (`MM:SS` o `H:MM:SS`), sombra de una celda y la barra de progreso; sin etiqueta, transcurrido ni texto de estado.
+- **Colores:** fondo `Panel`, borde `Border`, dígitos `Accent → Accent2`, sombra `Scale(BG, 0.5)`, track `Lerp(Panel, BG, 0.35)`, relleno `Accent → Accent2` y cabeza `Text`. En pausa, dígitos y barra en `Warn`. Al terminar, `00:00`, barra llena y dígitos `Warn → Danger`. En los últimos 10 s el relleno puede pulsar como el TUI. El tema se lee del config y un cambio repinta en el siguiente tick.
+- **Visibilidad:** solo si `mini_timer` está activo, hay sesión `running`, `paused` o `finished`, la barra está visible y horizontal, no hay fullscreen ni un flyout del shell delante y la ventana de la TUI no tiene el foco. En idle se oculta; en finished queda visible hasta dismiss/stop.
+- **Foco:** cada 500 ms comprueba el título y la clase del foreground (`GetForegroundWindow` + `GetWindowTextW`/`GetClassName`). Si es `Tuick-Tack` con clase `ConsoleWindowClass` o `CASCADIA_HOSTING_WINDOW_CLASS`, la TUI tiene el foco y el widget se oculta; si está detrás, sigue visible. No usa `EnumWindows` en el poll, para no agotar la tabla de callbacks de Go en un daemon de larga vida. Una pestaña inactiva de Windows Terminal no lo oculta.
+- **Auto-hide y fullscreen:** con la barra auto-oculta, el widget solo aparece cuando el cursor está sobre la barra; `SHQueryUserNotificationState` oculta además en fullscreen, presentación, pantalla bloqueada y modo silencioso. Si Explorer se reinicia, `Shell_TrayWnd` se vuelve a localizar; si la barra es vertical o secundaria, no se dibuja la variante interior. Los flyouts se detectan por clase y, para `Windows.UI.Core.CoreWindow`, solo se ocultan si el proceso es del shell (`explorer.exe`, `StartMenuExperienceHost.exe`, `SearchHost.exe`, etc.), no por cualquier app UWP.
+- **Interacción:** clic izquierdo abre o enfoca la TUI y oculta el widget en el acto; clic derecho abre un menú nativo con **Open**, **Pause/Resume**, **Stop** y **Hide mini timer**. Hide desactiva `mini_timer` y persiste. La tecla `M` de la TUI, en las pantallas principales (idle, running, paused y finished), envía `toggle_mini_timer` y hace lo mismo sin abrir la bandeja. No hay arrastre.
+- **Configuración:** `mini_timer` en el esquema 7, por defecto `true`; el daemon es el único escritor. Es presentación local: la TUI solo lo alterna con `toggle_mini_timer` (aditivo, sin subir `Protocol`), no recibe su estado y no lo edita directamente.
+- **Límites:** puede tapar el botón de Widgets/tiempo si está en ese hueco; no se mueve automáticamente. No cubre barras verticales ni las secundarias de multi-monitor. Es una ventana topmost, no un widget del shell.
 
 ### Actualizaciones
 
@@ -546,6 +577,7 @@ internal/
   ipc/                        # server/client: named pipe (Windows), Unix socket (macOS, congelado)
   stats/                      # historial JSONL + agregados de la pestaña
   daemon/                     # wiring, sound, autostart, logging, update orchestration + hojas _windows/_darwin (macOS congelado)
+  minitimer/                  # overlay de la barra de tareas (Windows); no-op en macOS
   update/                     # release check, assets por GOOS, download + SHA-256
   updater/                    # helper de Windows que ejecuta el setup (no-op en macOS congelado)
   install/                    # registro de Inno en Windows; detección de bundle .app en macOS congelado
@@ -634,9 +666,9 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 ### Automáticos
 
 - `duration`: tabla de formatos válidos/inválidos, clamps.
-- `config`: defaults, carga/guardado, corrupto → backup, migración v1→v6, v2→v6, v3→v6, v4→v6 y v5→v6 (incluido `readable_text=true`), validación de presets/fondo/sonido/volumen/tamaño y posición de ventana.
+- `config`: defaults, carga/guardado, corrupto → backup, migración v1→v7, v2→v7, v3→v7, v4→v7, v5→v7 y v6→v7 (incluido `readable_text=true` y `mini_timer=true`), validación de presets/fondo/sonido/volumen/tamaño y posición de ventana.
 - `engine`: reloj falso; start/pause/resume/adjust/finish una vez/replace/restart; `finish_seq`.
-- `protocol`: round-trip JSON, versión, errores, comandos de sonido y volumen, `set_background` válido/inválido y compatibilidad con un `config` viejo sin el campo, `set_readable_text` válido/sin `enabled` y `readable_text` puntero (presente/ausente), `set_window_size` y `hello.window` con y sin posición, `update`, `check_update`/`update_result`, `install_update`/`download_portable`, `update_progress`, `daemon_closing` con motivo, `get_stats`/`stats` y tolerancia a tipos desconocidos.
+- `protocol`: round-trip JSON, versión, errores, comandos de sonido y volumen, `set_background` válido/inválido y compatibilidad con un `config` viejo sin el campo, `set_readable_text` válido/sin `enabled` y `readable_text` puntero (presente/ausente), `toggle_mini_timer` válido, `set_window_size` y `hello.window` con y sin posición, `update`, `check_update`/`update_result`, `install_update`/`download_portable`, `update_progress`, `daemon_closing` con motivo, `get_stats`/`stats` y tolerancia a tipos desconocidos.
 - `stats`: alta y recarga de JSONL, rechazo de registros inválidos, líneas corruptas saltadas, respaldo de un fichero ilegible, recorte al cap, agregados (día local, hora, día de la semana, totales por rango, top de etiquetas, recientes ordenados, récords) y rachas con huecos y mañana sin sesiones.
 - `ipc`: pipe de test con nombre único, handshake con `update`, start/pause/stop, broadcast, múltiples clientes, reconexión y aviso final entregado antes de cerrar el pipe; en el port macOS congelado, socket Unix con ruta corta y limpieza.
 - `update`: comparación semver y pre-releases, GET contra `httptest` (200/404/403/JSON roto/timeout), `User-Agent`, assets estables/digest, asset macOS congelado y checksum `.sha256`, `body`/notas con normalización de CRLF y recorte a 16 KiB en límite de rune, descarga TLS con progreso, SHA-256 correcto e incorrecto, checksums y rechazo de URLs no HTTPS.
@@ -646,8 +678,9 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 - `browser`: solo `https`, rechazo de `http`, `file` y `javascript`.
 - `canvas`/`bigfont`: dimensiones, clipping, ancho de runas, gradiente; `Render` de celdas transparentes (sin `FG`/`BG` no emite color, con reset al volver a una celda vacía) y `Dim` que solo toca colores presentes.
 - `fx`: RNG con semilla, física, caducidad, sin NaN, límites; fondos deterministas, sin runas anchas, resize y contraste; la aurora conserva el hash del fondo anterior; estrellas solo en la franja superior; luciérnagas con centro y halo en la mitad inferior; Sunset con sol visible, aro brillante limitado y horizonte más claro; `none` deja el canvas intacto y transparente.
-- `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único; persistencia del tamaño y la posición de ventana, conservando la posición cuando el mensaje no la trae; persistencia de `set_background` y `set_readable_text`; parseo y migración del valor de autostart; catálogo de sonidos, escalado PCM y caché; caché de la release (incluidas las notas) y comprobación manual (up to date / available / failed) contra `httptest`; notificación inyectada solo para la bandeja; `Quit` idempotente y marcado como cierre pedido por el usuario; payload con capacidades setup/portable y notas; rechazos de instalación (`unavailable`, `busy`, `unsupported`, `timer_active`) y descarga+spawn con un `spawnUpdater` inyectado; historial con reloj inyectado: completed/stopped/replaced, pausas acumuladas, ajustes en el planificado, `onFinish` repetido no duplica y `get_stats` sale del store.
-- `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; fondos ambientales con `b` (ciclo, toast, persistencia y fallback con daemon viejo) y layout sin runas anchas para cada fondo en 80×24/120×40; `none` con `BackgroundColor`/`ForegroundColor` nil en todos los fondos (la app nunca fija los colores de la terminal), canvas de fondo vacío, flash omitido y compacto transparente; bandas negras ajustadas al texto solo con `none` (cabecera, etiqueta, meta, input, atajos, sub-hint, status y compacto; el contador no), `n` persistido y fallback con daemon viejo, bandas desactivadas → sin bandas, y consulta OSC 11 (fondo claro/oscuro), paleta de escenario oscura en el camino adaptativo (contraste WCAG, sin cambios en fondo oscuro, desconocido u otro fondo) y ausencia de sombras de texto; colocación de ventana (aplicar una vez, ignorar el inicial, debounce, descartar guardados obsoletos, guardado al cerrar, consola compartida sin mover, maximizado sin guardar, repintado completo tras aplicar el tamaño, asentamiento de la posición que no guarda la cascada del host y compatibilidad con daemon viejo); `termwin` se prueba a mano por depender de la ventana real; modal de sonido; aviso de actualización (degradado animado con `animTime`, flecha, fallback corto, hover, click y modo compacto); `u` abre el diálogo si hay release o comprueba si no; diálogo en 48×22/80×24/120×40 con chips de tipo en una fila (copia en uso primero, estados `Installed`/`Not installed`/`In use`/`Not in use`/`Not available`; apilados a 44 columnas), selección con `Tab` (las flechas ya no cambian la copia), fila horizontal de acciones con `←`/`→`, aviso de la otra copia en una línea, aviso de countdown, progreso, resultado portable y fallo; panel de notas con `What's new`, scroll por `↑`/`↓`/`PgUp`/`PgDn`/`Home`/`End`/rueda, barra de scroll, hint dinámico (`[Tab] type`, `[↑/↓] notes`, `[g] github` según ancho y assets) y vuelta a 18 filas sin notas; `Enter`/`g`/`Esc`; aviso secundario `[u] update to vX`; celebración una vez por `finish_seq`; cierre por `daemon_closing` (quit/update) sin reconexión; estadísticas: `s` abre en idle (solo cuando no es sufijo), running, paused y finished; `25m`/`90s` siguen tecleándose; `m` mutea; `s`/`Esc` cierran; secciones con `←/→`/`Tab`/`1..4`, `t` cicla el rango, scroll y rueda, tabs clicables, refresco al reconectar y al parar con la pestaña abierta, cierre con aviso si el daemon es viejo, estado vacío, `s` ignorada en compacto y layout sin runas anchas en 48×22/80×24/120×40.
+- `daemon`: nombres de mutex y `TUIRunning` (crear/consultar/liberar) con un pipe único; persistencia del tamaño y la posición de ventana, conservando la posición cuando el mensaje no la trae; persistencia de `set_background`, `set_readable_text` y `mini_timer`; parseo y migración del valor de autostart; catálogo de sonidos, escalado PCM y caché; caché de la release (incluidas las notas) y comprobación manual (up to date / available / failed) contra `httptest`; notificación inyectada solo para la bandeja; `Quit` idempotente y marcado como cierre pedido por el usuario; payload con capacidades setup/portable y notas; rechazos de instalación (`unavailable`, `busy`, `unsupported`, `timer_active`) y descarga+spawn con un `spawnUpdater` inyectado; historial con reloj inyectado: completed/stopped/replaced, pausas acumuladas, ajustes en el planificado, `onFinish` repetido no duplica y `get_stats` sale del store.
+- `minitimer`: matriz de visibilidad (activado, estado, barra visible/horizontal, fullscreen, TUI con foco, flyout del shell); layout y DPI (3/4/5/6 px por celda, 128×30 a 100 %); texto MM:SS y H:MM:SS; progreso 0..1 con clamp y lleno al terminar; paleta por tema y estado; render del tiempo y la barra sin salirse de la rejilla.
+- `tui`: `Update` con teclas; `View` contiene textos esperados en idle/running/paused/finished; `M` envía `toggle_mini_timer` y el Help muestra `[M] mini timer`; fondos ambientales con `b` (ciclo, toast, persistencia y fallback con daemon viejo) y layout sin runas anchas para cada fondo en 80×24/120×40; `none` con `BackgroundColor`/`ForegroundColor` nil en todos los fondos (la app nunca fija los colores de la terminal), canvas de fondo vacío, flash omitido y compacto transparente; bandas negras ajustadas al texto solo con `none` (cabecera, etiqueta, meta, input, atajos, sub-hint, status y compacto; el contador no), `n` persistido y fallback con daemon viejo, bandas desactivadas → sin bandas, y consulta OSC 11 (fondo claro/oscuro), paleta de escenario oscura en el camino adaptativo (contraste WCAG, sin cambios en fondo oscuro, desconocido u otro fondo) y ausencia de sombras de texto; colocación de ventana (aplicar una vez, ignorar el inicial, debounce, descartar guardados obsoletos, guardado al cerrar, consola compartida sin mover, maximizado sin guardar, repintado completo tras aplicar el tamaño, asentamiento de la posición que no guarda la cascada del host y compatibilidad con daemon viejo); `termwin` se prueba a mano por depender de la ventana real; modal de sonido; aviso de actualización (degradado animado con `animTime`, flecha, fallback corto, hover, click y modo compacto); `u` abre el diálogo si hay release o comprueba si no; diálogo en 48×22/80×24/120×40 con chips de tipo en una fila (copia en uso primero, estados `Installed`/`Not installed`/`In use`/`Not in use`/`Not available`; apilados a 44 columnas), selección con `Tab` (las flechas ya no cambian la copia), fila horizontal de acciones con `←`/`→`, aviso de la otra copia en una línea, aviso de countdown, progreso, resultado portable y fallo; panel de notas con `What's new`, scroll por `↑`/`↓`/`PgUp`/`PgDn`/`Home`/`End`/rueda, barra de scroll, hint dinámico (`[Tab] type`, `[↑/↓] notes`, `[g] github` según ancho y assets) y vuelta a 18 filas sin notas; `Enter`/`g`/`Esc`; aviso secundario `[u] update to vX`; celebración una vez por `finish_seq`; cierre por `daemon_closing` (quit/update) sin reconexión; estadísticas: `s` abre en idle (solo cuando no es sufijo), running, paused y finished; `25m`/`90s` siguen tecleándose; `m` mutea; `s`/`Esc` cierran; secciones con `←/→`/`Tab`/`1..4`, `t` cicla el rango, scroll y rueda, tabs clicables, refresco al reconectar y al parar con la pestaña abierta, cierre con aviso si el daemon es viejo, estado vacío, `s` ignorada en compacto y layout sin runas anchas en 48×22/80×24/120×40.
 - `tui` (macOS, congelado): `singleUpdate` muestra una sola acción `download for macOS`, sin chips ni `Tab`, con badge `Portable · Tuick-Tack.app`, textos `macOS update`/`Unzip…` y progreso `Download · Verify · Done`; `New` activa el flag y `versionFromPath` entiende el sufijo del zip; el copy de autostart dice `Start at login` y el de menú bar, `menu bar`.
 - `notes`: extracción de `What's new` (incluida la apóstrofe tipográfica) y fallback al body completo; tablas, enlaces, imágenes, énfasis, code fences, blockquotes y callouts; limpieza de ANSI, controles, emojis, CJK, bidi y entidades; wrapping con sangría colgante, palabras largas y anchos 20/36/56, todo de una celda.
 - Comandos: `go test ./...`, `go vet ./...`, `gofmt -l .`; desde Windows, `CGO_ENABLED=0 GOOS=darwin go build ./...` y `GOOS=darwin go vet ./...` son una comprobación opcional del port congelado, no parte del CI normal.
@@ -677,6 +710,8 @@ Módulo Go provisional: `tuick-tack` (local). Se puede cambiar a una ruta de Git
 21. Actualizar con un countdown corriendo: la TUI pide confirmación, el timer se pierde si se continúa y la app vuelve con el nuevo binario; la config se conserva.
 22. Mover y redimensionar la ventana de la TUI, cerrar con `q` y reabrir desde la bandeja: vuelven la misma posición y el mismo tamaño, y `config.json` muestra `window_width`/`window_height` y `window_position`. Repetir cerrando con la X tras medio segundo. En Windows Terminal, comprobar que la ventana se mueve antes de redimensionar (el tamaño no se recorta) y que un terminal que ignore `CSI 8` conserva su tamaño. Maximizar, cerrar y reabrir: vuelve la última colocación normal, nunca la rejilla maximizada. Abrir la TUI desde una pestaña de Windows Terminal o con `go run`: no debe moverse la ventana completa ni guardarse su posición. Reiniciar el daemon con la TUI abierta: la ventana no salta.
 23. Estadísticas: terminar un 5 min, parar otro antes de cero y reemplazar un tercero con un `start` nuevo. Abrir `s`: el overview suma las tres sesiones y el `% of finished` usa completed+stopped (el reemplazado no penaliza); con el rango de 7 días, las barras por día, la racha y el récord de sesión más larga cuadran. Cambiar a 30/90/all: la cabecera muestra el rango, el KPI cambia y el note de las barras dice la ventana real (`last N days`), no el rango. Revisar activity (heatmap de 26 semanas, hora de inicio y día, ambos all-time), presets (totales por etiqueta, sesiones y `% of finished`) y recent (`started`, `yesterday`/`yest`, y los tres outcomes). Reiniciar el daemon y reabrir: el historial sigue y `history.jsonl` tiene una línea por sesión. Repetir a 48×22, 80×24 y 120×40 en los tres temas: a 48 el KPI se parte en dos líneas, el eje por hora cae bajo sus barras, las etiquetas de 30 días no se desplazan y el activity puede pedir scroll; `t` solo cambia el rango en overview. Probar rueda, `PgUp`/`PgDn`, `Home`/`End` y un timer corriendo (abrir y cerrar la pestaña no lo toca).
+24. Mini timer: comprobar que el checkbox **Mini timer** aparece solo en Windows, viene activado y persiste tras reiniciar el daemon. Iniciar 1 min: el widget aparece en el hueco izquierdo de la barra con `01:00` y la barra; pausar (ámbar), reanudar y esperar al final (`00:00`, barra llena). En idle desaparece. Enfocar la TUI lo oculta en menos de 500 ms; dejarla detrás lo vuelve a mostrar. Con la TUI en una pestaña inactiva de Windows Terminal debe seguir visible. Pulsar `M` en la TUI (idle, running, paused y finished): el checkbox de la bandeja cambia y el widget aparece/desaparece según el estado; `?` muestra la fila `[M] mini timer`.
+25. Mini timer: clic izquierdo abre/enfoca la TUI y lo oculta; clic derecho abre Open/Pause/Resume/Stop/Hide mini timer; Hide desactiva el checkbox y persiste. Probar los tres temas y 100/125/150 % (sin suavizado ni solapes); auto-hide (solo con el cursor sobre la barra), fullscreen, menú Inicio/flyouts, reinicio de Explorer, multi-monitor y el posible solape con el botón de Widgets. En la barra superior horizontal debe seguir colocándose; en una barra vertical no debe dibujarse.
 
 ### Manual — macOS (port congelado; solo si se pide una release macOS)
 
@@ -703,7 +738,10 @@ No forma parte de la QA normal. El CI ya no compila macOS en cada push; la compi
 - [ ] Una sola TUI: el tray y una segunda ejecución del exe enfocan la ventana existente sin duplicarla.
 - [ ] Los presets (5/10/15 + personalizados) se inician desde TUI y bandeja; persisten.
 - [ ] Sonido de fin de 1–5 s elegible entre cuatro, con volumen 0–100 y silencio; preview desde TUI y bandeja.
-- [ ] La config v1 migra a v4 (digital/80) y la v2/v3 conservan sonido/volumen/tamaño, sin perder presets, tema ni mute.
+- [ ] La config v1 migra a v7 (digital/80, aurora, readable_text y mini_timer) y las versiones anteriores conservan sonido/volumen/tamaño/presets/tema, sin perder el ajuste de mini timer al venir de v6.
+- [ ] El mini timer viene activado, se puede apagar desde la bandeja, con `M` en la TUI o con Hide, y persiste; el Help muestra `[M] mini timer`; aparece en running/paused/finished, se oculta en idle y con la TUI enfocada, y respeta auto-hide/fullscreen.
+- [ ] El mini timer muestra solo tiempo y barra, con 128×30 px de base (143 px para horas de dos dígitos), los tres temas y bloques enteros a 100/125/150 %.
+- [ ] El mini timer abre/enfoca la TUI con clic izquierdo y su menú contextual ofrece Open, Pause/Resume, Stop y Hide.
 - [ ] Confeti a 0 en la TUI, una vez por final, ~6 s, sin artefactos al redimensionar.
 - [ ] La UI es usable a 48×22 (modo tight), a 80×24, y se ve bien a 120×40.
 - [ ] El tamaño y la posición de la ventana se recuerdan entre sesiones, no se guarda la colocación inicial ni se reaplica al reconectar, y una pestaña compartida no mueve el terminal entero.
@@ -737,6 +775,7 @@ No son criterios de la release Windows. Solo se revisan si el usuario pide una r
 | **M4 · Estilo + celebración** | aurora, polvo, barra, confeti, finish | Confeti a 0 una vez, 30 fps, 80×24 y 120×40 |
 | **M5 · Integración + release** | menú completo, iconos, abrir TUI, build, README | Criterios de aceptación completos; `dist/` listo |
 | **M6 · macOS (congelado)** | capa de plataforma, menu bar, `.app` universal, update y CI manual | Build manual verificado en su día; el port queda congelado, sin release pendiente |
+| **M7 · Mini timer (Windows)** | overlay de barra, config v7, toggle de bandeja, foco y auto-hide | Tests verdes y QA manual en Windows 10/11 a 100/125/150 % |
 
 M6 no forma parte del plan activo.
 
@@ -767,6 +806,11 @@ M6 no forma parte del plan activo.
 | Autostart con la app movida | El plist se reescribe al arrancar; se recomienda `~/Applications` |
 | El update no puede reemplazar el `.app` solo | Descarga + verificación + Finder; el usuario cierra la app y sustituye |
 | Intel desaparece en 2027 | Binario universal ahora; decidir después |
+| La barra de tareas cambia de tamaño, DPI o se reinicia Explorer | Se vuelve a localizar `Shell_TrayWnd` y se recalcula la cápsula cada 500 ms; si no hay barra horizontal, se oculta |
+| El overlay tapa el botón de Widgets/tiempo | Posición fija documentada; el usuario puede ocultar el mini timer desde la bandeja o el menú contextual |
+| El overlay mantiene viva la barra auto-oculta | Con auto-hide solo se muestra con el cursor sobre la barra; al salir se oculta |
+| fullscreen, presentación o flyouts del shell | `SHQueryUserNotificationState`, foco del shell y la ventana de la TUI se comprueban antes de mostrar |
+| La ventana topmost roba el foco | `WS_EX_NOACTIVATE` + `SW_*NOACTIVATE`; solo el menú contextual usa `SetForegroundWindow` para cerrarse bien |
 
 Las filas de macOS describen el port congelado y solo aplican si se retoma un build manual.
 
@@ -777,6 +821,7 @@ Las filas de macOS describen el port congelado y solo aplican si se retoma un bu
 
 - Varios timers y cola.
 - Persistencia/restauración del timer tras reinicio o crash.
+- Mini timer en macOS o en una barra vertical/secundaria; el menu bar ya muestra el tiempo y el overlay solo cubre la barra horizontal principal.
 - Toast nativo de Windows con AUMID para el fin del countdown (el aviso de actualizaciones ya usa uno).
 - Hotkeys globales.
 - MSIX, actualización automática sin confirmación, firma de código.
@@ -793,10 +838,11 @@ Las filas de macOS describen el port congelado y solo aplican si se retoma un bu
 
 ```json
 {
-  "version": 6,
+  "version": 7,
   "theme": "midnight",
   "background": "aurora",
   "readable_text": true,
+  "mini_timer": true,
   "sound": true,
   "sound_name": "digital",
   "volume": 80,

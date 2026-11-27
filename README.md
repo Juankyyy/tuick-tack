@@ -2,7 +2,7 @@
 
 <img src="assets/banner.png" width="740" alt="Tuick-Tack">
 
-**Your countdown, in the terminal and in the tray.**
+**Your countdown, in the terminal, in the tray and on the taskbar.**
 
 Presets, free-form durations, seven ambient backgrounds, a sound pack with volume, and full-screen pixel-art confetti. Windows 10/11.
 
@@ -91,6 +91,7 @@ validation and QA, and would be announced separately from the Windows releases.
 | **Full control** | Pause, resume, add or subtract a minute, and repeat. |
 | **Always running** | The daemon owns the timer, so closing the TUI never stops a countdown. |
 | **Tray** | Start a preset, pause, stop, change the sound or volume, and open the TUI from the Windows system tray. |
+| **Mini timer** | Keep the remaining time and a progress bar over the left side of the Windows taskbar while a countdown runs; toggle it from the tray. |
 | **Statistics** | `s` opens a full-screen view with a range summary and recent daily focus, a 26-week heatmap, time by start hour and weekday, per-preset totals and the latest sessions. |
 | **At zero** | The selected sound at the chosen volume, an alert tray icon and full-screen pixel-art confetti. |
 | **Sound pack** | Chime, Marimba, Digital and Deep; 0–100% volume in 5% steps, with preview and mute. |
@@ -109,10 +110,10 @@ validation and QA, and would be announced separately from the Windows releases.
 | Context | Keys |
 |---|---|
 | Idle | Digits, `:`, `h`, `m`, `s` type a duration; `Backspace` deletes; `Enter` starts |
-| Idle | `←` `→` select a preset; `p` presets; `t` theme; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `u` check/install update; `?` help; `q` close |
-| Running | `Space` pause; `Esc` confirm cancel; `+` / `-` ±1 min; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `?` help; `q` close |
-| Paused | `Space` resume; `Esc` confirm cancel; `+` / `-` ±1 min; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `?` help |
-| Finished | `r` repeat; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `Enter` / `Esc` close the celebration (it also closes itself after 10 s) |
+| Idle | `←` `→` select a preset; `p` presets; `t` theme; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `M` mini timer; `u` check/install update; `?` help; `q` close |
+| Running | `Space` pause; `Esc` confirm cancel; `+` / `-` ±1 min; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `M` mini timer; `?` help; `q` close |
+| Paused | `Space` resume; `Esc` confirm cancel; `+` / `-` ±1 min; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `M` mini timer; `?` help |
+| Finished | `r` repeat; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `M` mini timer; `Enter` / `Esc` close the celebration (it also closes itself after 10 s) |
 | Statistics | `←` `→` or `Tab` switch section; `1`–`4` jump; `t` range in the overview (7/30/90 days or all time); `↑` `↓` `PgUp` `PgDn` `Home` `End` or the wheel scroll; `Esc` or `s` close |
 | Sound panel | `↑` `↓` select the sound; `←` `→` volume ±5%; `Space` preview; `m` mute; `Esc` close |
 | Presets panel | `↑` `↓` move; `Tab` actions; `←` `→` choose an action; `Enter` start or run; `a` add; `e` edit; `d` delete; `r` restore defaults; `Esc` close |
@@ -126,7 +127,8 @@ The accepted range is one second to 24 hours.
 
 > In idle, `s` and `m` add a unit when the input already contains a number (`90s`, `25m`);
 > on an empty (or otherwise incomplete) input, `s` opens Statistics and `m` toggles the sound.
-> `v` opens the sound panel from any screen.
+> `v` opens the sound panel from any screen. `M` toggles the Windows mini timer in the main
+> screens (idle, running, paused and finished).
 
 ## Tray
 
@@ -146,6 +148,7 @@ Sound            ✓
 Sound settings   ▸ Chime · Marimba · Digital · Deep · Preview
 Volume 80%       ▸ -5% · +5% · 0% · 25% · 50% · 75% · 100%
 Start with Windows
+Mini timer       ✓
 ─────────────────────────────
 Quit
 ```
@@ -153,6 +156,22 @@ Quit
 The tray owns the timer. Closing the TUI leaves the countdown and the selected sound alive,
 and **Quit** stops everything and closes any open TUI. A daemon restart loses the active
 countdown; persistence is future work.
+
+## Mini timer
+
+Windows can draw a small countdown over the free left area of the taskbar. It shows only the
+remaining time in the same pixel font as the TUI and a progress bar, using the active theme.
+The **Mini timer** checkbox in the tray turns it on or off and is saved in the config; it is
+on by default. Press `M` in the TUI to toggle it without opening the tray, or use **Hide mini
+timer** in the overlay's context menu.
+
+The widget appears while a countdown is running, paused or finished. It hides in idle, when
+the TUI window has focus, when the taskbar is auto-hidden or in fullscreen, and when a Start
+menu or shell flyout is in front. Left click opens or focuses the TUI; right click offers
+Open, Pause/Resume, Stop and **Hide mini timer**. It is an independent overlay, not an
+Explorer integration: it does not support dragging, vertical or secondary taskbars, and it
+may cover a Widgets button that shares that left slot. macOS has no overlay; its menu bar
+already shows the remaining time.
 
 ## Configuration
 
@@ -173,10 +192,11 @@ see `SPEC.md` §8.
 
 ```json
 {
-  "version": 6,
+  "version": 7,
   "theme": "midnight",
   "background": "aurora",
   "readable_text": true,
+  "mini_timer": true,
   "sound": true,
   "sound_name": "digital",
   "volume": 80,
@@ -192,10 +212,10 @@ see `SPEC.md` §8.
 ```
 
 The daemon is the only writer and writes atomically. A corrupt config is backed up as
-`config.bad-<timestamp>.json` and replaced with defaults. Older configs are migrated to version 6:
+`config.bad-<timestamp>.json` and replaced with defaults. Older configs are migrated to version 7:
 version 1 gets Digital at 80%; versions 2 and 3 keep their sound, volume and size; versions 1–4
-start with the original Aurora background; versions 1–5 enable `readable_text`. The window position
-stays unset until you move the TUI.
+start with the original Aurora background; versions 1–5 enable `readable_text`; versions 1–6
+enable the mini timer. The window position stays unset until you move the TUI.
 
 `readable_text` defaults to `true` and controls the black reading bands used by `none`; `n`
 toggles it.
@@ -337,7 +357,7 @@ Feedback and safety:
 
 ```text
 cmd/tuick-tack        single entrypoint: TUI, daemon (--daemon) and update helper
-internal/             engine, IPC, config, daemon, tray, TUI, stats, update, install metadata
+internal/             engine, IPC, config, daemon, tray, minitimer, TUI, stats, update, install metadata
 macos/                frozen Info.plist, launcher and README for Tuick-Tack.app
 installer/            Inno Setup script and branded wizard images (Windows)
 assets/               sounds, icons, banner and README screenshot
@@ -428,6 +448,9 @@ macOS build is explicitly requested.
 | Update setup fails | The helper logs to `%LOCALAPPDATA%\tuick-tack\logs\update.log` (the Inno log is `setup.log` next to it). The previous copy is reopened when possible. |
 | Update lost a countdown | The TUI warns before restarting when a timer is running or paused; the timer lives in memory and is not restored. |
 | SmartScreen warning | Expected for an unsigned executable and installer. |
+| Mini timer missing | Check **Mini timer** in the tray, that a countdown is running/paused/finished, that the TUI does not have focus and that the taskbar is not auto-hidden or fullscreen. Vertical and secondary taskbars are not supported. |
+| Mini timer covers the Widgets button | It occupies a fixed slot on the left. Turn it off in the tray or with **Hide mini timer**; there is no drag or offset setting yet. |
+| Mini timer stays hidden with auto-hide on | Expected unless the cursor is over the taskbar; the widget follows the bar so it never keeps it open. |
 | Timer lost after a crash | The timer lives in memory; restart the daemon and start again. Persistence is out of scope for this release. |
 | **macOS (frozen port)** | The rows below describe the frozen port, not the Windows release. |
 | Gatekeeper blocks the macOS app | The build is ad-hoc signed and not notarized. Right-click `Tuick-Tack.app` > **Open**, or run `xattr -dr com.apple.quarantine Tuick-Tack.app`. |
