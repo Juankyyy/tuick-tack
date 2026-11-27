@@ -18,7 +18,7 @@ import (
 
 const (
 	// Version is the schema version understood by this build.
-	Version = 6
+	Version = 7
 	// MaxPresets is the maximum number of stored presets.
 	MaxPresets = 16
 	// MinSeconds and MaxSeconds bound a preset or countdown.
@@ -123,6 +123,7 @@ type Config struct {
 	Theme          string          `json:"theme"`
 	Background     string          `json:"background"`
 	ReadableText   bool            `json:"readable_text"`
+	MiniTimer      bool            `json:"mini_timer"`
 	Sound          bool            `json:"sound"`
 	SoundName      string          `json:"sound_name"`
 	Volume         int             `json:"volume"`
@@ -139,6 +140,7 @@ func Default() Config {
 		Theme:        ThemeMidnight,
 		Background:   DefaultBackground,
 		ReadableText: true,
+		MiniTimer:    true,
 		Sound:        true,
 		SoundName:    DefaultSound,
 		Volume:       DefaultVolume,
@@ -252,7 +254,8 @@ func ValidPresetID(id string) bool {
 // both stay unset until the TUI records them. Version 5 adds the ambient
 // background, which starts as the original aurora. Version 6 adds the black
 // readable-text bands used by the transparent "none" background; they start
-// enabled. It returns the migrated config and whether anything changed.
+// enabled. Version 7 adds the taskbar mini timer; it starts enabled. It returns
+// the migrated config and whether anything changed.
 func Migrate(c Config) (Config, bool) {
 	if c.Version >= Version {
 		return c, false
@@ -266,6 +269,9 @@ func Migrate(c Config) (Config, bool) {
 	}
 	if c.Version < 6 {
 		c.ReadableText = true
+	}
+	if c.Version < 7 {
+		c.MiniTimer = true
 	}
 	c.Version = Version
 	return c, true

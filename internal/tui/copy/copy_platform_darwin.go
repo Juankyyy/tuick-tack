@@ -10,6 +10,7 @@ func init() {
 	texts[StartupRemoved] = "Tuick-Tack will no longer start at login."
 	texts[ExitActive] = "The countdown is still running in the menu bar."
 	texts[HelpTrayNote] = "the menu bar keeps running"
+	texts[HelpNarrowReadable] = "[n] readable bands"
 	// osascript notifications ignore the launch URL, so a "Click to open"
 	// body would promise an action that does not exist.
 	texts[NotifyFoundBody] = "Version %s is available."

@@ -274,6 +274,7 @@ const (
 	HelpBackground   = Key("help.background")
 	HelpReadable     = Key("help.readable")
 	HelpReadableNote = Key("help.readable.note")
+	HelpMiniTimer    = Key("help.minitimer")
 	HelpQuit         = Key("help.quit")
 	HelpTrayNote     = Key("help.tray.note")
 	HelpClose        = Key("help.close")
@@ -384,6 +385,9 @@ const (
 	TrayVolumeUpTooltip      = Key("tray.volume.up.tooltip")
 	TrayStartup              = Key("tray.startup")
 	TrayStartupTooltip       = Key("tray.startup.tooltip")
+	TrayMiniTimer            = Key("tray.minitimer")
+	TrayMiniTimerTooltip     = Key("tray.minitimer.tooltip")
+	MiniTimerHide            = Key("minitimer.hide")
 	TrayUpdateAvailable      = Key("tray.update.available")
 	TrayUpdateTooltip        = Key("tray.update.tooltip")
 	TrayUpdateCheck          = Key("tray.update.check")
@@ -653,6 +657,7 @@ var texts = map[Key]string{
 	HelpBackground:   "[b] background",
 	HelpReadable:     "[n] readable bands",
 	HelpReadableNote: "only with None background",
+	HelpMiniTimer:    "[M] mini timer",
 	HelpQuit:         "[q] close the TUI",
 	HelpTrayNote:     "the tray keeps running",
 	HelpClose:        "[Esc] or [Enter] closes this help",
@@ -663,7 +668,7 @@ var texts = map[Key]string{
 	HelpNarrowPanels:       "[p] presets · [v] sound",
 	HelpNarrowPanelsMore:   "[s] stats · [u] update · [m] mute",
 	HelpNarrowDisplay:      "[t] theme · [b] background",
-	HelpNarrowReadable:     "[n] readable bands",
+	HelpNarrowReadable:     "[n] readable bands · [M] mini timer",
 	HelpNarrowQuit:         "[q] quit · [Esc] close help",
 
 	PresetsTitle:      "Presets",
@@ -764,6 +769,9 @@ var texts = map[Key]string{
 	TrayVolumeUpTooltip:      "Raise the volume by 5%",
 	TrayStartup:              "Start with Windows",
 	TrayStartupTooltip:       "Launch the daemon at sign-in",
+	TrayMiniTimer:            "Mini timer",
+	TrayMiniTimerTooltip:     "Show the remaining time on the taskbar",
+	MiniTimerHide:            "Hide mini timer",
 	TrayUpdateAvailable:      "Update available: %s",
 	TrayUpdateTooltip:        "Open the release page",
 	TrayUpdateCheck:          "Check for updates",

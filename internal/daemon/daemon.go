@@ -16,6 +16,7 @@ import (
 	"tuick-tack/internal/config"
 	"tuick-tack/internal/engine"
 	"tuick-tack/internal/ipc"
+	"tuick-tack/internal/minitimer"
 	"tuick-tack/internal/notify"
 	"tuick-tack/internal/protocol"
 	"tuick-tack/internal/stats"
@@ -32,6 +33,7 @@ type Daemon struct {
 	engine  *engine.Engine
 	server  *ipc.Server
 	tray    *tray.Tray
+	mini    *minitimer.Widget
 	sound   *soundPlayer
 	exePath string
 	selfExe string
@@ -40,6 +42,10 @@ type Daemon struct {
 	mu        sync.RWMutex
 	cfg       config.Config
 	autostart bool
+
+	// miniMu serializes the presentation toggle so a tray click and the
+	// widget's "Hide mini timer" menu cannot lose one update.
+	miniMu sync.Mutex
 
 	checker      *update.Checker
 	downloader   *update.Downloader
@@ -205,6 +211,10 @@ func Run() int {
 		return 1
 	}
 
+	d.mini = minitimer.New(d)
+	d.mini.SetLogger(logger)
+	go d.mini.Run()
+
 	// Development builds never check on their own; the tray and the TUI can
 	// still ask for a manual check.
 	if buildinfo.Version != "dev" {
@@ -215,6 +225,9 @@ func Run() int {
 	d.tray.Run()
 
 	// The systray loop can exit without going through Quit (session logoff).
+	if d.mini != nil {
+		d.mini.Close()
+	}
 	d.stopLoop()
 	<-d.loopDone
 	var closeErr error
@@ -284,6 +297,37 @@ func (d *Daemon) AutostartEnabled() bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.autostart
+}
+
+// MiniTimerEnabled implements tray.Actions and the widget toggle.
+func (d *Daemon) MiniTimerEnabled() bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.cfg.MiniTimer
+}
+
+// ToggleMiniTimer implements tray.Actions.
+func (d *Daemon) ToggleMiniTimer() {
+	d.miniMu.Lock()
+	defer d.miniMu.Unlock()
+	d.setMiniTimerLocked(!d.MiniTimerEnabled())
+}
+
+// SetMiniTimer persists the taskbar widget toggle. It is presentation-only, so
+// it changes config without touching the timer or the IPC protocol version.
+func (d *Daemon) SetMiniTimer(enabled bool) {
+	d.miniMu.Lock()
+	defer d.miniMu.Unlock()
+	d.setMiniTimerLocked(enabled)
+}
+
+func (d *Daemon) setMiniTimerLocked(enabled bool) {
+	cfg := d.Config()
+	if cfg.MiniTimer == enabled {
+		return
+	}
+	cfg.MiniTimer = enabled
+	d.commitConfig(nil, cfg)
 }
 
 // UpdateAvailable implements tray.Actions.
@@ -572,6 +616,8 @@ func (d *Daemon) Command(c *ipc.Session, msg protocol.ClientMessage) {
 		if msg.Enabled != nil {
 			d.setReadableText(c, *msg.Enabled)
 		}
+	case protocol.TypeToggleMiniTimer:
+		d.ToggleMiniTimer()
 	case protocol.TypeSetSound:
 		if msg.Enabled != nil {
 			if err := d.changeSound(*msg.Enabled); err != nil {

@@ -34,6 +34,7 @@ type Tray struct {
 	volumeUp      *systray.MenuItem
 	volumeItems   map[int]*systray.MenuItem
 	startup       *systray.MenuItem
+	miniTimer     *systray.MenuItem
 	quit          *systray.MenuItem
 	children      []*systray.MenuItem
 
@@ -41,6 +42,7 @@ type Tray struct {
 	lastPresets []config.Preset
 	soundOn     bool
 	startupOn   bool
+	miniTimerOn bool
 	haveChecks  bool
 
 	soundNameOn     string
@@ -119,6 +121,9 @@ func (t *Tray) onReady() {
 	}
 
 	t.startup = systray.AddMenuItemCheckbox(copy.T(copy.TrayStartup), copy.T(copy.TrayStartupTooltip), false)
+	if miniTimerSupported {
+		t.miniTimer = systray.AddMenuItemCheckbox(copy.T(copy.TrayMiniTimer), copy.T(copy.TrayMiniTimerTooltip), true)
+	}
 	systray.AddSeparator()
 	t.quit = systray.AddMenuItem(copy.T(copy.TrayQuit), copy.T(copy.TrayQuitTooltip))
 	t.ready = true
@@ -134,6 +139,9 @@ func (t *Tray) onReady() {
 	go clicks(t.volumeDown, func() { t.adjustVolume(-5) })
 	go clicks(t.volumeUp, func() { t.adjustVolume(5) })
 	go clicks(t.startup, t.actions.ToggleAutostart)
+	if t.miniTimer != nil {
+		go clicks(t.miniTimer, t.actions.ToggleMiniTimer)
+	}
 	go clicks(t.quit, t.actions.Quit)
 
 	t.Refresh()
@@ -167,6 +175,7 @@ func (t *Tray) Refresh() {
 	cfg := t.actions.Config()
 	sound := t.actions.SoundEnabled()
 	startup := t.actions.AutostartEnabled()
+	miniTimer := t.actions.MiniTimerEnabled()
 	latest, _, hasUpdate := t.actions.UpdateAvailable()
 	checkState, checkCurrent := t.actions.UpdateCheck()
 
@@ -178,7 +187,7 @@ func (t *Tray) Refresh() {
 	t.updateLocked(st, cfg)
 	t.updateReleaseLocked(latest, hasUpdate)
 	t.updateCheckLocked(checkState, checkCurrent)
-	t.updateChecksLocked(sound, startup, cfg.SoundName, cfg.Volume)
+	t.updateChecksLocked(sound, startup, miniTimer, cfg.SoundName, cfg.Volume)
 }
 
 func (t *Tray) updateLocked(st engine.State, cfg config.Config) {
@@ -255,7 +264,7 @@ func (t *Tray) updateCheckLocked(state, current string) {
 	t.haveCheck = true
 }
 
-func (t *Tray) updateChecksLocked(sound, startup bool, soundName string, volume int) {
+func (t *Tray) updateChecksLocked(sound, startup, miniTimer bool, soundName string, volume int) {
 	if !t.haveChecks || t.soundOn != sound {
 		if sound {
 			t.sound.Check()
@@ -271,6 +280,14 @@ func (t *Tray) updateChecksLocked(sound, startup bool, soundName string, volume 
 			t.startup.Uncheck()
 		}
 		t.startupOn = startup
+	}
+	if t.miniTimer != nil && (!t.haveChecks || t.miniTimerOn != miniTimer) {
+		if miniTimer {
+			t.miniTimer.Check()
+		} else {
+			t.miniTimer.Uncheck()
+		}
+		t.miniTimerOn = miniTimer
 	}
 	t.haveChecks = true
 

@@ -1326,6 +1326,8 @@ func (m *Model) handleIdleKey(key tea.Key) tea.Cmd {
 		return m.cycleBackground()
 	case text == "n":
 		return m.toggleReadableText()
+	case text == "M":
+		return m.toggleMiniTimer()
 	case text == "u":
 		return m.updateKey()
 	case text == "s":
@@ -1369,6 +1371,8 @@ func (m *Model) handleTimerKey(key tea.Key) tea.Cmd {
 		return m.cycleBackground()
 	case text == "n":
 		return m.toggleReadableText()
+	case text == "M":
+		return m.toggleMiniTimer()
 	case text == "s":
 		return m.openStats()
 	case text == "m":
@@ -1398,6 +1402,8 @@ func (m *Model) handleFinishedKey(key tea.Key) tea.Cmd {
 		return m.cycleBackground()
 	case text == "n":
 		return m.toggleReadableText()
+	case text == "M":
+		return m.toggleMiniTimer()
 	case text == "s":
 		return m.openStats()
 	case text == "m":
@@ -1965,6 +1971,13 @@ func (m *Model) previewSound() tea.Cmd {
 		return nil
 	}
 	return m.send(protocol.ClientMessage{Type: protocol.TypePreviewSound})
+}
+
+func (m *Model) toggleMiniTimer() tea.Cmd {
+	if !platformMiniTimer {
+		return nil
+	}
+	return m.send(protocol.ClientMessage{Type: protocol.TypeToggleMiniTimer})
 }
 
 func (m *Model) toggleSound() tea.Cmd {

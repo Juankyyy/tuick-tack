@@ -363,6 +363,7 @@ func TestValidate(t *testing.T) {
 		{"missing background", ClientMessage{Type: TypeSetBackground}, CodeInvalidBackground},
 		{"readable text", ClientMessage{Type: TypeSetReadableText, Enabled: &disabled}, ""},
 		{"readable text missing", ClientMessage{Type: TypeSetReadableText}, CodeInvalidCommand},
+		{"toggle mini timer", ClientMessage{Type: TypeToggleMiniTimer}, ""},
 		{"sound on", ClientMessage{Type: TypeSetSound, Enabled: &enabled}, ""},
 		{"sound off", ClientMessage{Type: TypeSetSound, Enabled: &disabled}, ""},
 		{"sound missing", ClientMessage{Type: TypeSetSound}, CodeInvalidCommand},

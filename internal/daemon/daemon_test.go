@@ -11,6 +11,7 @@ import (
 
 	"tuick-tack/internal/config"
 	"tuick-tack/internal/ipc"
+	"tuick-tack/internal/protocol"
 )
 
 func TestSameExecutable(t *testing.T) {
@@ -161,6 +162,51 @@ func TestSetReadableTextPersists(t *testing.T) {
 	d.setReadableText(nil, true)
 	if got := d.Config().ReadableText; !got {
 		t.Fatal("readable text did not turn back on")
+	}
+}
+
+func TestSetMiniTimerPersists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	store := config.NewStore(path)
+	cfg := config.Default()
+	if err := store.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	d := &Daemon{
+		logger: log.New(io.Discard, "", 0),
+		store:  store,
+		cfg:    cfg,
+		server: ipc.NewServer("", "test", nil, true),
+	}
+
+	if !d.MiniTimerEnabled() {
+		t.Fatal("mini timer should start enabled")
+	}
+	d.SetMiniTimer(false)
+	if d.MiniTimerEnabled() {
+		t.Fatal("mini timer did not turn off")
+	}
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.MiniTimer {
+		t.Fatalf("mini timer not persisted: %+v", loaded)
+	}
+
+	// The tray toggle flips the stored value back on.
+	d.ToggleMiniTimer()
+	if !d.MiniTimerEnabled() {
+		t.Fatal("mini timer did not turn back on")
+	}
+	if got, err := store.Load(); err != nil || !got.MiniTimer {
+		t.Fatalf("toggle not persisted: %+v, %v", got, err)
+	}
+
+	// The TUI's M key sends this additive command with no fields.
+	d.Command(nil, protocol.ClientMessage{Type: protocol.TypeToggleMiniTimer})
+	if d.MiniTimerEnabled() {
+		t.Fatal("toggle_mini_timer did not turn the mini timer off")
 	}
 }
 

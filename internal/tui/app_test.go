@@ -1392,6 +1392,12 @@ func TestModalsOpenAndClose(t *testing.T) {
 			t.Errorf("help is missing %q", copy.T(key))
 		}
 	}
+	if platformMiniTimer {
+		k, desc := splitHelpKey(copy.T(copy.HelpMiniTimer))
+		if !strings.Contains(plain, k) || !strings.Contains(plain, desc) {
+			t.Errorf("help is missing %q", copy.T(copy.HelpMiniTimer))
+		}
+	}
 	if !strings.Contains(plain, copy.T(copy.HelpFormats)) {
 		t.Errorf("help is missing %q", copy.T(copy.HelpFormats))
 	}
@@ -2197,6 +2203,14 @@ func TestHelpNarrowFallbackAtMinimumWindow(t *testing.T) {
 	}
 	if strings.Contains(plain, copy.T(copy.HelpFormats)) {
 		t.Error("narrow help should not render the wide duration examples")
+	}
+	for _, want := range []string{
+		copy.T(copy.HelpNarrowDisplay),
+		copy.T(copy.HelpNarrowReadable),
+	} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("narrow help is missing %q", want)
+		}
 	}
 }
 

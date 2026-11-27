@@ -45,6 +45,9 @@ const (
 	// transparent "none" background. It is additive: the config payload's
 	// readable_text pointer tells the TUI whether the daemon knows the command.
 	TypeSetReadableText = "set_readable_text"
+	// TypeToggleMiniTimer flips the Windows taskbar overlay. It takes no fields
+	// and is additive: an older daemon answers invalid_command.
+	TypeToggleMiniTimer = "toggle_mini_timer"
 	TypeSetSound        = "set_sound"
 	TypeGetState        = "get_state"
 	TypeQuitDaemon      = "quit_daemon"
@@ -614,6 +617,8 @@ func (m ClientMessage) Validate() *ErrorMessage {
 		if m.Enabled == nil {
 			return invalid(CodeInvalidCommand, "set_readable_text requires enabled")
 		}
+		return nil
+	case TypeToggleMiniTimer:
 		return nil
 	case TypeSetSound:
 		if m.Enabled == nil {

@@ -27,6 +27,9 @@ func TestDefault(t *testing.T) {
 	if !c.ReadableText {
 		t.Fatal("readable bands should start enabled")
 	}
+	if !c.MiniTimer {
+		t.Fatal("mini timer should start enabled")
+	}
 	if c.Version != Version || c.SoundName != DefaultSound || c.Volume != DefaultVolume {
 		t.Fatalf("unexpected sound defaults: %+v", c)
 	}
@@ -173,6 +176,9 @@ func TestLoadMigratesV1(t *testing.T) {
 	if !c.ReadableText {
 		t.Fatal("v1 migration should enable readable bands")
 	}
+	if !c.MiniTimer {
+		t.Fatal("v1 migration should enable the mini timer")
+	}
 	if c.Theme != ThemeEmber || c.Sound || len(c.Presets) != 1 {
 		t.Fatalf("migration lost settings: %+v", c)
 	}
@@ -183,11 +189,12 @@ func TestLoadMigratesV1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"version": 6`) ||
+	if !strings.Contains(string(data), `"version": 7`) ||
 		!strings.Contains(string(data), `"background": "aurora"`) ||
 		!strings.Contains(string(data), `"readable_text": true`) ||
+		!strings.Contains(string(data), `"mini_timer": true`) ||
 		!strings.Contains(string(data), `"sound_name": "digital"`) {
-		t.Fatalf("migrated file not written as v6: %s", data)
+		t.Fatalf("migrated file not written as v7: %s", data)
 	}
 }
 
@@ -316,6 +323,33 @@ func TestLoadMigratesV5(t *testing.T) {
 	if !c.ReadableText {
 		t.Fatal("v5 migration should enable readable bands")
 	}
+	if !c.MiniTimer {
+		t.Fatal("v5 migration should enable the mini timer")
+	}
+}
+
+func TestLoadMigratesV6(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	v6 := `{
+  "version": 6,
+  "theme": "midnight",
+  "background": "aurora",
+  "readable_text": false,
+  "sound": true,
+  "sound_name": "digital",
+  "volume": 80,
+  "presets": []
+}`
+	if err := os.WriteFile(path, []byte(v6), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := NewStore(path).Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Version != Version || c.ReadableText || !c.MiniTimer {
+		t.Fatalf("v6 migration mismatch: %+v", c)
+	}
 }
 
 func TestSaveLoadRoundTrip(t *testing.T) {
@@ -325,6 +359,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	c.Theme = ThemeEmber
 	c.Background = BackgroundStars
 	c.ReadableText = false
+	c.MiniTimer = false
 	c.Sound = false
 	c.SoundName = SoundMarimba
 	c.Volume = 35
@@ -343,7 +378,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	if got.Theme != ThemeEmber || got.Sound || len(got.Presets) != 4 ||
-		got.Background != BackgroundStars || got.ReadableText ||
+		got.Background != BackgroundStars || got.ReadableText || got.MiniTimer ||
 		got.SoundName != SoundMarimba || got.Volume != 35 ||
 		got.WindowWidth != 140 || got.WindowHeight != 45 ||
 		got.WindowPosition == nil || got.WindowPosition.X != -120 ||

@@ -22,6 +22,7 @@ type Actions interface {
 	Config() config.Config
 	SoundEnabled() bool
 	AutostartEnabled() bool
+	MiniTimerEnabled() bool
 	UpdateAvailable() (latest, url string, ok bool)
 	// UpdateCheck returns idle, checking, up_to_date or failed plus the current
 	// version for the menu label.
@@ -36,6 +37,7 @@ type Actions interface {
 	SetVolume(int)
 	PreviewSound()
 	ToggleAutostart()
+	ToggleMiniTimer()
 	OpenUpdate()
 	CheckUpdates()
 	Quit()

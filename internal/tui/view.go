@@ -1176,6 +1176,12 @@ var helpColumns = [2][]helpLine{
 	},
 }
 
+func init() {
+	if platformMiniTimer {
+		helpColumns[1] = append(helpColumns[1], helpLine{helpLineRow, copy.HelpMiniTimer})
+	}
+}
+
 // helpNarrow is the single-column fallback below 80 columns. Each line pairs
 // two or three keys so the whole overlay still fits the 48x22 minimum.
 var helpNarrow = []helpLine{

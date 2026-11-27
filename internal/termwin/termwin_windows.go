@@ -30,7 +30,7 @@ var (
 	user32   = windows.NewLazySystemDLL("user32.dll")
 	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
 
-	procGetWindowTextW        = user32.NewProc("GetWindowTextW")
+	procFindWindowW           = user32.NewProc("FindWindowW")
 	procIsWindowVisible       = user32.NewProc("IsWindowVisible")
 	procGetWindowRect         = user32.NewProc("GetWindowRect")
 	procSetWindowPos          = user32.NewProc("SetWindowPos")
@@ -57,20 +57,31 @@ func OwnsConsole() bool {
 
 // Find returns the visible top-level window that hosts the TUI. It matches the
 // exact window title and the console host class, so other windows whose title
-// merely contains the app name are ignored. The result is not cached. The
-// handle is returned as uintptr so the package API does not expose a Win32 type;
-// Windows callers convert it to windows.HWND.
+// merely contains the app name are ignored. FindWindowW is used instead of
+// EnumWindows: the latter needs a new Go callback on every call, and a
+// long-running daemon would eventually exhaust the runtime callback table. The
+// result is not cached. The handle is returned as uintptr so the package API
+// does not expose a Win32 type; Windows callers convert it to windows.HWND.
 func Find(name string) (uintptr, bool) {
-	var found uintptr
-	callback := windows.NewCallback(func(hwnd windows.HWND, _ uintptr) uintptr {
-		if matches(hwnd, name) {
-			found = uintptr(hwnd)
-			return 0
+	title, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return 0, false
+	}
+	for _, className := range []string{consoleWindowClass, terminalWindowClass} {
+		class, err := windows.UTF16PtrFromString(className)
+		if err != nil {
+			continue
 		}
-		return 1
-	})
-	_ = windows.EnumWindows(callback, nil)
-	return found, found != 0
+		h, _, _ := procFindWindowW.Call(
+			uintptr(unsafe.Pointer(class)), uintptr(unsafe.Pointer(title)))
+		if h == 0 {
+			continue
+		}
+		if r, _, _ := procIsWindowVisible.Call(h); r != 0 {
+			return h, true
+		}
+	}
+	return 0, false
 }
 
 var cached struct {
@@ -136,25 +147,6 @@ func Move(name string, x, y int) bool {
 		uintptr(x), uintptr(y), 0, 0,
 		swpNoSize|swpNoZOrder|swpNoActivate)
 	return r1 != 0
-}
-
-func matches(hwnd windows.HWND, name string) bool {
-	if r, _, _ := procIsWindowVisible.Call(uintptr(hwnd)); r == 0 {
-		return false
-	}
-	var title [256]uint16
-	n, _, _ := procGetWindowTextW.Call(
-		uintptr(hwnd), uintptr(unsafe.Pointer(&title[0])), uintptr(len(title)))
-	if n == 0 || windows.UTF16ToString(title[:int(n)]) != name {
-		return false
-	}
-	var class [128]uint16
-	copied, err := windows.GetClassName(hwnd, &class[0], int32(len(class)))
-	if err != nil || copied == 0 {
-		return false
-	}
-	nameClass := windows.UTF16ToString(class[:copied])
-	return nameClass == consoleWindowClass || nameClass == terminalWindowClass
 }
 
 func isZoomed(hwnd uintptr) bool {
