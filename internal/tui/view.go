@@ -1159,6 +1159,7 @@ var helpColumns = [2][]helpLine{
 		{helpLineHeading, copy.HelpSectionApp},
 		{helpLineRow, copy.HelpQuit},
 		{helpLineSubNote, copy.HelpTrayNote},
+		{helpLineRow, copy.HelpQuitAll},
 	},
 	{
 		{helpLineHeading, copy.HelpSectionPanels},
@@ -1196,6 +1197,7 @@ var helpNarrow = []helpLine{
 	{helpLineHint, copy.HelpNarrowDisplay},
 	{helpLineHint, copy.HelpNarrowReadable},
 	{helpLineHint, copy.HelpNarrowQuit},
+	{helpLineHint, copy.HelpNarrowQuitAll},
 }
 
 const (
@@ -1203,7 +1205,7 @@ const (
 	helpWideH    = 20
 	helpLeftCol  = 3
 	helpRightCol = 39
-	helpKeyGap   = 9
+	helpKeyGap   = 10
 	helpNarrowW  = 44
 	helpNarrowH  = 18
 )

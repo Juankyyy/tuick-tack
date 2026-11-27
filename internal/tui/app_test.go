@@ -15,6 +15,7 @@ import (
 	"tuick-tack/internal/config"
 	"tuick-tack/internal/engine"
 	"tuick-tack/internal/install"
+	"tuick-tack/internal/ipc"
 	"tuick-tack/internal/protocol"
 	"tuick-tack/internal/tui/bigfont"
 	"tuick-tack/internal/tui/canvas"
@@ -89,6 +90,256 @@ func TestDaemonClosingExitsWithoutReconnect(t *testing.T) {
 	}
 	if m.HasActiveTimer() {
 		t.Fatal("a quit daemon leaves no timer in the tray")
+	}
+}
+
+func TestQuitAllKeyClosesEverythingFromEveryScreen(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*Model)
+	}{
+		{"idle", func(*Model) {}},
+		{"running", applyRunning},
+		{"paused", func(m *Model) {
+			m.applyState(protocol.StateMessage{
+				Type: protocol.TypeState, Status: "paused",
+				DurationMS: 300000, RemainingMS: 271500, Label: "5 min", PresetID: "p5",
+			})
+		}},
+		{"finished", func(m *Model) {
+			m.applyState(protocol.StateMessage{
+				Type: protocol.TypeState, Status: "finished",
+				DurationMS: 300000, Label: "5 min", PresetID: "p5", FinishSeq: 1,
+			})
+		}},
+		{"help", func(m *Model) { m.modal = modalHelp }},
+		{"confirm stop", func(m *Model) { m.modal = modalConfirmStop }},
+		{"confirm delete", func(m *Model) { m.modal = modalConfirmDelete }},
+		{"presets", func(m *Model) { m.modal = modalPresets }},
+		{"sound", func(m *Model) { m.modal = modalSound }},
+		{"update", func(m *Model) { m.modal = modalUpdate }},
+		{"stats", func(m *Model) { m.modal = modalStats }},
+		{"compact", func(m *Model) { m.width, m.height = 40, 20 }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, _ := testModel(80, 24)
+			tt.setup(m)
+
+			cmd := press(m, 'Q', "Q")
+			if cmd == nil {
+				t.Fatal("Shift+Q should return a command")
+			}
+			if !m.QuitAll() {
+				t.Fatal("Shift+Q should quit the daemon too")
+			}
+			if m.connected {
+				t.Fatal("Shift+Q should drop the TUI connection")
+			}
+			if m.modal != modalNone {
+				t.Fatalf("modal = %v, want none", m.modal)
+			}
+		})
+	}
+}
+
+func TestLowercaseQOnlyClosesTheTUI(t *testing.T) {
+	m, _ := testModel(80, 24)
+	cmd := press(m, 'q', "q")
+	if cmd == nil {
+		t.Fatal("q should return a command")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("q should return tea.Quit")
+	}
+	if m.QuitAll() {
+		t.Fatal("q should leave the daemon running")
+	}
+}
+
+func TestShiftQTypesInPresetNameInsteadOfQuitting(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.openForm(formAdd, config.Preset{})
+
+	if cmd := press(m, 'Q', "Q"); cmd != nil {
+		t.Fatal("Shift+Q in the preset name should not return a command")
+	}
+	if m.QuitAll() {
+		t.Fatal("Shift+Q in the preset name should not quit the daemon")
+	}
+	if m.modal != modalPresetForm {
+		t.Fatalf("modal = %v, want the form", m.modal)
+	}
+	if m.form.label != "Q" {
+		t.Fatalf("label = %q, want Q", m.form.label)
+	}
+
+	press(m, tea.KeyTab, "")
+	if m.form.focus != 1 {
+		t.Fatalf("focus = %d, want the duration", m.form.focus)
+	}
+	press(m, 'Q', "Q")
+	if !m.QuitAll() {
+		t.Fatal("Shift+Q outside the name field should quit everything")
+	}
+}
+
+func TestQuitAllFailedConnectStillTriesToQuitDaemon(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.quitting = true
+
+	cmd := m.handleConnected(connectedMsg{err: errors.New("handshake")})
+	if cmd == nil {
+		t.Fatal("a failed connect while quitting should keep trying")
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok || len(batch) != 2 {
+		t.Fatalf("failed-connect command = %#v, want a two-command batch", msg)
+	}
+	if _, ok := batch[0]().(tea.QuitMsg); !ok {
+		t.Fatal("the best-effort quit should end the TUI")
+	}
+}
+
+func TestQuitAllSendFailureQuitsWithoutReconnect(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.quitting = true
+	m.connected = true
+
+	_, cmd := m.Update(sentMsg{err: errors.New("pipe closed")})
+	if cmd == nil {
+		t.Fatal("a failed quit send should quit the TUI")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("a failed quit send should return tea.Quit")
+	}
+	if m.reconnecting || m.connected {
+		t.Fatalf("state after failure: reconnecting=%v connected=%v", m.reconnecting, m.connected)
+	}
+}
+
+func TestQuitAllLostConnectionQuitsWithoutReconnect(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.quitting = true
+
+	cmd := m.handleServerEvent(serverEventMsg{err: errors.New("pipe closed")})
+	if cmd == nil {
+		t.Fatal("a lost pipe while quitting should quit the TUI")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("a lost pipe while quitting should return tea.Quit")
+	}
+	if m.reconnecting {
+		t.Fatal("quit-all should never reconnect")
+	}
+}
+
+func TestQuitAllTimeoutQuitsTheTUI(t *testing.T) {
+	m, _ := testModel(80, 24)
+	m.quitting = true
+
+	_, cmd := m.Update(quitAllTimeoutMsg{})
+	if cmd == nil {
+		t.Fatal("the quit timeout should quit the TUI")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("the quit timeout should return tea.Quit")
+	}
+	if m.connected {
+		t.Fatal("the quit timeout should drop the connection")
+	}
+	if m.reconnecting {
+		t.Fatal("the quit timeout should never reconnect")
+	}
+}
+
+// quitBackend records the commands that reach the daemon side of the pipe.
+type quitBackend struct {
+	cmds chan protocol.ClientMessage
+}
+
+func (b *quitBackend) Config() config.Config           { return config.Default() }
+func (b *quitBackend) Snapshot() engine.State          { return engine.State{} }
+func (b *quitBackend) Update() *protocol.UpdatePayload { return nil }
+func (b *quitBackend) Command(_ *ipc.Session, msg protocol.ClientMessage) {
+	b.cmds <- msg
+}
+
+func TestQuitAllSendsQuitDaemon(t *testing.T) {
+	pipe := testEndpoint(t)
+	backend := &quitBackend{cmds: make(chan protocol.ClientMessage, 1)}
+	server := ipc.NewServer(pipe, "test", backend, true)
+	if err := server.Start(); err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	defer server.Close()
+
+	client, _, err := ipc.Dial(pipe)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer client.Close()
+
+	m, _ := testModel(80, 24)
+	m.pipe = pipe
+	m.client = client
+	m.connected = true
+
+	cmd := press(m, 'Q', "Q")
+	if !m.QuitAll() {
+		t.Fatal("Shift+Q should quit the daemon too")
+	}
+	msg := cmd()
+	batch, ok := msg.(tea.BatchMsg)
+	if !ok || len(batch) != 2 {
+		t.Fatalf("quit command = %#v, want a two-command batch", msg)
+	}
+	if sent, ok := batch[0]().(sentMsg); !ok || sent.err != nil {
+		t.Fatalf("quit send = %#v, want a successful sentMsg", sent)
+	}
+
+	select {
+	case got := <-backend.cmds:
+		if got.Type != protocol.TypeQuitDaemon {
+			t.Fatalf("daemon got %q, want %q", got.Type, protocol.TypeQuitDaemon)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the daemon did not receive quit_daemon")
+	}
+}
+
+func TestQuitAllDuringReconnectQuitsTheNewDaemon(t *testing.T) {
+	pipe := testEndpoint(t)
+	backend := &quitBackend{cmds: make(chan protocol.ClientMessage, 1)}
+	server := ipc.NewServer(pipe, "test", backend, true)
+	if err := server.Start(); err != nil {
+		t.Fatalf("start server: %v", err)
+	}
+	defer server.Close()
+
+	client, hello, err := ipc.Dial(pipe)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	m, _ := testModel(80, 24)
+	m.quitting = true
+	cmd := m.handleConnected(connectedMsg{client: client, hello: hello})
+	if cmd == nil {
+		t.Fatal("a late connection while quitting should exit")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Fatal("a late connection while quitting should return tea.Quit")
+	}
+
+	select {
+	case got := <-backend.cmds:
+		if got.Type != protocol.TypeQuitDaemon {
+			t.Fatalf("daemon got %q, want %q", got.Type, protocol.TypeQuitDaemon)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the daemon started during the reconnect did not receive quit_daemon")
 	}
 }
 
@@ -1385,7 +1636,7 @@ func TestModalsOpenAndClose(t *testing.T) {
 		copy.HelpStart, copy.HelpPause, copy.HelpCancel, copy.HelpRepeat,
 		copy.HelpPickPreset, copy.HelpPresets, copy.HelpSound, copy.HelpMute,
 		copy.HelpStats, copy.HelpUpdate, copy.HelpTheme, copy.HelpBackground,
-		copy.HelpReadable, copy.HelpQuit,
+		copy.HelpReadable, copy.HelpQuit, copy.HelpQuitAll,
 	} {
 		k, desc := splitHelpKey(copy.T(key))
 		if !strings.Contains(plain, k) || !strings.Contains(plain, desc) {
@@ -2196,6 +2447,7 @@ func TestHelpNarrowFallbackAtMinimumWindow(t *testing.T) {
 		copy.T(copy.HelpNarrowCancelAdjust),
 		copy.T(copy.HelpNarrowPanelsMore),
 		copy.T(copy.HelpNarrowQuit),
+		copy.T(copy.HelpNarrowQuitAll),
 	} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("narrow help is missing %q", want)

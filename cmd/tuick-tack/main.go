@@ -118,6 +118,8 @@ func main() {
 		switch {
 		case fm.Updating():
 			fmt.Println(copy.T(copy.ExitUpdating))
+		case fm.QuitAll():
+			fmt.Println(copy.T(copy.ExitQuitAll))
 		case fm.DaemonClosing():
 			fmt.Println(copy.T(copy.ExitDaemonClosing))
 		case fm.HasActiveTimer():

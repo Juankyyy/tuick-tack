@@ -276,6 +276,7 @@ const (
 	HelpReadableNote = Key("help.readable.note")
 	HelpMiniTimer    = Key("help.minitimer")
 	HelpQuit         = Key("help.quit")
+	HelpQuitAll      = Key("help.quitall")
 	HelpTrayNote     = Key("help.tray.note")
 	HelpClose        = Key("help.close")
 
@@ -288,6 +289,7 @@ const (
 	HelpNarrowDisplay      = Key("help.narrow.display")
 	HelpNarrowReadable     = Key("help.narrow.readable")
 	HelpNarrowQuit         = Key("help.narrow.quit")
+	HelpNarrowQuitAll      = Key("help.narrow.quitall")
 
 	PresetsTitle      = Key("presets.title")
 	PresetsEmpty      = Key("presets.empty")
@@ -329,6 +331,7 @@ const (
 	ToastReplaced    = Key("toast.replaced")
 	ToastUpdateFound = Key("toast.update.found")
 	ToastUpToDate    = Key("toast.update.uptodate")
+	ToastQuitting    = Key("toast.quitting")
 
 	BackgroundAurora    = Key("background.aurora")
 	BackgroundStars     = Key("background.stars")
@@ -343,6 +346,7 @@ const (
 	ExitActive              = Key("exit.active")
 	ExitDaemonClosing       = Key("exit.daemon.closing")
 	ExitUpdating            = Key("exit.updating")
+	ExitQuitAll             = Key("exit.quitall")
 	ToastPortable           = Key("toast.update.portable")
 	NotifyUpdateFailedTitle = Key("notify.update.failed.title")
 	NotifyUpdateFailedBody  = Key("notify.update.failed.body")
@@ -659,6 +663,7 @@ var texts = map[Key]string{
 	HelpReadableNote: "only with None background",
 	HelpMiniTimer:    "[M] mini timer",
 	HelpQuit:         "[q] close the TUI",
+	HelpQuitAll:      "[Shift+Q] close the TUI and daemon",
 	HelpTrayNote:     "the tray keeps running",
 	HelpClose:        "[Esc] or [Enter] closes this help",
 
@@ -670,6 +675,7 @@ var texts = map[Key]string{
 	HelpNarrowDisplay:      "[t] theme · [b] background",
 	HelpNarrowReadable:     "[n] readable bands · [M] mini timer",
 	HelpNarrowQuit:         "[q] quit · [Esc] close help",
+	HelpNarrowQuitAll:      "[Shift+Q] quit everything",
 
 	PresetsTitle:      "Presets",
 	PresetsEmpty:      "No presets yet. Press [a] to add one.",
@@ -711,6 +717,7 @@ var texts = map[Key]string{
 	ToastReplaced:    "Countdown replaced",
 	ToastUpdateFound: "%s available",
 	ToastUpToDate:    "Up to date (latest %s)",
+	ToastQuitting:    "Closing Tuick-Tack…",
 
 	BackgroundAurora:    "Aurora",
 	BackgroundStars:     "Stars",
@@ -725,6 +732,7 @@ var texts = map[Key]string{
 	ExitActive:              "The countdown is still running in the tray.",
 	ExitDaemonClosing:       "The daemon quit; closing.",
 	ExitUpdating:            "Updating Tuick-Tack; it will reopen.",
+	ExitQuitAll:             "Tuick-Tack closed.",
 	ToastPortable:           "Portable %s saved to Downloads",
 	NotifyUpdateFailedTitle: "Update failed",
 	NotifyUpdateFailedBody:  "The previous version is still installed. Open Tuick-Tack and try again.",

@@ -154,6 +154,10 @@ type sentMsg struct{ err error }
 
 type tickMsg time.Time
 
+// quitAllTimeoutMsg fires when the daemon does not answer the quit request.
+// It is only a safety net: the normal path closes on the daemon_closing notice.
+type quitAllTimeoutMsg struct{}
+
 // Model is the Bubble Tea model. All timer truth comes from the daemon; the
 // model only interpolates between snapshots.
 type Model struct {
@@ -279,6 +283,10 @@ type Model struct {
 	hoverUpdate    bool
 	daemonClosing  bool
 	updating       bool
+	// quitting is set by Shift+Q. The TUI then waits for the daemon's
+	// daemon_closing notice and never reconnects, because a reconnect would
+	// launch a new daemon.
+	quitting bool
 
 	// Statistics tab. The daemon sends the aggregate on demand and the TUI
 	// caches it; statsTab, statsRange and statsScroll are the view state.
@@ -379,6 +387,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.handleServerEvent(msg)
 	case sentMsg:
 		if msg.err != nil {
+			if m.quitting {
+				// The daemon is unreachable; close the TUI anyway instead of
+				// retrying, which could launch a new daemon.
+				m.connected = false
+				m.Close()
+				return m, tea.Quit
+			}
 			m.checkingUpdate = false
 			if m.modal == modalUpdate && m.updateStep == updateStepProgress {
 				m.updateStep = updateStepFailed
@@ -387,6 +402,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.showToast(copy.T(copy.DaemonLost))
 		}
 		return m, nil
+	case quitAllTimeoutMsg:
+		if !m.quitting {
+			return m, nil
+		}
+		// The daemon did not send its closing notice in time. Quit without a
+		// final window flush: the pipe is what is not answering.
+		m.connected = false
+		m.Close()
+		return m, tea.Quit
 	case tea.KeyPressMsg:
 		return m, m.handleKey(msg)
 	case tea.MouseClickMsg:
@@ -432,6 +456,19 @@ func tickCmd(d time.Duration) tea.Cmd {
 }
 
 func (m *Model) handleConnected(msg connectedMsg) tea.Cmd {
+	if m.quitting {
+		// The connection attempt was already in flight when Shift+Q was pressed.
+		if msg.err == nil && msg.client != nil {
+			// Ask the daemon it reached to quit, then exit.
+			_ = msg.client.Send(protocol.ClientMessage{Type: protocol.TypeQuitDaemon})
+			_ = msg.client.Close()
+			return tea.Quit
+		}
+		// The handshake failed, but Ensure may have started a daemon that is
+		// still booting. Try a short dial before exiting; the quit timeout
+		// still bounds the wait when nothing answers.
+		return tea.Batch(quitDaemonIfRunning(m.pipe), quitAllTimeoutCmd())
+	}
 	if msg.err != nil {
 		m.connected = false
 		m.connecting = false
@@ -478,6 +515,11 @@ func (m *Model) handleServerEvent(msg serverEventMsg) tea.Cmd {
 		m.connected = false
 		m.connecting = false
 		m.checkingUpdate = false
+		if m.quitting {
+			// The pipe dropped while waiting for the daemon's closing notice.
+			// Do not reconnect: Ensure would launch a new daemon.
+			return tea.Quit
+		}
 		m.showToast(copy.T(copy.DaemonLost))
 		if m.reconnecting {
 			return nil
@@ -1244,9 +1286,75 @@ func (m *Model) showToast(s string) {
 	m.toastUntil = m.now().Add(3 * time.Second)
 }
 
+// quitAllRequested matches Shift+Q. Terminals without the kitty keyboard
+// protocol report only the shifted text, so an uppercase Q counts on its own.
+func quitAllRequested(key tea.Key) bool {
+	return key.Text == "Q" || (key.Text == "q" && key.Mod.Contains(tea.ModShift))
+}
+
+// typingPresetName reports whether the focused field accepts letters. There
+// Shift+Q must type a Q instead of closing the app.
+func (m *Model) typingPresetName() bool {
+	return !m.compact() && m.modal == modalPresetForm && m.form.focus == 0
+}
+
+// quitAllGrace bounds the wait for the daemon_closing notice. It stays above
+// Ensure's connection window, its one-second reconnect pause and DialWithin's
+// five-second handshake, so a quit can still reach a daemon that starts late.
+const quitAllGrace = 6 * time.Second
+
+func quitAllTimeoutCmd() tea.Cmd {
+	return tea.Tick(quitAllGrace, func(time.Time) tea.Msg { return quitAllTimeoutMsg{} })
+}
+
+// quitAll asks the daemon to shut down and waits for its daemon_closing
+// notice, so the TUI exits after the tray, the mini timer and the sound are
+// gone. Without a live connection it dials once to quit a daemon that still
+// answers, but never launches one just to close it.
+func (m *Model) quitAll() tea.Cmd {
+	if m.quitting {
+		return nil
+	}
+	m.quitting = true
+	m.modal = modalNone
+	timeout := quitAllTimeoutCmd()
+	if m.connected && m.client != nil {
+		// Keep a pending window placement while the pipe still works.
+		m.flushWindow()
+		return tea.Batch(m.send(protocol.ClientMessage{Type: protocol.TypeQuitDaemon}), timeout)
+	}
+	m.Close()
+	if m.reconnecting || m.connecting {
+		// A connection attempt is already in flight and Ensure may be starting a
+		// daemon. handleConnected sends it the quit if it succeeds; the timeout
+		// closes the TUI if no daemon ever answers.
+		m.showToast(copy.T(copy.ToastQuitting))
+		return timeout
+	}
+	return tea.Batch(quitDaemonIfRunning(m.pipe), timeout)
+}
+
+// quitDaemonIfRunning is a best-effort quit for a TUI that already lost its
+// connection. The short dial deadline never starts a daemon.
+func quitDaemonIfRunning(pipe string) tea.Cmd {
+	return func() tea.Msg {
+		if pipe != "" {
+			if c, _, err := ipc.DialWithin(pipe, 250*time.Millisecond); err == nil {
+				_ = c.Send(protocol.ClientMessage{Type: protocol.TypeQuitDaemon})
+				_ = c.Close()
+			}
+		}
+		return tea.QuitMsg{}
+	}
+}
+
 func (m *Model) handleKey(msg tea.KeyPressMsg) tea.Cmd {
 	key := msg.Key()
 	text := key.Text
+
+	if quitAllRequested(key) && !m.typingPresetName() {
+		return m.quitAll()
+	}
 
 	if m.compact() {
 		if text == "q" {
@@ -2254,6 +2362,9 @@ func (m *Model) HasActiveTimer() bool {
 // DaemonClosing reports whether the TUI is exiting because the user quit the
 // daemon from the tray.
 func (m *Model) DaemonClosing() bool { return m.daemonClosing }
+
+// QuitAll reports whether the user closed the TUI and the daemon with Shift+Q.
+func (m *Model) QuitAll() bool { return m.quitting }
 
 // Updating reports whether the daemon closed to install an update.
 func (m *Model) Updating() bool { return m.updating }

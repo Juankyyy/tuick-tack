@@ -119,6 +119,7 @@ validation and QA, and would be announced separately from the Windows releases.
 | Presets panel | `↑` `↓` move; `Tab` actions; `←` `→` choose an action; `Enter` start or run; `a` add; `e` edit; `d` delete; `r` restore defaults; `Esc` close |
 | Form | `Tab` next field; `Enter` save; `Esc` cancel |
 | Update dialog | `Tab` switches setup/portable; `←` `→` actions; `↑` `↓` `PgUp` `PgDn` `Home` `End` or the wheel scroll the release notes; `Enter` run; `g` GitHub; `Esc` later |
+| Any screen | `Shift+Q` closes the TUI and the daemon (tray and mini timer included); `q` closes only the TUI. While typing a preset name, `Shift+Q` types `Q` |
 
 In the app, key hints use the `[key] action` format, for example `[Space] pause`.
 
@@ -128,7 +129,8 @@ The accepted range is one second to 24 hours.
 > In idle, `s` and `m` add a unit when the input already contains a number (`90s`, `25m`);
 > on an empty (or otherwise incomplete) input, `s` opens Statistics and `m` toggles the sound.
 > `v` opens the sound panel from any screen. `M` toggles the Windows mini timer in the main
-> screens (idle, running, paused and finished).
+> screens (idle, running, paused and finished). `q` leaves the daemon running; use `Shift+Q`
+> to close the TUI and the daemon together.
 
 ## Tray
 
