@@ -1,15 +1,14 @@
-# macOS build and packaging. Every push to dev produces an ad-hoc signed dev
-# artifact; a manual run can stamp a version and attach the universal zip to an
-# existing GitHub release. The package job combines both architectures with
-# lipo, builds Tuick-Tack.app from macos/, signs it ad-hoc and writes the
-# universal zip, its .sha256 and SHA256SUMS.txt. The release upload never
-# creates a release: the Windows release is published from main and this
-# workflow only adds the macOS assets to that tag.
+# macOS build and packaging, kept for occasional manual releases. The port is
+# frozen: this workflow has no push trigger, so dev produces no macOS artifacts
+# and a Windows release never builds macOS. Dispatch it by hand when a macOS
+# build is explicitly requested; a manual run can stamp a version and attach the
+# universal zip to an existing GitHub release. The package job combines both
+# architectures with lipo, builds Tuick-Tack.app from macos/, signs it ad-hoc
+# and writes the universal zip, its .sha256 and SHA256SUMS.txt. The release
+# upload never creates a release.
 name: macOS
 
 on:
-  push:
-    branches: [dev]
   workflow_dispatch:
     inputs:
       version:
@@ -25,7 +24,7 @@ permissions:
   contents: read
 
 concurrency:
-  # Tag dispatches get their own group, so a push to dev cannot cancel a
+  # Tag dispatches get their own group, so one manual run cannot cancel a
   # release attach (and vice versa).
   group: macos-${{ github.event.inputs.tag || github.ref }}
   cancel-in-progress: true

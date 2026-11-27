@@ -1,7 +1,7 @@
-# Windows is the reference platform and macOS is a supported build target. Both
-# run vet, tests and a full build with CGO_ENABLED=0 on every push and pull
-# request. The macOS jobs also build with CGO_ENABLED=1, which compiles the real
-# menu bar through systray; the no-cgo build keeps the headless fallback honest.
+# Windows is the only supported platform and runs vet, tests and a full build
+# with CGO_ENABLED=0 on every push and pull request. The macOS job is kept for
+# the frozen port and only runs on manual dispatch; when it runs it also builds
+# with CGO_ENABLED=1, which compiles the real menu bar through systray.
 name: CI
 
 on:
@@ -37,8 +37,10 @@ jobs:
       - name: go build
         run: go build ./...
 
+  # Frozen port: manual dispatch only. Do not move it back to push or pull_request.
   darwin:
     name: macOS ${{ matrix.arch }} (no cgo)
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     env:
