@@ -204,6 +204,26 @@ func TestBurstActive(t *testing.T) {
 	}
 }
 
+func TestBurstGlow(t *testing.T) {
+	tests := []struct {
+		name string
+		age  time.Duration
+		want float64
+	}{
+		{"before the finish", -time.Millisecond, 0},
+		{"start", 0, 1},
+		{"hold", burstGlowHold, 1},
+		{"fading", burstGlowHold + (burstGlowEnd-burstGlowHold)/2, 0.5},
+		{"end", burstGlowEnd, 0},
+		{"after", time.Minute, 0},
+	}
+	for _, tt := range tests {
+		if got := burstGlow(tt.age); got != tt.want {
+			t.Errorf("%s: burstGlow = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestTimeText(t *testing.T) {
 	tests := []struct {
 		state engine.State
@@ -376,7 +396,7 @@ func TestRenderBurstFlashesTheBar(t *testing.T) {
 	pal := theme.Get("ember")
 	st := engine.State{Status: engine.Finished, Duration: 5 * time.Minute}
 	calm := RenderAt(st, pal, 0, Cols)
-	c := RenderBurstAt(st, pal, 0, Cols, burstFlash/2)
+	c := RenderBurstAt(st, pal, 0, Cols, barFlash/2)
 	barX := (Cols - BarCells) / 2
 	if c.At(barX, barRow) == calm.At(barX, barRow) {
 		t.Fatal("the burst did not lift the bar")
@@ -413,6 +433,26 @@ func TestRenderBurstCoversDigits(t *testing.T) {
 	}
 }
 
+func TestRenderBurstIsDense(t *testing.T) {
+	pal := theme.Get("midnight")
+	st := engine.State{Status: engine.Finished, Duration: 5 * time.Minute}
+	calm := RenderAt(st, pal, 0, Cols)
+	c := RenderBurstAt(st, pal, 0, Cols, 600*time.Millisecond)
+	changed := 0
+	for y := 0; y < c.H; y++ {
+		for x := 0; x < c.W; x++ {
+			if c.At(x, y) != calm.At(x, y) {
+				changed++
+			}
+		}
+	}
+	// The first burst was 16 small pieces and read as too subtle; keep the
+	// two-wave table well above that so a regression is caught here.
+	if changed < 40 {
+		t.Fatalf("only %d cells changed at 600 ms; the finish burst is too sparse", changed)
+	}
+}
+
 func TestRenderBurstDeterministic(t *testing.T) {
 	pal := theme.Get("midnight")
 	st := engine.State{Status: engine.Finished, Duration: time.Minute}
@@ -426,7 +466,7 @@ func TestRenderBurstKeepsTheBarCentred(t *testing.T) {
 	pal := theme.Get("mono")
 	st := engine.State{Status: engine.Finished, Duration: 24 * time.Hour, FinishSeq: 1}
 	calm := RenderAt(st, pal, 0, 47)
-	c := RenderBurstAt(st, pal, 0, 47, burstFlash/2)
+	c := RenderBurstAt(st, pal, 0, 47, barFlash/2)
 	if c.W != 47 {
 		t.Fatalf("canvas width = %d, want 47", c.W)
 	}

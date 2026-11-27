@@ -78,6 +78,8 @@ const (
 	terminalWindowClass = "CASCADIA_HOSTING_WINDOW_CLASS"
 
 	processQueryLimitedInformation = 0x1000
+
+	srcCopy = 0x00CC0020
 )
 
 var (
@@ -125,6 +127,14 @@ var (
 	procGetStockObject  = gdi32.NewProc("GetStockObject")
 	procSetDCBrushColor = gdi32.NewProc("SetDCBrushColor")
 
+	procCreateCompatibleDC     = gdi32.NewProc("CreateCompatibleDC")
+	procCreateCompatibleBitmap = gdi32.NewProc("CreateCompatibleBitmap")
+	procSelectObject           = gdi32.NewProc("SelectObject")
+	procDeleteObject           = gdi32.NewProc("DeleteObject")
+	procDeleteDC               = gdi32.NewProc("DeleteDC")
+	procBitBlt                 = gdi32.NewProc("BitBlt")
+	procGdiFlush               = gdi32.NewProc("GdiFlush")
+
 	procSHQueryUserNotificationState = shell32.NewProc("SHQueryUserNotificationState")
 	procSHAppBarMessage              = shell32.NewProc("SHAppBarMessage")
 )
@@ -154,6 +164,13 @@ type Widget struct {
 	env         Environment
 	tray        trayInfo
 	envAt       time.Time
+
+	// Off-screen frame reused between paints; see frameDC/releaseFrame.
+	memDC  windows.Handle
+	memBMP windows.Handle
+	memOld windows.Handle
+	memW   int
+	memH   int
 }
 
 type trayInfo struct {
@@ -381,6 +398,7 @@ func (w *Widget) wndProc(hwnd windows.Handle, message uint32, wParam, lParam uin
 		return 0
 	case wmDestroy:
 		procKillTimer.Call(uintptr(hwnd), timerID)
+		w.releaseFrame()
 		procPostQuitMessage.Call(0)
 		return 0
 	case wmDisplayChange, wmSettingChange, wmDPIChanged:
@@ -639,18 +657,34 @@ func (w *Widget) paint(hdc windows.Handle) {
 	pal := theme.Get(cfg.Theme)
 	now := time.Now()
 	age := -time.Second
-	if d, ok := w.finishWin.elapsed(now); ok {
-		age = d
+	if st.Status == engine.Finished {
+		if d, ok := w.finishWin.elapsed(now); ok {
+			age = d
+		}
 	}
 	grid := RenderBurstAt(st, pal, float64(now.UnixMilli())/260, l.Cells, age)
 
+	panel, border := pal.Panel, pal.Border
+	if glow := burstGlow(age); glow > 0 {
+		panel = theme.Lerp(panel, pal.Danger, 0.45*glow)
+		border = theme.Lerp(border, pal.Warn, glow)
+	}
+
+	// Paint the whole frame off-screen and present it with one BitBlt: drawing
+	// straight to the window DC can expose the bare panel for a moment at the
+	// 30 fps cadence, which reads as a black flicker.
+	target := hdc
+	if mem := w.frameDC(hdc, l.Width, l.Height); mem != 0 {
+		target = mem
+	}
+
 	brush, _, _ := procGetStockObject.Call(dcBrush)
-	fillRect(hdc, brush, 0, 0, l.Width, l.Height, pal.Panel)
+	fillRect(target, brush, 0, 0, l.Width, l.Height, panel)
 	// 1 px border; the bar can overdraw the bottom pixel inside its width.
-	fillRect(hdc, brush, 0, 0, l.Width, 1, pal.Border)
-	fillRect(hdc, brush, 0, l.Height-1, l.Width, 1, pal.Border)
-	fillRect(hdc, brush, 0, 0, 1, l.Height, pal.Border)
-	fillRect(hdc, brush, l.Width-1, 0, 1, l.Height, pal.Border)
+	fillRect(target, brush, 0, 0, l.Width, 1, border)
+	fillRect(target, brush, 0, l.Height-1, l.Width, 1, border)
+	fillRect(target, brush, 0, 0, 1, l.Height, border)
+	fillRect(target, brush, l.Width-1, 0, 1, l.Height, border)
 
 	x0, y0 := l.ContentX(), l.ContentY()
 	for y := 0; y < grid.H; y++ {
@@ -658,13 +692,75 @@ func (w *Widget) paint(hdc windows.Handle) {
 			cell := grid.At(x, y)
 			px, py := x0+x*l.Cell, y0+y*l.Cell
 			if cell.HasBG {
-				fillRect(hdc, brush, px, py, l.Cell, l.Cell, cell.BG)
+				fillRect(target, brush, px, py, l.Cell, l.Cell, cell.BG)
 			}
 			if cell.HasFG {
-				fillRect(hdc, brush, px, py, l.Cell, l.Cell, cell.FG)
+				fillRect(target, brush, px, py, l.Cell, l.Cell, cell.FG)
 			}
 		}
 	}
+
+	if target != hdc {
+		procGdiFlush.Call()
+		ok, _, _ := procBitBlt.Call(
+			uintptr(hdc), 0, 0, uintptr(l.Width), uintptr(l.Height),
+			uintptr(target), 0, 0, srcCopy)
+		if ok == 0 {
+			// The next paint falls back to drawing straight to the window.
+			w.releaseFrame()
+		}
+	}
+}
+
+// frameDC returns the off-screen DC for the current frame and recreates it
+// when the window size changed. A zero result means the caller must paint
+// directly to the window.
+func (w *Widget) frameDC(hdc windows.Handle, width, height int) windows.Handle {
+	if width <= 0 || height <= 0 {
+		return 0
+	}
+	if w.memDC != 0 && w.memW == width && w.memH == height {
+		return w.memDC
+	}
+	w.releaseFrame()
+
+	mem, _, _ := procCreateCompatibleDC.Call(uintptr(hdc))
+	if mem == 0 {
+		return 0
+	}
+	bmp, _, _ := procCreateCompatibleBitmap.Call(uintptr(hdc), uintptr(width), uintptr(height))
+	if bmp == 0 {
+		procDeleteDC.Call(mem)
+		return 0
+	}
+	old, _, _ := procSelectObject.Call(mem, bmp)
+	if old == 0 || old == uintptr(windows.InvalidHandle) {
+		procDeleteObject.Call(bmp)
+		procDeleteDC.Call(mem)
+		return 0
+	}
+
+	w.memDC = windows.Handle(mem)
+	w.memBMP = windows.Handle(bmp)
+	w.memOld = windows.Handle(old)
+	w.memW, w.memH = width, height
+	return w.memDC
+}
+
+// releaseFrame frees the off-screen frame. It must run on the message-loop
+// thread, like every other paint resource.
+func (w *Widget) releaseFrame() {
+	if w.memDC != 0 {
+		if w.memOld != 0 {
+			procSelectObject.Call(uintptr(w.memDC), uintptr(w.memOld))
+		}
+		procDeleteDC.Call(uintptr(w.memDC))
+	}
+	if w.memBMP != 0 {
+		procDeleteObject.Call(uintptr(w.memBMP))
+	}
+	w.memDC, w.memBMP, w.memOld = 0, 0, 0
+	w.memW, w.memH = 0, 0
 }
 
 func fillRect(hdc windows.Handle, brush uintptr, x, y, w, h int, c color.RGBA) {

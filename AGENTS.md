@@ -230,7 +230,7 @@ autostart. Antes de anunciar una release Windows:
 
 - [ ] TUI a 48×22, 80×24 y 120×40; sin runas anchas ni solapes.
 - [ ] Tray: icono por estado, clic izquierdo abre/enfoca, menú completo, Quit cierra la TUI.
-- [ ] Mini timer: checkbox en la bandeja (por defecto on, persiste) y tecla `M` en la TUI; el Help muestra `[M] mini timer`; widget sobre la barra con tiempo+barra en running/paused/finished y confeti de fin una vez, oculto en idle y con la TUI enfocada; 100/125/150 %.
+- [ ] Mini timer: checkbox en la bandeja (por defecto on, persiste) y tecla `M` en la TUI; el Help muestra `[M] mini timer`; widget sobre la barra con tiempo+barra en running/paused/finished y confeti de fin una vez, sin parpadeos negros al repintar, oculto en idle y con la TUI enfocada; 100/125/150 %.
 - [ ] Timer con la TUI cerrada, sonido al volumen elegido y fin una sola vez.
 - [ ] Autostart on/off; `--daemon --hidden` no abre consola.
 - [ ] Update: setup y portable, aviso de countdown, fallo de red y checksum incorrecto.

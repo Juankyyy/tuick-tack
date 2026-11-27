@@ -78,11 +78,19 @@ func burstActive(age time.Duration, ok bool) bool {
 }
 
 // BurstDuration is how long the finish confetti is painted. The fixed table
-// empties the grid in about 1.3 s; the tail covers the slowest piece.
-const BurstDuration = 1400 * time.Millisecond
+// empties the grid in about 1.4 s; the tail covers the slowest piece of the
+// second wave.
+const BurstDuration = 1600 * time.Millisecond
 
-// burstFlash lifts the completed bar for the first moments of the burst.
-const burstFlash = 100 * time.Millisecond
+// barFlash lifts the completed bar for the first moments of the burst.
+const barFlash = 160 * time.Millisecond
+
+// burstGlowHold and burstGlowEnd shape the whole-widget glow: full strength
+// for the hold, then a linear fade.
+const (
+	burstGlowHold = 140 * time.Millisecond
+	burstGlowEnd  = 260 * time.Millisecond
+)
 
 // burstOriginY is the bar row the pieces start from, in canvas rows.
 const burstOriginY = 8.2
@@ -91,32 +99,59 @@ const burstOriginY = 8.2
 // tuned so no piece leaves the nine-row grid through the top.
 const burstGravity = 36.0
 
+// burstGlow is the finish flash envelope. The widget mixes its panel and
+// border with it; the canvas itself has no panel.
+func burstGlow(age time.Duration) float64 {
+	if age < 0 || age >= burstGlowEnd {
+		return 0
+	}
+	if age <= burstGlowHold {
+		return 1
+	}
+	return 1 - float64(age-burstGlowHold)/float64(burstGlowEnd-burstGlowHold)
+}
+
 // burstPiece is one confetti piece: an offset from the canvas centre, a
-// velocity in cells per second, a palette index and a width in cells. The
-// table is fixed, so the same age always paints the same frame.
+// velocity in cells per second, an optional delay in seconds, a palette index,
+// a size in cells and whether it is brightened towards the text color.
 type burstPiece struct {
-	dx, vx, vy float64
-	color      int
-	width      int
+	dx, vx, vy, delay float64
+	color             int
+	w, h              int
+	bright            bool
 }
 
 var burstPieces = [...]burstPiece{
-	{-13, -4.5, -16, 0, 1},
-	{-11, -2.5, -20, 1, 1},
-	{-9, -1, -13, 2, 1},
-	{-7, 0.5, -18, 3, 1},
-	{-5, 2, -14, 4, 1},
-	{-3, 3.5, -21, 5, 1},
-	{-1, -3, -12, 2, 2},
-	{1, 4.5, -17, 0, 1},
-	{3, -1.5, -19, 1, 1},
-	{5, 1, -15, 3, 1},
-	{7, 2.5, -22, 4, 1},
-	{9, -2, -13, 2, 1},
-	{11, 0, -16, 5, 2},
-	{13, -3.5, -18, 0, 1},
-	{15, 3, -12, 1, 1},
-	{-14, 1.5, -19, 4, 1},
+	// First wave: it leaves the bar as soon as the countdown crosses zero.
+	{dx: 15.2, vx: 0.94, vy: -16.06, color: 0, w: 1, h: 1},
+	{dx: -15.98, vx: 1.5, vy: -11.01, color: 1, w: 2, h: 1},
+	{dx: 0.61, vx: 1.2, vy: -12.3, color: 2, w: 2, h: 1},
+	{dx: -3.66, vx: -3.11, vy: -14.22, color: 3, w: 1, h: 1},
+	{dx: -1.29, vx: 3.17, vy: -16.28, color: 4, w: 1, h: 1},
+	{dx: 1.21, vx: 0.43, vy: -12.47, color: 5, w: 2, h: 1, bright: true},
+	{dx: 0.16, vx: 1.6, vy: -20.24, color: 0, w: 1, h: 1},
+	{dx: 6.02, vx: 0.1, vy: -19.71, color: 1, w: 2, h: 1},
+	{dx: 1.62, vx: 0.07, vy: -13.58, color: 2, w: 2, h: 2},
+	{dx: 0.06, vx: 3.57, vy: -17.93, color: 3, w: 2, h: 1, bright: true},
+	{dx: -13.29, vx: -1.16, vy: -12.65, color: 4, w: 2, h: 1},
+	{dx: -14.96, vx: -0.3, vy: -16.16, color: 5, w: 1, h: 1, bright: true},
+	{dx: -9.87, vx: -3.05, vy: -12.87, color: 0, w: 2, h: 2, bright: true},
+	{dx: 10.91, vx: 3.09, vy: -14.66, color: 1, w: 2, h: 2, bright: true},
+	{dx: -1.82, vx: 1.93, vy: -18.46, color: 2, w: 2, h: 2},
+	{dx: 3.52, vx: 2.38, vy: -15.65, color: 3, w: 2, h: 1, bright: true},
+	{dx: 7.68, vx: -2.39, vy: -12.75, color: 4, w: 1, h: 1},
+	{dx: 4.1, vx: -0.56, vy: -17.3, color: 5, w: 2, h: 2},
+	// Second wave: a short beat later, so the motion reads for longer.
+	{dx: 7.41, vx: 2.89, vy: -17.79, delay: 0.32, color: 2, w: 1, h: 1, bright: true},
+	{dx: -13.45, vx: 2.14, vy: -16.47, delay: 0.31, color: 3, w: 1, h: 1},
+	{dx: -0.24, vx: 0.01, vy: -9.15, delay: 0.32, color: 4, w: 1, h: 1},
+	{dx: 9.84, vx: 1.75, vy: -12.37, delay: 0.35, color: 5, w: 1, h: 1, bright: true},
+	{dx: -6.64, vx: -2.39, vy: -14.06, delay: 0.37, color: 0, w: 1, h: 1},
+	{dx: -10.01, vx: 2.88, vy: -15.99, delay: 0.32, color: 1, w: 1, h: 1},
+	{dx: -0.21, vx: -2.96, vy: -11.99, delay: 0.31, color: 2, w: 1, h: 1, bright: true},
+	{dx: 11.82, vx: -0.71, vy: -13.69, delay: 0.31, color: 3, w: 1, h: 1},
+	{dx: 12.85, vx: -2.99, vy: -13.76, delay: 0.32, color: 4, w: 1, h: 1},
+	{dx: 13.55, vx: -1.59, vy: -13.47, delay: 0.34, color: 5, w: 1, h: 1, bright: true},
 }
 
 // Actions is the daemon API the widget uses.
@@ -380,13 +415,13 @@ func RenderBurstAt(st engine.State, pal theme.Theme, phase float64, width int, a
 func drawBurst(c *canvas.Canvas, pal theme.Theme, width int, age time.Duration) {
 	p := PaletteFor(pal, engine.State{Status: engine.Finished})
 	x := (width - BarCells) / 2
-	if age < burstFlash {
+	if age < barFlash {
 		for i := 0; i < BarCells; i++ {
 			t := 0.0
 			if BarCells > 1 {
 				t = float64(i) / float64(BarCells-1)
 			}
-			col := theme.Lerp(theme.Lerp(p.Top, p.Bottom, t), p.Head, 0.35)
+			col := theme.Lerp(theme.Lerp(p.Top, p.Bottom, t), p.Head, 0.45)
 			c.Set(x+i, barRow, ' ', canvas.Bg(col))
 		}
 		c.Set(x+BarCells-1, barRow, ' ', canvas.Bg(p.Head))
@@ -396,17 +431,26 @@ func drawBurst(c *canvas.Canvas, pal theme.Theme, width int, age time.Duration) 
 	if len(colors) == 0 {
 		colors = []color.RGBA{pal.Warn, pal.Danger, pal.Text}
 	}
-	t := age.Seconds()
+	ageSeconds := age.Seconds()
 	center := float64(width) / 2
 	for _, piece := range burstPieces {
+		t := ageSeconds - piece.delay
+		if t < 0 {
+			continue
+		}
 		col := colors[piece.color%len(colors)]
+		if piece.bright {
+			col = theme.Lerp(col, pal.Text, 0.4)
+		}
 		px := center + piece.dx + piece.vx*t
 		py := burstOriginY + piece.vy*t + 0.5*burstGravity*t*t
 		cellX, cellY := int(math.Round(px)), int(math.Round(py))
-		for i := 0; i < piece.width; i++ {
-			// Both colors: the widget painter draws BG and then FG, so a
-			// background-only piece would disappear under a digit's ink.
-			c.Set(cellX+i, cellY, ' ', canvas.Full(col, col))
+		for dy := 0; dy < piece.h; dy++ {
+			for dx := 0; dx < piece.w; dx++ {
+				// Both colors: the widget painter draws BG and then FG, so a
+				// background-only piece would disappear under a digit's ink.
+				c.Set(cellX+dx, cellY+dy, ' ', canvas.Full(col, col))
+			}
 		}
 	}
 }
