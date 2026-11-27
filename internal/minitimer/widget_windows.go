@@ -57,6 +57,7 @@ const (
 
 	timerID        = 1
 	timerInterval  = 250
+	burstInterval  = 33
 	pollInterval   = 500 * time.Millisecond
 	hideAfterClick = 1500 * time.Millisecond
 
@@ -145,6 +146,8 @@ type Widget struct {
 	layout      Layout
 	haveLayout  bool
 	visible     bool
+	fast        bool
+	placed      rect // taskbar rect used for the last placement
 	menuOpen    bool
 	hiddenUntil time.Time
 	finishWin   finishWindow
@@ -414,18 +417,44 @@ func (w *Widget) tick() {
 		if w.visible {
 			w.hide()
 		}
+		w.setPace(false)
 		return
 	}
+	w.setPace(w.bursting(now))
 
 	cell := w.cellSize()
 	layout := LayoutForState(cell, st)
-	w.layout = layout
-	w.haveLayout = true
-	w.place(layout)
+	if !w.visible || !w.haveLayout || layout != w.layout || w.tray.rect != w.placed {
+		w.layout = layout
+		w.haveLayout = true
+		w.place(layout)
+	}
 	if !w.visible {
 		w.show()
 	}
+	w.raise()
 	procInvalidateRect.Call(uintptr(w.hwnd), 0, 0)
+}
+
+// bursting reports whether the finish confetti is still on screen for the
+// current finish.
+func (w *Widget) bursting(now time.Time) bool {
+	return burstActive(w.finishWin.elapsed(now))
+}
+
+// setPace switches the repaint timer between the idle cadence and the finish
+// burst cadence. SetTimer keeps the ID but resets the interval, so only call
+// it when the pace really changes.
+func (w *Widget) setPace(fast bool) {
+	if w.fast == fast {
+		return
+	}
+	w.fast = fast
+	interval := uintptr(timerInterval)
+	if fast {
+		interval = burstInterval
+	}
+	procSetTimer.Call(uintptr(w.hwnd), timerID, interval, 0)
 }
 
 func (w *Widget) probe() (Environment, trayInfo) {
@@ -492,8 +521,16 @@ func (w *Widget) place(layout Layout) {
 		uintptr(w.hwnd), ^uintptr(0),
 		uintptr(x), uintptr(y), uintptr(layout.Width), uintptr(layout.Height),
 		swpNoActivate)
-	// Re-assert the topmost position without moving or resizing. The shell can
-	// bring its own topmost windows forward after a taskbar refresh.
+	w.placed = w.tray.rect
+	w.raise()
+}
+
+// raise re-asserts the topmost position without moving or resizing. The shell
+// can bring its own topmost windows forward after a taskbar refresh.
+func (w *Widget) raise() {
+	if w.hwnd == 0 {
+		return
+	}
 	procSetWindowPos.Call(
 		uintptr(w.hwnd), ^uintptr(0),
 		0, 0, 0, 0,
@@ -600,7 +637,12 @@ func (w *Widget) paint(hdc windows.Handle) {
 	cfg := w.actions.Config()
 	st := w.actions.Snapshot()
 	pal := theme.Get(cfg.Theme)
-	grid := RenderAt(st, pal, float64(time.Now().UnixMilli())/260, l.Cells)
+	now := time.Now()
+	age := -time.Second
+	if d, ok := w.finishWin.elapsed(now); ok {
+		age = d
+	}
+	grid := RenderBurstAt(st, pal, float64(now.UnixMilli())/260, l.Cells, age)
 
 	brush, _, _ := procGetStockObject.Call(dcBrush)
 	fillRect(hdc, brush, 0, 0, l.Width, l.Height, pal.Panel)

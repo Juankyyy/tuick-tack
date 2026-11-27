@@ -159,6 +159,51 @@ func TestFinishWindow(t *testing.T) {
 	}
 }
 
+func TestFinishWindowElapsed(t *testing.T) {
+	base := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
+	var w finishWindow
+	if _, ok := w.elapsed(base); ok {
+		t.Fatal("a window that never saw a finish reported an age")
+	}
+	w.observe(engine.State{Status: engine.Finished, FinishSeq: 7}, base)
+	if got, ok := w.elapsed(base.Add(750 * time.Millisecond)); !ok || got != 750*time.Millisecond {
+		t.Fatalf("elapsed = %v, %v, want 750ms, true", got, ok)
+	}
+	// Seeing the same finish again must not restart the burst clock.
+	w.observe(engine.State{Status: engine.Finished, FinishSeq: 7}, base.Add(2*time.Second))
+	if got, _ := w.elapsed(base.Add(2 * time.Second)); got != 2*time.Second {
+		t.Fatalf("the same finish restarted the clock at %v", got)
+	}
+	w.observe(engine.State{Status: engine.Finished, FinishSeq: 8}, base.Add(20*time.Second))
+	if got, _ := w.elapsed(base.Add(20 * time.Second)); got != 0 {
+		t.Fatalf("a new finish started at %v, want 0", got)
+	}
+	w.observe(engine.State{Status: engine.Idle}, base.Add(40*time.Second))
+	if _, ok := w.elapsed(base.Add(41 * time.Second)); ok {
+		t.Fatal("an idle state kept the finish clock")
+	}
+}
+
+func TestBurstActive(t *testing.T) {
+	tests := []struct {
+		name string
+		age  time.Duration
+		ok   bool
+		want bool
+	}{
+		{"no finish", 0, false, false},
+		{"before the finish", -time.Millisecond, true, false},
+		{"start", 0, true, true},
+		{"last frame", BurstDuration - time.Millisecond, true, true},
+		{"over", BurstDuration, true, false},
+	}
+	for _, tt := range tests {
+		if got := burstActive(tt.age, tt.ok); got != tt.want {
+			t.Errorf("%s: burstActive = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestTimeText(t *testing.T) {
 	tests := []struct {
 		state engine.State
@@ -296,6 +341,120 @@ func TestRenderPausedUsesWarn(t *testing.T) {
 	if got := c.At(barX, barRow).BG; got != p.Top {
 		t.Errorf("paused fill = %+v, want %+v", got, p.Top)
 	}
+}
+
+func TestRenderBurst(t *testing.T) {
+	pal := theme.Get("midnight")
+	st := engine.State{Status: engine.Finished, Duration: 5 * time.Minute}
+	calm := RenderAt(st, pal, 0, Cols)
+	running := engine.State{Status: engine.Running, Duration: time.Minute, Remaining: 30 * time.Second}
+	runningCalm := RenderAt(running, pal, 0, Cols)
+
+	tests := []struct {
+		name  string
+		state engine.State
+		age   time.Duration
+		calm  *canvas.Canvas
+		same  bool
+	}{
+		{"before the finish", st, -time.Millisecond, calm, true},
+		{"burst start", st, 0, calm, false},
+		{"mid burst", st, 700 * time.Millisecond, calm, false},
+		{"burst over", st, BurstDuration, calm, true},
+		{"after the burst", st, BurstDuration + time.Minute, calm, true},
+		{"not finished", running, 700 * time.Millisecond, runningCalm, true},
+	}
+	for _, tt := range tests {
+		got := RenderBurstAt(tt.state, pal, 0, Cols, tt.age)
+		if same := sameCanvas(got, tt.calm); same != tt.same {
+			t.Errorf("%s: same as the calm frame = %v, want %v", tt.name, same, tt.same)
+		}
+	}
+}
+
+func TestRenderBurstFlashesTheBar(t *testing.T) {
+	pal := theme.Get("ember")
+	st := engine.State{Status: engine.Finished, Duration: 5 * time.Minute}
+	calm := RenderAt(st, pal, 0, Cols)
+	c := RenderBurstAt(st, pal, 0, Cols, burstFlash/2)
+	barX := (Cols - BarCells) / 2
+	if c.At(barX, barRow) == calm.At(barX, barRow) {
+		t.Fatal("the burst did not lift the bar")
+	}
+	if got := c.At(barX+BarCells-1, barRow).BG; got != PaletteFor(pal, st).Head {
+		t.Errorf("the burst moved the bar head: %+v", got)
+	}
+}
+
+func TestRenderBurstCoversDigits(t *testing.T) {
+	pal := theme.Get("midnight")
+	st := engine.State{Status: engine.Finished, Duration: 5 * time.Minute}
+	calm := RenderAt(st, pal, 0, Cols)
+	c := RenderBurstAt(st, pal, 0, Cols, 700*time.Millisecond)
+	covered := 0
+	for y := 0; y < c.H; y++ {
+		for x := 0; x < c.W; x++ {
+			before, after := calm.At(x, y), c.At(x, y)
+			if before == after {
+				continue
+			}
+			// The widget painter draws BG and then FG, so a piece over a
+			// digit must carry both colors to stay visible.
+			if !after.HasFG || after.FG != after.BG {
+				t.Fatalf("cell %d,%d is not a solid burst block: %+v", x, y, after)
+			}
+			if before.HasFG {
+				covered++
+			}
+		}
+	}
+	if covered == 0 {
+		t.Fatal("the burst did not paint over any digit cell")
+	}
+}
+
+func TestRenderBurstDeterministic(t *testing.T) {
+	pal := theme.Get("midnight")
+	st := engine.State{Status: engine.Finished, Duration: time.Minute}
+	age := 450 * time.Millisecond
+	if !sameCanvas(RenderBurstAt(st, pal, 0, Cols, age), RenderBurstAt(st, pal, 0, Cols, age)) {
+		t.Fatal("the burst is not deterministic")
+	}
+}
+
+func TestRenderBurstKeepsTheBarCentred(t *testing.T) {
+	pal := theme.Get("mono")
+	st := engine.State{Status: engine.Finished, Duration: 24 * time.Hour, FinishSeq: 1}
+	calm := RenderAt(st, pal, 0, 47)
+	c := RenderBurstAt(st, pal, 0, 47, burstFlash/2)
+	if c.W != 47 {
+		t.Fatalf("canvas width = %d, want 47", c.W)
+	}
+	barX := (47 - BarCells) / 2
+	if c.At(barX, barRow) == calm.At(barX, barRow) {
+		t.Error("the burst did not lift the centred bar")
+	}
+	for y := 0; y < c.H; y++ {
+		for x := 0; x < c.W; x++ {
+			if ch := c.At(x, y).Ch; ch != ' ' && ch != '█' {
+				t.Fatalf("cell %d,%d has glyph %q", x, y, ch)
+			}
+		}
+	}
+}
+
+func sameCanvas(a, b *canvas.Canvas) bool {
+	if a.W != b.W || a.H != b.H {
+		return false
+	}
+	for y := 0; y < a.H; y++ {
+		for x := 0; x < a.W; x++ {
+			if a.At(x, y) != b.At(x, y) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func hasInk(c *canvas.Canvas) bool {

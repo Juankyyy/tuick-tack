@@ -63,6 +63,62 @@ func (f *finishWindow) closed(now time.Time) bool {
 	return !f.at.IsZero() && now.Sub(f.at) >= FinishedHold
 }
 
+// elapsed is the time since the current finish began, reused as the finish
+// burst clock so the widget has a single source of truth for the event.
+func (f *finishWindow) elapsed(now time.Time) (time.Duration, bool) {
+	if f.at.IsZero() {
+		return 0, false
+	}
+	return now.Sub(f.at), true
+}
+
+// burstActive reports whether a finish age is inside the confetti window.
+func burstActive(age time.Duration, ok bool) bool {
+	return ok && age >= 0 && age < BurstDuration
+}
+
+// BurstDuration is how long the finish confetti is painted. The fixed table
+// empties the grid in about 1.3 s; the tail covers the slowest piece.
+const BurstDuration = 1400 * time.Millisecond
+
+// burstFlash lifts the completed bar for the first moments of the burst.
+const burstFlash = 100 * time.Millisecond
+
+// burstOriginY is the bar row the pieces start from, in canvas rows.
+const burstOriginY = 8.2
+
+// burstGravity pulls the pieces back down, in cells per second squared. It is
+// tuned so no piece leaves the nine-row grid through the top.
+const burstGravity = 36.0
+
+// burstPiece is one confetti piece: an offset from the canvas centre, a
+// velocity in cells per second, a palette index and a width in cells. The
+// table is fixed, so the same age always paints the same frame.
+type burstPiece struct {
+	dx, vx, vy float64
+	color      int
+	width      int
+}
+
+var burstPieces = [...]burstPiece{
+	{-13, -4.5, -16, 0, 1},
+	{-11, -2.5, -20, 1, 1},
+	{-9, -1, -13, 2, 1},
+	{-7, 0.5, -18, 3, 1},
+	{-5, 2, -14, 4, 1},
+	{-3, 3.5, -21, 5, 1},
+	{-1, -3, -12, 2, 2},
+	{1, 4.5, -17, 0, 1},
+	{3, -1.5, -19, 1, 1},
+	{5, 1, -15, 3, 1},
+	{7, 2.5, -22, 4, 1},
+	{9, -2, -13, 2, 1},
+	{11, 0, -16, 5, 2},
+	{13, -3.5, -18, 0, 1},
+	{15, 3, -12, 1, 1},
+	{-14, 1.5, -19, 4, 1},
+}
+
 // Actions is the daemon API the widget uses.
 type Actions interface {
 	Snapshot() engine.State
@@ -301,4 +357,56 @@ func RenderAt(st engine.State, pal theme.Theme, phase float64, width int) *canva
 		c.Set(x+filled-1, barRow, ' ', canvas.Bg(p.Head))
 	}
 	return c
+}
+
+// RenderBurstAt is RenderAt plus the finish confetti at age, the time since
+// the countdown crossed zero. Negative ages, states other than finished and
+// ages past BurstDuration render the calm screen.
+func RenderBurstAt(st engine.State, pal theme.Theme, phase float64, width int, age time.Duration) *canvas.Canvas {
+	c := RenderAt(st, pal, phase, width)
+	if st.Status != engine.Finished || age < 0 || age >= BurstDuration {
+		return c
+	}
+	if width < Cols {
+		width = Cols
+	}
+	drawBurst(c, pal, width, age)
+	return c
+}
+
+// drawBurst paints the bar flash and the confetti pieces. Cells are whole
+// blocks of color: the widget has no alpha, so no piece blends with what is
+// behind it.
+func drawBurst(c *canvas.Canvas, pal theme.Theme, width int, age time.Duration) {
+	p := PaletteFor(pal, engine.State{Status: engine.Finished})
+	x := (width - BarCells) / 2
+	if age < burstFlash {
+		for i := 0; i < BarCells; i++ {
+			t := 0.0
+			if BarCells > 1 {
+				t = float64(i) / float64(BarCells-1)
+			}
+			col := theme.Lerp(theme.Lerp(p.Top, p.Bottom, t), p.Head, 0.35)
+			c.Set(x+i, barRow, ' ', canvas.Bg(col))
+		}
+		c.Set(x+BarCells-1, barRow, ' ', canvas.Bg(p.Head))
+	}
+
+	colors := pal.Confetti
+	if len(colors) == 0 {
+		colors = []color.RGBA{pal.Warn, pal.Danger, pal.Text}
+	}
+	t := age.Seconds()
+	center := float64(width) / 2
+	for _, piece := range burstPieces {
+		col := colors[piece.color%len(colors)]
+		px := center + piece.dx + piece.vx*t
+		py := burstOriginY + piece.vy*t + 0.5*burstGravity*t*t
+		cellX, cellY := int(math.Round(px)), int(math.Round(py))
+		for i := 0; i < piece.width; i++ {
+			// Both colors: the widget painter draws BG and then FG, so a
+			// background-only piece would disappear under a digit's ink.
+			c.Set(cellX+i, cellY, ' ', canvas.Full(col, col))
+		}
+	}
 }
