@@ -31,6 +31,38 @@ const (
 	maxCell  = 6
 )
 
+// FinishedHold is how long the finished 00:00 stays on screen after the
+// countdown ends. It matches the TUI's ten-second auto-close of the
+// celebration, so the overlay dismisses itself with or without the TUI open.
+const FinishedHold = 10 * time.Second
+
+// finishWindow tracks the finished screen's ten-second window. The engine
+// keeps the finished state until someone dismisses it, so the widget needs its
+// own deadline to hide the overlay on its own.
+type finishWindow struct {
+	seq int64
+	at  time.Time
+}
+
+// observe starts the window the first time the widget sees the current finish.
+// A new FinishSeq restarts it and leaving the finished state clears it.
+func (f *finishWindow) observe(st engine.State, now time.Time) {
+	if st.Status != engine.Finished {
+		f.seq = 0
+		f.at = time.Time{}
+		return
+	}
+	if f.at.IsZero() || f.seq != st.FinishSeq {
+		f.seq = st.FinishSeq
+		f.at = now
+	}
+}
+
+// closed reports whether the finished screen has outlived FinishedHold.
+func (f *finishWindow) closed(now time.Time) bool {
+	return !f.at.IsZero() && now.Sub(f.at) >= FinishedHold
+}
+
 // Actions is the daemon API the widget uses.
 type Actions interface {
 	Snapshot() engine.State

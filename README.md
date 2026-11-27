@@ -165,7 +165,9 @@ The **Mini timer** checkbox in the tray turns it on or off and is saved in the c
 on by default. Press `M` in the TUI to toggle it without opening the tray, or use **Hide mini
 timer** in the overlay's context menu.
 
-The widget appears while a countdown is running, paused or finished. It hides in idle, when
+The widget appears while a countdown is running, paused or finished. When the countdown
+finishes, the `00:00` screen stays for ten seconds and then the widget hides itself, matching
+the TUI celebration's auto-close; starting another timer brings it back. It hides in idle, when
 the TUI window has focus, when the taskbar is auto-hidden or in fullscreen, and when a Start
 menu or shell flyout is in front. Left click opens or focuses the TUI; right click offers
 Open, Pause/Resume, Stop and **Hide mini timer**. It is an independent overlay, not an

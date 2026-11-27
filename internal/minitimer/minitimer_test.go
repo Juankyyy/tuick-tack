@@ -105,6 +105,60 @@ func TestShouldShow(t *testing.T) {
 	}
 }
 
+func TestFinishWindow(t *testing.T) {
+	base := time.Date(2026, 11, 27, 10, 0, 0, 0, time.UTC)
+	finished := func(seq int64) engine.State {
+		return engine.State{Status: engine.Finished, FinishSeq: seq}
+	}
+
+	var w finishWindow
+	if w.closed(base) {
+		t.Fatal("a window that never saw a finish reports closed")
+	}
+	w.observe(engine.State{Status: engine.Running}, base)
+	if !w.at.IsZero() || w.closed(base.Add(time.Hour)) {
+		t.Fatal("a running state started the finished window")
+	}
+
+	w.observe(finished(1), base)
+	tests := []struct {
+		name string
+		at   time.Time
+		want bool
+	}{
+		{"start", base, false},
+		{"below hold", base.Add(FinishedHold - time.Millisecond), false},
+		{"at hold", base.Add(FinishedHold), true},
+		{"after hold", base.Add(FinishedHold + time.Minute), true},
+	}
+	for _, tt := range tests {
+		if got := w.closed(tt.at); got != tt.want {
+			t.Errorf("%s: closed = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+
+	// Seeing the same finish again must keep the original deadline.
+	w.observe(finished(1), base.Add(5*time.Second))
+	if !w.closed(base.Add(FinishedHold)) {
+		t.Fatal("the same finish restarted the window")
+	}
+
+	// A new finish gets its own window.
+	w.observe(finished(2), base.Add(20*time.Second))
+	if w.closed(base.Add(20*time.Second + FinishedHold - time.Millisecond)) {
+		t.Fatal("a new finish closed before its hold")
+	}
+	if !w.closed(base.Add(20*time.Second + FinishedHold)) {
+		t.Fatal("a new finish did not restart the window")
+	}
+
+	// Leaving the finished state clears the window.
+	w.observe(engine.State{Status: engine.Idle}, base.Add(40*time.Second))
+	if w.closed(base.Add(time.Hour)) {
+		t.Fatal("an idle state kept the finished window")
+	}
+}
+
 func TestTimeText(t *testing.T) {
 	tests := []struct {
 		state engine.State

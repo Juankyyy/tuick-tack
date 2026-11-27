@@ -147,6 +147,7 @@ type Widget struct {
 	visible     bool
 	menuOpen    bool
 	hiddenUntil time.Time
+	finishWin   finishWindow
 	env         Environment
 	tray        trayInfo
 	envAt       time.Time
@@ -406,7 +407,9 @@ func (w *Widget) tick() {
 
 	st := w.actions.Snapshot()
 	cfg := w.actions.Config()
-	show := ShouldShow(cfg.MiniTimer, st, w.env) && now.After(w.hiddenUntil)
+	w.finishWin.observe(st, now)
+	show := ShouldShow(cfg.MiniTimer, st, w.env) && now.After(w.hiddenUntil) &&
+		!w.finishWin.closed(now)
 	if !show {
 		if w.visible {
 			w.hide()
