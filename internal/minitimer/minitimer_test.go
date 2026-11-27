@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"tuick-tack/internal/engine"
+	"tuick-tack/internal/tui/bigfont"
 	"tuick-tack/internal/tui/canvas"
+	"tuick-tack/internal/tui/copy"
 	"tuick-tack/internal/tui/theme"
 )
 
@@ -365,7 +367,7 @@ func TestBurstGlow(t *testing.T) {
 	}
 }
 
-func TestTimeText(t *testing.T) {
+func TestText(t *testing.T) {
 	tests := []struct {
 		state engine.State
 		want  string
@@ -374,12 +376,26 @@ func TestTimeText(t *testing.T) {
 		{engine.State{Status: engine.Running, Remaining: 4*time.Minute + 32*time.Second}, "04:32"},
 		{engine.State{Status: engine.Paused, Remaining: 90 * time.Second}, "01:30"},
 		{engine.State{Status: engine.Running, Remaining: time.Hour + 2*time.Minute + 3*time.Second}, "1:02:03"},
-		{engine.State{Status: engine.Finished}, "00:00"},
+		{engine.State{Status: engine.Finished}, copy.T(copy.HeroDone)},
 	}
 	for _, tt := range tests {
-		if got := TimeText(tt.state); got != tt.want {
-			t.Errorf("TimeText(%+v) = %q, want %q", tt.state, got, tt.want)
+		if got := Text(tt.state); got != tt.want {
+			t.Errorf("Text(%+v) = %q, want %q", tt.state, got, tt.want)
 		}
+	}
+}
+
+func TestFinishedWordFits(t *testing.T) {
+	word := copy.T(copy.HeroDone)
+	if word != "DONE!" {
+		t.Fatalf("finish word = %q, want the TUI celebration word", word)
+	}
+	w := bigfont.WidthProportional(word, 1)
+	if w > Cols {
+		t.Fatalf("finish word %q spans %d columns, want at most %d", word, w, Cols)
+	}
+	if got := WidthCells(engine.State{Status: engine.Finished}); got != Cols {
+		t.Errorf("WidthCells(finished) = %d, want the base %d columns", got, Cols)
 	}
 }
 
@@ -501,8 +517,9 @@ func TestRenderFinished(t *testing.T) {
 	pal := theme.Get("ember")
 	st := engine.State{Status: engine.Finished, Duration: 5 * time.Minute}
 	c := Render(st, pal, 0)
-	if TimeText(st) != "00:00" {
-		t.Fatalf("finished text = %q", TimeText(st))
+	word := copy.T(copy.HeroDone)
+	if Text(st) != word {
+		t.Fatalf("finished text = %q, want %q", Text(st), word)
 	}
 	p := PaletteFor(pal, st)
 	barX := (Cols - BarCells) / 2
@@ -513,6 +530,15 @@ func TestRenderFinished(t *testing.T) {
 	}
 	if got := c.At(barX+BarCells-1, barRow).BG; got != p.Head {
 		t.Errorf("finished head = %+v, want %+v", got, p.Head)
+	}
+	// The word is proportional and centred, so the D starts at
+	// (42-25)/2 = 8; a monospaced draw would start at 6.
+	wantX := (Cols - bigfont.WidthProportional(word, 1)) / 2
+	if !c.At(wantX, 0).HasFG {
+		t.Errorf("finished word does not start at column %d", wantX)
+	}
+	if c.At(wantX-1, 0).HasFG {
+		t.Errorf("finished word keeps a blank side bearing at column %d", wantX-1)
 	}
 }
 

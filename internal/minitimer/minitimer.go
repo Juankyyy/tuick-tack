@@ -15,6 +15,7 @@ import (
 	"tuick-tack/internal/engine"
 	"tuick-tack/internal/tui/bigfont"
 	"tuick-tack/internal/tui/canvas"
+	"tuick-tack/internal/tui/copy"
 	"tuick-tack/internal/tui/theme"
 )
 
@@ -35,7 +36,7 @@ const (
 	padCells = 2
 )
 
-// FinishedHold is how long the finished 00:00 stays on screen after the
+// FinishedHold is how long the finished screen stays on screen after the
 // countdown ends. It matches the TUI's ten-second auto-close of the
 // celebration, so the overlay dismisses itself with or without the TUI open.
 const FinishedHold = 10 * time.Second
@@ -187,15 +188,25 @@ type Layout struct {
 	Height int
 }
 
-// WidthCells returns the glyph columns needed by the current time. The base
-// grid fits MM:SS and one-digit hours; two-digit hours need 47 columns and grow
-// the window to 155 px at 100 %.
+// WidthCells returns the glyph columns needed by the current text. The base
+// grid fits MM:SS, one-digit hours and the finish word; two-digit hours need 47
+// columns and grow the window to 155 px at 100 %.
 func WidthCells(st engine.State) int {
-	n := bigfont.Width(TimeText(st), 1)
+	n := textWidth(st)
 	if n < Cols {
 		return Cols
 	}
 	return n
+}
+
+// textWidth is the drawn width of Text. The clock stays monospaced so the
+// digits do not jitter; the finish word trims its side bearings like the TUI
+// hero.
+func textWidth(st engine.State) int {
+	if st.Status == engine.Finished {
+		return bigfont.WidthProportional(Text(st), 1)
+	}
+	return bigfont.Width(Text(st), 1)
 }
 
 // CellForDPI maps a Windows DPI to the pixel size of one font cell. Whole
@@ -411,12 +422,16 @@ func ShouldShow(enabled bool, st engine.State, env Environment) bool {
 	return true
 }
 
-// TimeText is the only text the widget shows: the remaining time, or 00:00
-// when the countdown has finished.
-func TimeText(st engine.State) string {
+// Text is what the widget shows in the glyph row: the remaining time, or the
+// finish word when the countdown has ended. The word comes from the same copy
+// package as the TUI celebration and must fit the 5x7 font and the 42-column
+// base grid; TestFinishedWordFits guards both.
+func Text(st engine.State) string {
 	switch st.Status {
-	case engine.Running, engine.Paused, engine.Finished:
+	case engine.Running, engine.Paused:
 		return duration.Format(st.Remaining)
+	case engine.Finished:
+		return copy.T(copy.HeroDone)
 	default:
 		return ""
 	}
@@ -496,9 +511,10 @@ func hoverFrame(panel, border, accent color.RGBA, amount float64) (color.RGBA, c
 		theme.Lerp(border, accent, hoverBorderMix*amount)
 }
 
-// Render builds the small canvas: the remaining time in the 5x7 block font and
-// the progress bar. phase drives the optional last-ten-seconds pulse; callers
-// pass a monotonically increasing value (for example Unix milliseconds / 260).
+// Render builds the small canvas: the remaining time (or the finish word) in
+// the 5x7 block font and the progress bar. phase drives the optional
+// last-ten-seconds pulse; callers pass a monotonically increasing value (for
+// example Unix milliseconds / 260).
 func Render(st engine.State, pal theme.Theme, phase float64) *canvas.Canvas {
 	return RenderAt(st, pal, phase, WidthCells(st))
 }
@@ -519,17 +535,18 @@ func RenderAt(st engine.State, pal theme.Theme, phase float64, width int) *canva
 		p.Bottom = theme.Pulse(pal.Danger, pal.Warn, phase)
 	}
 
-	if text := TimeText(st); text != "" {
-		x := (width - bigfont.Width(text, 1)) / 2
+	if text := Text(st); text != "" {
+		x := (width - textWidth(st)) / 2
 		if x < 0 {
 			x = 0
 		}
 		bigfont.Draw(c, x, 0, text, bigfont.Options{
-			Scale:     1,
-			Top:       p.Top,
-			Bottom:    p.Bottom,
-			Shadow:    p.Shadow,
-			HasShadow: true,
+			Scale:        1,
+			Top:          p.Top,
+			Bottom:       p.Bottom,
+			Shadow:       p.Shadow,
+			HasShadow:    true,
+			Proportional: st.Status == engine.Finished,
 		})
 	}
 
