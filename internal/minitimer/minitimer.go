@@ -19,7 +19,7 @@ import (
 )
 
 // Grid and pixel layout. A cell is 3 px at 100% DPI; the 42x9 glyph grid plus
-// one cell of top padding is 128x30 px with a 1 px side border.
+// the preferred two cells of padding and the 1 px borders is 140x41 px.
 const (
 	Cols     = 42
 	Rows     = 9
@@ -29,6 +29,10 @@ const (
 	baseCell = 3
 	minCell  = 3
 	maxCell  = 6
+
+	// padCells is the padding around the grid, in cells. LayoutForTray drops
+	// it to one cell on short taskbars so the widget still fits.
+	padCells = 2
 )
 
 // FinishedHold is how long the finished 00:00 stays on screen after the
@@ -178,13 +182,14 @@ type Environment struct {
 type Layout struct {
 	Cell   int
 	Cells  int
+	Pad    int
 	Width  int
 	Height int
 }
 
 // WidthCells returns the glyph columns needed by the current time. The base
 // grid fits MM:SS and one-digit hours; two-digit hours need 47 columns and grow
-// the window to 143 px at 100 %.
+// the window to 155 px at 100 %.
 func WidthCells(st engine.State) int {
 	n := bigfont.Width(TimeText(st), 1)
 	if n < Cols {
@@ -199,49 +204,83 @@ func CellForDPI(dpi int) int {
 	if dpi <= 0 {
 		dpi = 96
 	}
-	cell := int(math.Round(float64(dpi) * baseCell / 96))
-	if cell < minCell {
-		cell = minCell
-	}
-	if cell > maxCell {
-		cell = maxCell
-	}
-	return cell
+	return clampCell(int(math.Round(float64(dpi) * baseCell / 96)))
 }
 
 // LayoutFor returns the base window geometry for a cell size.
 func LayoutFor(cell int) Layout {
-	return layoutForCells(cell, Cols)
+	return layoutForCells(cell, Cols, padCells)
 }
 
 // LayoutForState returns the geometry needed by the current countdown.
 func LayoutForState(cell int, st engine.State) Layout {
-	return layoutForCells(cell, WidthCells(st))
+	return layoutForCells(cell, WidthCells(st), padCells)
 }
 
-func layoutForCells(cell, cells int) Layout {
+// LayoutForTray is LayoutForState with the padding cut to what fits in a
+// taskbar of the given height. A zero height means the taskbar is unknown and
+// the preferred padding is kept.
+func LayoutForTray(cell int, st engine.State, trayHeight int) Layout {
+	return layoutForCells(cell, WidthCells(st), padForTray(cell, trayHeight))
+}
+
+// padForTray keeps the preferred padding when the window fits with two pixels
+// of slack and falls back to one cell otherwise (a 40 px taskbar at 100 %, or
+// 50 px at 125 %).
+func padForTray(cell, trayHeight int) int {
+	if trayHeight <= 0 {
+		return padCells
+	}
+	cell = clampCell(cell)
+	for pad := padCells; pad > 1; pad-- {
+		if (Rows+2*pad)*cell+2 <= trayHeight-2 {
+			return pad
+		}
+	}
+	return 1
+}
+
+func clampCell(cell int) int {
 	if cell < minCell {
-		cell = minCell
+		return minCell
 	}
 	if cell > maxCell {
-		cell = maxCell
+		return maxCell
 	}
+	return cell
+}
+
+// cornerRadius is the window corner radius in pixels. One cell keeps the
+// rounding subtle and scales with the DPI.
+func cornerRadius(cell int) int {
+	return clampCell(cell)
+}
+
+func layoutForCells(cell, cells, pad int) Layout {
+	cell = clampCell(cell)
 	if cells < Cols {
 		cells = Cols
+	}
+	if pad < 1 {
+		pad = 1
+	}
+	if pad > padCells {
+		pad = padCells
 	}
 	return Layout{
 		Cell:   cell,
 		Cells:  cells,
-		Width:  cells*cell + 2, // 1 px border on each side
-		Height: (Rows + 1) * cell,
+		Pad:    pad,
+		Width:  (cells+2*pad)*cell + 2, // 1 px border on each side
+		Height: (Rows+2*pad)*cell + 2,  // 1 px border on the top and bottom
 	}
 }
 
 // ContentX is the left edge of the glyph grid inside the window.
-func (l Layout) ContentX() int { return 1 }
+func (l Layout) ContentX() int { return 1 + l.Pad*l.Cell }
 
 // ContentY is the top edge of the glyph grid inside the window.
-func (l Layout) ContentY() int { return l.Cell }
+func (l Layout) ContentY() int { return 1 + l.Pad*l.Cell }
 
 // ShouldShow is the visibility matrix: an enabled widget only appears over a
 // horizontal taskbar while a countdown is active, the desktop is available and

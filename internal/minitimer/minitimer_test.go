@@ -24,16 +24,29 @@ func TestCellForDPI(t *testing.T) {
 	}
 }
 
+func TestCornerRadius(t *testing.T) {
+	tests := []struct {
+		cell, want int
+	}{
+		{0, minCell}, {2, minCell}, {3, 3}, {4, 4}, {5, 5}, {6, 6}, {9, maxCell},
+	}
+	for _, tt := range tests {
+		if got := cornerRadius(tt.cell); got != tt.want {
+			t.Errorf("cornerRadius(%d) = %d, want %d", tt.cell, got, tt.want)
+		}
+	}
+}
+
 func TestLayoutFor(t *testing.T) {
 	tests := []struct {
 		cell int
 		w, h int
 	}{
-		{2, 128, 30},
-		{3, 128, 30},
-		{4, 170, 40},
-		{5, 212, 50},
-		{7, 254, 60},
+		{2, 140, 41},
+		{3, 140, 41},
+		{4, 186, 54},
+		{5, 232, 67},
+		{7, 278, 80},
 	}
 	for _, tt := range tests {
 		got := LayoutFor(tt.cell)
@@ -42,8 +55,35 @@ func TestLayoutFor(t *testing.T) {
 				tt.cell, got.Width, got.Height, tt.w, tt.h)
 		}
 	}
-	if got := LayoutFor(3); got.ContentX() != 1 || got.ContentY() != 3 || got.Cells != Cols {
-		t.Errorf("base layout = %+v, want content 1,3 and %d cells", got, Cols)
+	if got := LayoutFor(3); got.ContentX() != 7 || got.ContentY() != 7 ||
+		got.Cells != Cols || got.Pad != padCells {
+		t.Errorf("base layout = %+v, want content 7,7, %d cells and pad %d", got, Cols, padCells)
+	}
+}
+
+func TestLayoutForTray(t *testing.T) {
+	st := engine.State{Status: engine.Running, Remaining: 5 * time.Minute}
+	tests := []struct {
+		name       string
+		cell, tray int
+		pad, h     int
+	}{
+		{"unknown taskbar", 3, 0, 2, 41},
+		{"48 px taskbar", 3, 48, 2, 41},
+		{"40 px taskbar", 3, 40, 1, 35},
+		{"50 px at 125%", 4, 50, 1, 46},
+		{"60 px at 150%", 5, 60, 1, 57},
+		{"72 px at 150%", 5, 72, 2, 67},
+	}
+	for _, tt := range tests {
+		got := LayoutForTray(tt.cell, st, tt.tray)
+		if got.Pad != tt.pad || got.Height != tt.h {
+			t.Errorf("%s: LayoutForTray = pad %d, height %d, want pad %d, height %d",
+				tt.name, got.Pad, got.Height, tt.pad, tt.h)
+		}
+		if tt.tray > 0 && got.Height > tt.tray-2 {
+			t.Errorf("%s: height %d does not fit a %d px taskbar", tt.name, got.Height, tt.tray)
+		}
 	}
 }
 
@@ -68,8 +108,8 @@ func TestWidthCells(t *testing.T) {
 func TestLayoutForState(t *testing.T) {
 	st := engine.State{Status: engine.Running, Remaining: 10 * time.Hour}
 	got := LayoutForState(3, st)
-	if got.Cells != 47 || got.Width != 143 || got.Height != 30 {
-		t.Fatalf("LayoutForState = %+v, want 47 cells, 143x30", got)
+	if got.Cells != 47 || got.Width != 155 || got.Height != 41 || got.Pad != padCells {
+		t.Fatalf("LayoutForState = %+v, want 47 cells, pad %d, 155x41", got, padCells)
 	}
 }
 

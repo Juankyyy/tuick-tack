@@ -63,6 +63,7 @@ const (
 
 	monitorDefaultToNearest = 2
 	dcBrush                 = 18
+	nullPen                 = 8
 	idcArrow                = 32512
 
 	menuOpenID  = 1
@@ -121,6 +122,7 @@ var (
 	procGetDpiForWindow     = user32.NewProc("GetDpiForWindow")
 	procGetDpiForSystem     = user32.NewProc("GetDpiForSystem")
 	procFillRect            = user32.NewProc("FillRect")
+	procSetWindowRgn        = user32.NewProc("SetWindowRgn")
 
 	procGetModuleHandleW = kernel32.NewProc("GetModuleHandleW")
 
@@ -134,6 +136,8 @@ var (
 	procDeleteDC               = gdi32.NewProc("DeleteDC")
 	procBitBlt                 = gdi32.NewProc("BitBlt")
 	procGdiFlush               = gdi32.NewProc("GdiFlush")
+	procCreateRoundRectRgn     = gdi32.NewProc("CreateRoundRectRgn")
+	procRoundRect              = gdi32.NewProc("RoundRect")
 
 	procSHQueryUserNotificationState = shell32.NewProc("SHQueryUserNotificationState")
 	procSHAppBarMessage              = shell32.NewProc("SHAppBarMessage")
@@ -441,7 +445,7 @@ func (w *Widget) tick() {
 	w.setPace(w.bursting(now))
 
 	cell := w.cellSize()
-	layout := LayoutForState(cell, st)
+	layout := w.layoutFor(cell, st)
 	if !w.visible || !w.haveLayout || layout != w.layout || w.tray.rect != w.placed {
 		w.layout = layout
 		w.haveLayout = true
@@ -524,6 +528,16 @@ func (w *Widget) cellSize() int {
 	return CellForDPI(dpi)
 }
 
+// layoutFor is the current geometry: the cell size from the window DPI and the
+// padding that fits the taskbar height.
+func (w *Widget) layoutFor(cell int, st engine.State) Layout {
+	height := 0
+	if w.tray.ok {
+		height = int(w.tray.rect.Bottom - w.tray.rect.Top)
+	}
+	return LayoutForTray(cell, st, height)
+}
+
 func (w *Widget) place(layout Layout) {
 	if !w.tray.ok {
 		return
@@ -540,7 +554,28 @@ func (w *Widget) place(layout Layout) {
 		uintptr(x), uintptr(y), uintptr(layout.Width), uintptr(layout.Height),
 		swpNoActivate)
 	w.placed = w.tray.rect
+	w.shape(layout)
 	w.raise()
+}
+
+// shape rounds the window corners with a per-window region. The region clips
+// the frame, so the taskbar shows through the corners; paint draws the 1 px
+// border following the same radius.
+func (w *Widget) shape(layout Layout) {
+	if w.hwnd == 0 {
+		return
+	}
+	radius := uintptr(2 * cornerRadius(layout.Cell))
+	rgn, _, _ := procCreateRoundRectRgn.Call(
+		0, 0, uintptr(layout.Width), uintptr(layout.Height), radius, radius)
+	if rgn == 0 {
+		procSetWindowRgn.Call(uintptr(w.hwnd), 0, 1)
+		return
+	}
+	if ok, _, _ := procSetWindowRgn.Call(uintptr(w.hwnd), rgn, 1); ok == 0 {
+		procDeleteObject.Call(rgn)
+		procSetWindowRgn.Call(uintptr(w.hwnd), 0, 1)
+	}
 }
 
 // raise re-asserts the topmost position without moving or resizing. The shell
@@ -648,7 +683,7 @@ func appendMenu(menu uintptr, flags uintptr, id uintptr, text string) {
 
 func (w *Widget) paint(hdc windows.Handle) {
 	if !w.haveLayout {
-		w.layout = LayoutForState(w.cellSize(), w.actions.Snapshot())
+		w.layout = w.layoutFor(w.cellSize(), w.actions.Snapshot())
 		w.haveLayout = true
 	}
 	l := w.layout
@@ -680,11 +715,21 @@ func (w *Widget) paint(hdc windows.Handle) {
 
 	brush, _, _ := procGetStockObject.Call(dcBrush)
 	fillRect(target, brush, 0, 0, l.Width, l.Height, panel)
-	// 1 px border; the bar can overdraw the bottom pixel inside its width.
-	fillRect(target, brush, 0, 0, l.Width, 1, border)
-	fillRect(target, brush, 0, l.Height-1, l.Width, 1, border)
-	fillRect(target, brush, 0, 0, 1, l.Height, border)
-	fillRect(target, brush, l.Width-1, 0, 1, l.Height, border)
+
+	// 1 px rounded border: the outer RoundRect paints the ring and the inset
+	// one restores the panel, so the border follows the corner arcs.
+	pen, _, _ := procGetStockObject.Call(nullPen)
+	procSelectObject.Call(uintptr(target), brush)
+	procSelectObject.Call(uintptr(target), pen)
+	radius := uintptr(2 * cornerRadius(l.Cell))
+	inner := radius - 2
+	if inner < 2 {
+		inner = 2
+	}
+	procSetDCBrushColor.Call(uintptr(target), colorRef(border))
+	procRoundRect.Call(uintptr(target), 0, 0, uintptr(l.Width), uintptr(l.Height), radius, radius)
+	procSetDCBrushColor.Call(uintptr(target), colorRef(panel))
+	procRoundRect.Call(uintptr(target), 1, 1, uintptr(l.Width-1), uintptr(l.Height-1), inner, inner)
 
 	x0, y0 := l.ContentX(), l.ContentY()
 	for y := 0; y < grid.H; y++ {
