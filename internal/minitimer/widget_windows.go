@@ -27,9 +27,11 @@ const (
 	wmClose         = 0x0010
 	wmPaint         = 0x000F
 	wmEraseBkgnd    = 0x0014
+	wmMouseMove     = 0x0200
 	wmTimer         = 0x0113
 	wmLButtonUp     = 0x0202
 	wmRButtonUp     = 0x0205
+	wmMouseLeave    = 0x02A3
 	wmDisplayChange = 0x007E
 	wmSettingChange = 0x001A
 	wmDPIChanged    = 0x02E0
@@ -71,7 +73,8 @@ const (
 	monitorDefaultToNearest = 2
 	dcBrush                 = 18
 	nullPen                 = 8
-	idcArrow                = 32512
+	idcHand                 = 32649
+	tmeLeave                = 0x00000002
 
 	menuOpenID  = 1
 	menuPauseID = 2
@@ -119,6 +122,7 @@ var (
 	procIsWindowVisible            = user32.NewProc("IsWindowVisible")
 	procGetCursorPos               = user32.NewProc("GetCursorPos")
 	procLoadCursorW                = user32.NewProc("LoadCursorW")
+	procTrackMouseEvent            = user32.NewProc("TrackMouseEvent")
 	procMonitorFromWindow          = user32.NewProc("MonitorFromWindow")
 	procGetMonitorInfoW            = user32.NewProc("GetMonitorInfoW")
 	procCreatePopupMenu            = user32.NewProc("CreatePopupMenu")
@@ -174,6 +178,8 @@ type Widget struct {
 	animations  bool
 	alpha       uint8
 	alphaSet    bool
+	hover       bool
+	hoverFade   fadeState
 	placed      rect // taskbar rect used for the last placement
 	menuOpen    bool
 	hiddenUntil time.Time
@@ -211,6 +217,14 @@ type msg struct {
 	Time     uint32
 	Pt       point
 	LPrivate uint32
+}
+
+// trackMouseEvent mirrors TRACKMOUSEEVENT for WM_MOUSELEAVE tracking.
+type trackMouseEvent struct {
+	Size      uint32
+	Flags     uint32
+	HwndTrack windows.Handle
+	HoverTime uint32
 }
 
 type wndClassEx struct {
@@ -336,7 +350,7 @@ func (w *Widget) create() error {
 	if err != nil {
 		return err
 	}
-	cursor, _, _ := procLoadCursorW.Call(0, idcArrow)
+	cursor, _, _ := procLoadCursorW.Call(0, idcHand)
 	wc := wndClassEx{
 		Size:      uint32(unsafe.Sizeof(wndClassEx{})),
 		Style:     0x0002 | 0x0001, // CS_HREDRAW | CS_VREDRAW
@@ -408,6 +422,21 @@ func (w *Widget) wndProc(hwnd windows.Handle, message uint32, wParam, lParam uin
 		return 1
 	case wmTimer:
 		w.tick()
+		return 0
+	case wmMouseMove:
+		if !w.hover {
+			w.hover = true
+			w.setHover(true, time.Now())
+			w.trackLeave()
+			procInvalidateRect.Call(uintptr(hwnd), 0, 0)
+		}
+		return 0
+	case wmMouseLeave:
+		if w.hover {
+			w.hover = false
+			w.setHover(false, time.Now())
+			procInvalidateRect.Call(uintptr(hwnd), 0, 0)
+		}
 		return 0
 	case wmLButtonUp:
 		w.leftClick()
@@ -488,6 +517,9 @@ func (w *Widget) tick() {
 	if w.fade.active {
 		w.advanceFade(now)
 	}
+	if w.hoverFade.active {
+		w.hoverFade.step(now)
+	}
 	w.setPace(w.paceFor(now))
 	w.raise()
 	procInvalidateRect.Call(uintptr(w.hwnd), 0, 0)
@@ -499,10 +531,11 @@ func (w *Widget) bursting(now time.Time) bool {
 	return burstActive(w.finishWin.elapsed(now))
 }
 
-// paceFor returns the tick interval: 60 fps while the open/close fade runs,
-// 30 fps for the finish burst and the idle cadence otherwise.
+// paceFor returns the tick interval: 60 fps while the open/close fade or the
+// hover transition runs, 30 fps for the finish burst and the idle cadence
+// otherwise.
 func (w *Widget) paceFor(now time.Time) uintptr {
-	if w.fade.active {
+	if w.fade.active || w.hoverFade.active {
 		return fadeInterval
 	}
 	if w.visible && w.bursting(now) {
@@ -731,7 +764,16 @@ func (w *Widget) refreshAnimations() {
 		return
 	}
 	w.animations = enabled
-	if enabled || !w.fade.active {
+	if enabled {
+		return
+	}
+	if w.hoverFade.active {
+		w.hoverFade.snap(w.hoverFade.to)
+		if w.visible {
+			procInvalidateRect.Call(uintptr(w.hwnd), 0, 0)
+		}
+	}
+	if !w.fade.active {
 		return
 	}
 	target := w.fade.to
@@ -756,6 +798,36 @@ func (w *Widget) hideWindow() {
 	}
 	procShowWindow.Call(uintptr(w.hwnd), swHide)
 	w.visible = false
+	w.hover = false
+	w.hoverFade.snap(0)
+}
+
+// trackLeave arms WM_MOUSELEAVE for the hover the window just entered. It is
+// only called on entry, so the leave notification is not re-armed every move.
+func (w *Widget) trackLeave() {
+	tme := trackMouseEvent{
+		Size:      uint32(unsafe.Sizeof(trackMouseEvent{})),
+		Flags:     tmeLeave,
+		HwndTrack: w.hwnd,
+	}
+	procTrackMouseEvent.Call(uintptr(unsafe.Pointer(&tme)))
+}
+
+// setHover starts the hover transition. With Windows animations disabled it
+// switches instantly.
+func (w *Widget) setHover(hover bool, now time.Time) {
+	target := 0.0
+	if hover {
+		target = 1
+	}
+	if !w.animations {
+		w.hoverFade.snap(target)
+		return
+	}
+	w.hoverFade.toward(target, now)
+	if w.hoverFade.active {
+		w.setPace(fadeInterval)
+	}
 }
 
 // setAlpha applies the window opacity through the layered-window attribute.
@@ -877,6 +949,7 @@ func (w *Widget) paint(hdc windows.Handle) {
 		panel = theme.Lerp(panel, pal.Danger, 0.45*glow)
 		border = theme.Lerp(border, pal.Warn, glow)
 	}
+	panel, border = hoverFrame(panel, border, pal.Accent, w.hoverFade.value)
 
 	// Paint the whole frame off-screen and present it with one BitBlt: drawing
 	// straight to the window DC can expose the bare panel for a moment at the

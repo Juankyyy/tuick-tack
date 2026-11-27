@@ -475,6 +475,27 @@ func PaletteFor(pal theme.Theme, st engine.State) Palette {
 	return out
 }
 
+// hoverPanelMix and hoverBorderMix lift the frame when the pointer is over the
+// widget. The border carries most of the signal; the panel gets a slight
+// accent wash.
+const (
+	hoverPanelMix  = 0.06
+	hoverBorderMix = 0.70
+)
+
+// hoverFrame returns the panel and border for the current hover amount. The
+// amount is 0 for the normal frame and 1 for the full hover tint; intermediate
+// values are used by the entry and exit transition. It is pure so the palette
+// choice is testable without a window.
+func hoverFrame(panel, border, accent color.RGBA, amount float64) (color.RGBA, color.RGBA) {
+	amount = clamp01(amount)
+	if amount == 0 {
+		return panel, border
+	}
+	return theme.Lerp(panel, accent, hoverPanelMix*amount),
+		theme.Lerp(border, accent, hoverBorderMix*amount)
+}
+
 // Render builds the small canvas: the remaining time in the 5x7 block font and
 // the progress bar. phase drives the optional last-ten-seconds pulse; callers
 // pass a monotonically increasing value (for example Unix milliseconds / 260).

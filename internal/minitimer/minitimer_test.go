@@ -420,6 +420,33 @@ func TestPaletteFor(t *testing.T) {
 	}
 }
 
+func TestHoverFrame(t *testing.T) {
+	pal := theme.Get("midnight")
+	tests := []struct {
+		name                string
+		amount              float64
+		panelMix, borderMix float64
+	}{
+		{"idle", 0, 0, 0},
+		{"halfway", 0.5, hoverPanelMix / 2, hoverBorderMix / 2},
+		{"hover", 1, hoverPanelMix, hoverBorderMix},
+		{"clamped high", 2, hoverPanelMix, hoverBorderMix},
+		{"clamped low", -1, 0, 0},
+	}
+	for _, tt := range tests {
+		panel, border := hoverFrame(pal.Panel, pal.Border, pal.Accent, tt.amount)
+		wantPanel := theme.Lerp(pal.Panel, pal.Accent, tt.panelMix)
+		wantBorder := theme.Lerp(pal.Border, pal.Accent, tt.borderMix)
+		if panel != wantPanel || border != wantBorder {
+			t.Errorf("%s: hoverFrame = %+v/%+v, want %+v/%+v",
+				tt.name, panel, border, wantPanel, wantBorder)
+		}
+	}
+	if panel, _ := hoverFrame(pal.Panel, pal.Border, pal.Accent, 1); panel == pal.Panel {
+		t.Fatal("the full hover tint did not change the panel")
+	}
+}
+
 func TestRender(t *testing.T) {
 	pal := theme.Get("midnight")
 	st := engine.State{

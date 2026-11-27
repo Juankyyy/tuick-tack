@@ -176,10 +176,11 @@ back. As it reaches zero, the widget glows and a one-shot, two-wave confetti bur
 from the bar over the digits. It hides in idle, when the TUI window has focus, when the
 taskbar is auto-hidden or in fullscreen, and when a Start menu or shell flyout is in front.
 Left click opens or focuses the TUI; right click offers Open, Pause/Resume, Stop and
-**Hide mini timer**. It is an independent overlay, not an Explorer integration: it does
-not support dragging, vertical or secondary taskbars, and it may cover a Widgets button
-that shares that left slot. macOS has no overlay; its menu bar already shows the remaining
-time.
+**Hide mini timer**. Hovering over the widget turns the pointer into a hand and fades the
+border and panel into the theme accent over about 160 ms, without activating the window. It
+is an independent overlay, not an Explorer integration: it does not support dragging,
+vertical or secondary taskbars, and it may cover a Widgets button that shares that left
+slot. macOS has no overlay; its menu bar already shows the remaining time.
 
 ## Configuration
 
