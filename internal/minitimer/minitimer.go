@@ -250,6 +250,114 @@ func clampCell(cell int) int {
 	return cell
 }
 
+// fadeDuration is how long the overlay takes to appear or disappear. It is
+// short enough to stay out of the way when the TUI takes focus.
+const fadeDuration = 160 * time.Millisecond
+
+// riseCells is how far below its final position the overlay starts, in cells.
+// The actual travel is clamped to the free space inside the taskbar.
+const riseCells = 2
+
+// fadeState eases a 0..1 value towards a target. The widget drives both the
+// window alpha and the vertical rise from it, so one cannot drift from the
+// other.
+type fadeState struct {
+	value  float64
+	from   float64
+	to     float64
+	start  time.Time
+	active bool
+}
+
+// toward starts a fade to target from the current value. Calling it again with
+// the same target keeps the original deadline, and reversing mid-fade keeps the
+// current opacity and position instead of jumping.
+func (f *fadeState) toward(target float64, now time.Time) {
+	target = clamp01(target)
+	if f.active && f.to == target {
+		return
+	}
+	if !f.active && f.value == target {
+		f.to = target
+		return
+	}
+	f.from = f.value
+	f.to = target
+	f.start = now
+	f.active = f.from != f.to
+}
+
+// step advances the fade to now and returns the eased value. active becomes
+// false on the step that reaches the target, so the caller can do the final
+// placement or hide the window exactly once.
+func (f *fadeState) step(now time.Time) float64 {
+	if !f.active {
+		return f.value
+	}
+	t := now.Sub(f.start).Seconds() / fadeDuration.Seconds()
+	if t >= 1 {
+		f.value = f.to
+		f.active = false
+		return f.value
+	}
+	if t <= 0 {
+		f.value = f.from
+		return f.value
+	}
+	f.value = f.from + (f.to-f.from)*smoothstep(t)
+	return f.value
+}
+
+// snap jumps to target without animating, for the reduced-motion path.
+func (f *fadeState) snap(target float64) {
+	f.value = clamp01(target)
+	f.from, f.to = f.value, f.value
+	f.start = time.Time{}
+	f.active = false
+}
+
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
+func smoothstep(t float64) float64 {
+	if t <= 0 {
+		return 0
+	}
+	if t >= 1 {
+		return 1
+	}
+	return t * t * (3 - 2*t)
+}
+
+// riseOffset is how many pixels below its final position the overlay sits for a
+// shown fraction in 0..1. The travel is riseCells, reduced to the free space
+// below the centred window so a short taskbar cannot push it out of the bar.
+func riseOffset(shown float64, layout Layout, trayHeight int) int {
+	if layout.Height <= 0 || trayHeight <= 0 {
+		return 0
+	}
+	y := (trayHeight - layout.Height) / 2
+	if y < 0 {
+		y = 0
+	}
+	space := trayHeight - (y + layout.Height)
+	if space < 0 {
+		space = 0
+	}
+	travel := riseCells * layout.Cell
+	if space < travel {
+		travel = space
+	}
+	return int(math.Round((1 - clamp01(shown)) * float64(travel)))
+}
+
 // cornerRadius is the window corner radius in pixels. One cell keeps the
 // rounding subtle and scales with the DPI.
 func cornerRadius(cell int) int {
@@ -448,9 +556,9 @@ func RenderBurstAt(st engine.State, pal theme.Theme, phase float64, width int, a
 	return c
 }
 
-// drawBurst paints the bar flash and the confetti pieces. Cells are whole
-// blocks of color: the widget has no alpha, so no piece blends with what is
-// behind it.
+// drawBurst paints the bar flash and the confetti pieces. Cells are solid
+// blocks of color: pieces do not blend per cell with the digit ink (the whole
+// window fades at the compositor level during the open/close animation).
 func drawBurst(c *canvas.Canvas, pal theme.Theme, width int, age time.Duration) {
 	p := PaletteFor(pal, engine.State{Status: engine.Finished})
 	x := (width - BarCells) / 2

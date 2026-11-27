@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image/color"
 	"log"
+	"math"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -38,9 +39,14 @@ const (
 	wsExToolWindow = 0x00000080
 	wsExTopmost    = 0x00000008
 	wsExNoActivate = 0x08000000
+	wsExLayered    = 0x00080000
 
 	swShowNoActivate = 4
 	swHide           = 0
+
+	lwaAlpha = 0x00000002
+
+	spiGetClientAreaAnimation = 0x1042
 
 	swpNoSize     = 0x0001
 	swpNoMove     = 0x0002
@@ -58,6 +64,7 @@ const (
 	timerID        = 1
 	timerInterval  = 250
 	burstInterval  = 33
+	fadeInterval   = 16
 	pollInterval   = 500 * time.Millisecond
 	hideAfterClick = 1500 * time.Millisecond
 
@@ -89,40 +96,42 @@ var (
 	shell32  = windows.NewLazySystemDLL("shell32.dll")
 	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
 
-	procRegisterClassExW    = user32.NewProc("RegisterClassExW")
-	procCreateWindowExW     = user32.NewProc("CreateWindowExW")
-	procDefWindowProcW      = user32.NewProc("DefWindowProcW")
-	procDestroyWindow       = user32.NewProc("DestroyWindow")
-	procShowWindow          = user32.NewProc("ShowWindow")
-	procSetWindowPos        = user32.NewProc("SetWindowPos")
-	procGetMessageW         = user32.NewProc("GetMessageW")
-	procTranslateMessage    = user32.NewProc("TranslateMessage")
-	procDispatchMessageW    = user32.NewProc("DispatchMessageW")
-	procPostMessageW        = user32.NewProc("PostMessageW")
-	procPostQuitMessage     = user32.NewProc("PostQuitMessage")
-	procSetTimer            = user32.NewProc("SetTimer")
-	procKillTimer           = user32.NewProc("KillTimer")
-	procInvalidateRect      = user32.NewProc("InvalidateRect")
-	procBeginPaint          = user32.NewProc("BeginPaint")
-	procEndPaint            = user32.NewProc("EndPaint")
-	procGetClientRect       = user32.NewProc("GetClientRect")
-	procGetWindowRect       = user32.NewProc("GetWindowRect")
-	procGetWindowTextW      = user32.NewProc("GetWindowTextW")
-	procFindWindowW         = user32.NewProc("FindWindowW")
-	procIsWindowVisible     = user32.NewProc("IsWindowVisible")
-	procGetCursorPos        = user32.NewProc("GetCursorPos")
-	procLoadCursorW         = user32.NewProc("LoadCursorW")
-	procMonitorFromWindow   = user32.NewProc("MonitorFromWindow")
-	procGetMonitorInfoW     = user32.NewProc("GetMonitorInfoW")
-	procCreatePopupMenu     = user32.NewProc("CreatePopupMenu")
-	procAppendMenuW         = user32.NewProc("AppendMenuW")
-	procDestroyMenu         = user32.NewProc("DestroyMenu")
-	procTrackPopupMenu      = user32.NewProc("TrackPopupMenu")
-	procSetForegroundWindow = user32.NewProc("SetForegroundWindow")
-	procGetDpiForWindow     = user32.NewProc("GetDpiForWindow")
-	procGetDpiForSystem     = user32.NewProc("GetDpiForSystem")
-	procFillRect            = user32.NewProc("FillRect")
-	procSetWindowRgn        = user32.NewProc("SetWindowRgn")
+	procRegisterClassExW           = user32.NewProc("RegisterClassExW")
+	procCreateWindowExW            = user32.NewProc("CreateWindowExW")
+	procDefWindowProcW             = user32.NewProc("DefWindowProcW")
+	procDestroyWindow              = user32.NewProc("DestroyWindow")
+	procShowWindow                 = user32.NewProc("ShowWindow")
+	procSetWindowPos               = user32.NewProc("SetWindowPos")
+	procGetMessageW                = user32.NewProc("GetMessageW")
+	procTranslateMessage           = user32.NewProc("TranslateMessage")
+	procDispatchMessageW           = user32.NewProc("DispatchMessageW")
+	procPostMessageW               = user32.NewProc("PostMessageW")
+	procPostQuitMessage            = user32.NewProc("PostQuitMessage")
+	procSetTimer                   = user32.NewProc("SetTimer")
+	procKillTimer                  = user32.NewProc("KillTimer")
+	procInvalidateRect             = user32.NewProc("InvalidateRect")
+	procBeginPaint                 = user32.NewProc("BeginPaint")
+	procEndPaint                   = user32.NewProc("EndPaint")
+	procGetClientRect              = user32.NewProc("GetClientRect")
+	procGetWindowRect              = user32.NewProc("GetWindowRect")
+	procGetWindowTextW             = user32.NewProc("GetWindowTextW")
+	procFindWindowW                = user32.NewProc("FindWindowW")
+	procIsWindowVisible            = user32.NewProc("IsWindowVisible")
+	procGetCursorPos               = user32.NewProc("GetCursorPos")
+	procLoadCursorW                = user32.NewProc("LoadCursorW")
+	procMonitorFromWindow          = user32.NewProc("MonitorFromWindow")
+	procGetMonitorInfoW            = user32.NewProc("GetMonitorInfoW")
+	procCreatePopupMenu            = user32.NewProc("CreatePopupMenu")
+	procAppendMenuW                = user32.NewProc("AppendMenuW")
+	procDestroyMenu                = user32.NewProc("DestroyMenu")
+	procTrackPopupMenu             = user32.NewProc("TrackPopupMenu")
+	procSetForegroundWindow        = user32.NewProc("SetForegroundWindow")
+	procGetDpiForWindow            = user32.NewProc("GetDpiForWindow")
+	procGetDpiForSystem            = user32.NewProc("GetDpiForSystem")
+	procFillRect                   = user32.NewProc("FillRect")
+	procSetWindowRgn               = user32.NewProc("SetWindowRgn")
+	procSetLayeredWindowAttributes = user32.NewProc("SetLayeredWindowAttributes")
+	procSystemParametersInfoW      = user32.NewProc("SystemParametersInfoW")
 
 	procGetModuleHandleW = kernel32.NewProc("GetModuleHandleW")
 
@@ -160,7 +169,11 @@ type Widget struct {
 	layout      Layout
 	haveLayout  bool
 	visible     bool
-	fast        bool
+	pace        uintptr
+	fade        fadeState
+	animations  bool
+	alpha       uint8
+	alphaSet    bool
 	placed      rect // taskbar rect used for the last placement
 	menuOpen    bool
 	hiddenUntil time.Time
@@ -336,7 +349,7 @@ func (w *Widget) create() error {
 	_ = atom // already-exists is fine; CreateWindowEx below reports a real failure
 
 	hwnd, _, createErr := procCreateWindowExW.Call(
-		wsExToolWindow|wsExTopmost|wsExNoActivate,
+		wsExToolWindow|wsExTopmost|wsExNoActivate|wsExLayered,
 		uintptr(unsafe.Pointer(className)),
 		uintptr(unsafe.Pointer(windowName)),
 		wsPopup,
@@ -352,7 +365,12 @@ func (w *Widget) create() error {
 	closed := w.closed
 	w.mu.Unlock()
 
+	w.animations = systemAnimations()
+	if !w.setAlpha(0) {
+		w.logf("mini timer: SetLayeredWindowAttributes failed")
+	}
 	procSetTimer.Call(hwnd, timerID, timerInterval, 0)
+	w.pace = timerInterval
 	if closed {
 		procPostMessageW.Call(hwnd, wmClose, 0, 0)
 		return nil
@@ -406,6 +424,9 @@ func (w *Widget) wndProc(hwnd windows.Handle, message uint32, wParam, lParam uin
 		procPostQuitMessage.Call(0)
 		return 0
 	case wmDisplayChange, wmSettingChange, wmDPIChanged:
+		if message == wmSettingChange {
+			w.refreshAnimations()
+		}
 		w.envAt = time.Time{}
 		w.haveLayout = false
 		w.tick()
@@ -437,23 +458,37 @@ func (w *Widget) tick() {
 		!w.finishWin.closed(now)
 	if !show {
 		if w.visible {
-			w.hide()
+			w.beginHide(now)
+			w.advanceFade(now)
 		}
-		w.setPace(false)
+		w.setPace(w.paceFor(now))
 		return
 	}
-	w.setPace(w.bursting(now))
 
 	cell := w.cellSize()
 	layout := w.layoutFor(cell, st)
-	if !w.visible || !w.haveLayout || layout != w.layout || w.tray.rect != w.placed {
+	if !w.visible {
 		w.layout = layout
 		w.haveLayout = true
-		w.place(layout)
+		rise := 0
+		if w.animations {
+			rise = riseOffset(0, layout, w.trayHeight())
+		}
+		w.place(layout, rise)
+	} else if !w.haveLayout || layout != w.layout || w.tray.rect != w.placed {
+		w.layout = layout
+		w.haveLayout = true
+		rise := 0
+		if w.fade.active {
+			rise = riseOffset(w.fade.value, layout, w.trayHeight())
+		}
+		w.place(layout, rise)
 	}
-	if !w.visible {
-		w.show()
+	w.beginShow(now)
+	if w.fade.active {
+		w.advanceFade(now)
 	}
+	w.setPace(w.paceFor(now))
 	w.raise()
 	procInvalidateRect.Call(uintptr(w.hwnd), 0, 0)
 }
@@ -464,19 +499,34 @@ func (w *Widget) bursting(now time.Time) bool {
 	return burstActive(w.finishWin.elapsed(now))
 }
 
-// setPace switches the repaint timer between the idle cadence and the finish
-// burst cadence. SetTimer keeps the ID but resets the interval, so only call
-// it when the pace really changes.
-func (w *Widget) setPace(fast bool) {
-	if w.fast == fast {
+// paceFor returns the tick interval: 60 fps while the open/close fade runs,
+// 30 fps for the finish burst and the idle cadence otherwise.
+func (w *Widget) paceFor(now time.Time) uintptr {
+	if w.fade.active {
+		return fadeInterval
+	}
+	if w.visible && w.bursting(now) {
+		return burstInterval
+	}
+	return timerInterval
+}
+
+// setPace switches the timer cadence. SetTimer keeps the ID but resets the
+// interval, so only call it when the pace really changes.
+func (w *Widget) setPace(interval uintptr) {
+	if w.pace == interval {
 		return
 	}
-	w.fast = fast
-	interval := uintptr(timerInterval)
-	if fast {
-		interval = burstInterval
-	}
+	w.pace = interval
 	procSetTimer.Call(uintptr(w.hwnd), timerID, interval, 0)
+}
+
+// trayHeight returns the current taskbar height, or zero when it is unknown.
+func (w *Widget) trayHeight() int {
+	if !w.tray.ok {
+		return 0
+	}
+	return int(w.tray.rect.Bottom - w.tray.rect.Top)
 }
 
 func (w *Widget) probe() (Environment, trayInfo) {
@@ -531,24 +581,16 @@ func (w *Widget) cellSize() int {
 // layoutFor is the current geometry: the cell size from the window DPI and the
 // padding that fits the taskbar height.
 func (w *Widget) layoutFor(cell int, st engine.State) Layout {
-	height := 0
-	if w.tray.ok {
-		height = int(w.tray.rect.Bottom - w.tray.rect.Top)
-	}
-	return LayoutForTray(cell, st, height)
+	return LayoutForTray(cell, st, w.trayHeight())
 }
 
-func (w *Widget) place(layout Layout) {
-	if !w.tray.ok {
+// place sizes and shapes the window and puts it at the current animation
+// offset. It is only called when the layout or the taskbar changes.
+func (w *Widget) place(layout Layout, dy int) {
+	if !w.tray.ok || w.hwnd == 0 {
 		return
 	}
-	cell := layout.Cell
-	x := int(w.tray.rect.Left) + 8*cell/3
-	trayH := int(w.tray.rect.Bottom - w.tray.rect.Top)
-	y := int(w.tray.rect.Top) + (trayH-layout.Height)/2
-	if y < int(w.tray.rect.Top) {
-		y = int(w.tray.rect.Top)
-	}
+	x, y := w.position(layout, dy)
 	procSetWindowPos.Call(
 		uintptr(w.hwnd), ^uintptr(0),
 		uintptr(x), uintptr(y), uintptr(layout.Width), uintptr(layout.Height),
@@ -556,6 +598,31 @@ func (w *Widget) place(layout Layout) {
 	w.placed = w.tray.rect
 	w.shape(layout)
 	w.raise()
+}
+
+// move slides the already-sized window during the open/close animation. It
+// leaves the region alone so the 60 fps frames stay cheap.
+func (w *Widget) move(layout Layout, dy int) {
+	if !w.tray.ok || w.hwnd == 0 {
+		return
+	}
+	x, y := w.position(layout, dy)
+	procSetWindowPos.Call(
+		uintptr(w.hwnd), ^uintptr(0),
+		uintptr(x), uintptr(y), 0, 0, swpNoSize|swpNoActivate)
+}
+
+// position returns the window origin for a layout and a vertical animation
+// offset.
+func (w *Widget) position(layout Layout, dy int) (int, int) {
+	cell := layout.Cell
+	x := int(w.tray.rect.Left) + 8*cell/3
+	trayH := w.trayHeight()
+	y := int(w.tray.rect.Top) + (trayH-layout.Height)/2
+	if y < int(w.tray.rect.Top) {
+		y = int(w.tray.rect.Top)
+	}
+	return x, y + dy
 }
 
 // shape rounds the window corners with a per-window region. The region clips
@@ -590,15 +657,100 @@ func (w *Widget) raise() {
 		swpNoMove|swpNoSize|swpNoActivate|swpNoOwnerZ)
 }
 
-func (w *Widget) show() {
+// beginShow makes the window visible and starts the open fade. Reversing a
+// close fade resumes from the current opacity and position.
+func (w *Widget) beginShow(now time.Time) {
 	if w.hwnd == 0 {
 		return
 	}
-	procShowWindow.Call(uintptr(w.hwnd), swShowNoActivate)
-	w.visible = true
+	if !w.visible {
+		w.animations = systemAnimations()
+		alpha := float64(0)
+		if !w.animations {
+			alpha = 1
+		}
+		w.setAlpha(alpha)
+		procShowWindow.Call(uintptr(w.hwnd), swShowNoActivate)
+		w.visible = true
+		if w.animations {
+			w.fade.snap(0)
+		}
+	}
+	if w.animations {
+		w.fade.toward(1, now)
+		return
+	}
+	w.fade.snap(1)
+	w.setAlpha(1)
 }
 
-func (w *Widget) hide() {
+// beginHide starts the close fade. With animations disabled, or when the fade
+// is already at zero, it hides at once.
+func (w *Widget) beginHide(now time.Time) {
+	if w.hwnd == 0 || !w.visible {
+		return
+	}
+	w.animations = systemAnimations()
+	if !w.animations {
+		w.fade.snap(0)
+		w.setAlpha(0)
+		w.hideWindow()
+		return
+	}
+	w.fade.toward(0, now)
+	if !w.fade.active {
+		w.setAlpha(0)
+		w.hideWindow()
+		return
+	}
+	w.setPace(fadeInterval)
+}
+
+// advanceFade applies one animation frame: opacity, vertical position and the
+// final hide when a close fade reaches zero.
+func (w *Widget) advanceFade(now time.Time) {
+	if !w.visible || !w.fade.active {
+		return
+	}
+	v := w.fade.step(now)
+	w.setAlpha(v)
+	if w.haveLayout && w.tray.ok {
+		w.move(w.layout, riseOffset(v, w.layout, w.trayHeight()))
+	}
+	if !w.fade.active && v <= 0 {
+		w.setAlpha(0)
+		w.hideWindow()
+	}
+}
+
+// refreshAnimations re-reads the Windows animation setting. Turning it off
+// finishes any running fade immediately.
+func (w *Widget) refreshAnimations() {
+	enabled := systemAnimations()
+	if enabled == w.animations {
+		return
+	}
+	w.animations = enabled
+	if enabled || !w.fade.active {
+		return
+	}
+	target := w.fade.to
+	w.fade.snap(target)
+	if !w.visible {
+		return
+	}
+	if target <= 0 {
+		w.setAlpha(0)
+		w.hideWindow()
+		return
+	}
+	w.setAlpha(1)
+	if w.haveLayout && w.tray.ok {
+		w.move(w.layout, 0)
+	}
+}
+
+func (w *Widget) hideWindow() {
 	if w.hwnd == 0 {
 		return
 	}
@@ -606,9 +758,29 @@ func (w *Widget) hide() {
 	w.visible = false
 }
 
+// setAlpha applies the window opacity through the layered-window attribute.
+func (w *Widget) setAlpha(v float64) bool {
+	if w.hwnd == 0 {
+		return true
+	}
+	a := uint8(math.Round(clamp01(v) * 255))
+	if w.alphaSet && a == w.alpha {
+		return true
+	}
+	ok, _, _ := procSetLayeredWindowAttributes.Call(
+		uintptr(w.hwnd), 0, uintptr(a), lwaAlpha)
+	if ok == 0 {
+		return false
+	}
+	w.alpha = a
+	w.alphaSet = true
+	return true
+}
+
 func (w *Widget) leftClick() {
-	w.hiddenUntil = time.Now().Add(hideAfterClick)
-	w.hide()
+	now := time.Now()
+	w.hiddenUntil = now.Add(hideAfterClick)
+	w.beginHide(now)
 	w.actions.OpenTUI()
 }
 
@@ -661,8 +833,9 @@ func (w *Widget) rightClick() {
 
 	switch cmd {
 	case menuOpenID:
-		w.hiddenUntil = time.Now().Add(hideAfterClick)
-		w.hide()
+		now := time.Now()
+		w.hiddenUntil = now.Add(hideAfterClick)
+		w.beginHide(now)
 		w.actions.OpenTUI()
 	case menuPauseID:
 		w.actions.TogglePause()
@@ -873,6 +1046,18 @@ func taskbarAutoHide() bool {
 	abd := appBarData{Size: uint32(unsafe.Sizeof(appBarData{}))}
 	r, _, _ := procSHAppBarMessage.Call(0x00000004, uintptr(unsafe.Pointer(&abd))) // ABM_GETSTATE
 	return r&1 != 0                                                                // ABS_AUTOHIDE
+}
+
+// systemAnimations reports whether Windows should animate client areas. A
+// failed query keeps the animation enabled.
+func systemAnimations() bool {
+	var enabled int32
+	ok, _, _ := procSystemParametersInfoW.Call(
+		spiGetClientAreaAnimation, 0, uintptr(unsafe.Pointer(&enabled)), 0)
+	if ok == 0 {
+		return true
+	}
+	return enabled != 0
 }
 
 func fullscreenActive() bool {

@@ -1,6 +1,7 @@
 package minitimer
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -83,6 +84,106 @@ func TestLayoutForTray(t *testing.T) {
 		}
 		if tt.tray > 0 && got.Height > tt.tray-2 {
 			t.Errorf("%s: height %d does not fit a %d px taskbar", tt.name, got.Height, tt.tray)
+		}
+	}
+}
+
+func TestFadeState(t *testing.T) {
+	base := time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC)
+	var f fadeState
+	if got := f.step(base); got != 0 || f.active {
+		t.Fatalf("fresh fade = %v (active %v), want 0 false", got, f.active)
+	}
+
+	f.toward(1, base)
+	if !f.active {
+		t.Fatal("toward(1) did not start a fade")
+	}
+	steps := []struct {
+		name string
+		at   time.Time
+		want float64
+	}{
+		{"start", base, 0},
+		{"quarter", base.Add(40 * time.Millisecond), 0.15625},
+		{"half", base.Add(fadeDuration / 2), 0.5},
+		{"end", base.Add(fadeDuration), 1},
+	}
+	for _, tt := range steps {
+		if got := f.step(tt.at); math.Abs(got-tt.want) > 1e-9 {
+			t.Errorf("%s: step = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+	if f.active {
+		t.Fatal("the fade stayed active after reaching its target")
+	}
+	if got := f.step(base.Add(time.Hour)); got != 1 {
+		t.Errorf("settled fade = %v, want 1", got)
+	}
+
+	// Seeing the same target again must keep the original deadline.
+	f.snap(0)
+	f.toward(1, base)
+	f.step(base.Add(fadeDuration / 2))
+	f.toward(1, base.Add(fadeDuration/2))
+	if got := f.step(base.Add(fadeDuration)); got != 1 || f.active {
+		t.Fatalf("same-target fade = %v (active %v), want 1 false", got, f.active)
+	}
+
+	// Reversing mid-fade starts from the current value, without a jump.
+	f.snap(0)
+	f.toward(1, base)
+	if got := f.step(base.Add(fadeDuration / 2)); got != 0.5 {
+		t.Fatalf("mid fade = %v, want 0.5", got)
+	}
+	f.toward(0, base.Add(fadeDuration/2))
+	if got := f.step(base.Add(fadeDuration / 2)); got != 0.5 {
+		t.Fatalf("reverse start = %v, want 0.5", got)
+	}
+	if got := f.step(base.Add(fadeDuration)); math.Abs(got-0.25) > 1e-9 {
+		t.Fatalf("reverse half = %v, want 0.25", got)
+	}
+	if got := f.step(base.Add(fadeDuration * 3 / 2)); got != 0 || f.active {
+		t.Fatalf("reverse end = %v (active %v), want 0 false", got, f.active)
+	}
+
+	// Snapping is instant and clamps the target.
+	f.snap(2)
+	if f.value != 1 || f.active {
+		t.Fatalf("snap(2) = %v (active %v), want 1 false", f.value, f.active)
+	}
+	f.snap(-1)
+	if f.value != 0 || f.active {
+		t.Fatalf("snap(-1) = %v (active %v), want 0 false", f.value, f.active)
+	}
+}
+
+func TestRiseOffset(t *testing.T) {
+	st := engine.State{Status: engine.Running, Remaining: 5 * time.Minute}
+	base := LayoutFor(3)              // two-cell padding, 140x41
+	short := LayoutForTray(3, st, 40) // one-cell padding, 140x35
+	narrow := LayoutForTray(4, st, 60)
+	tests := []struct {
+		name   string
+		shown  float64
+		layout Layout
+		tray   int
+		want   int
+	}{
+		{"shown", 1, base, 48, 0},
+		{"hidden on a 48 px taskbar", 0, base, 48, 4},
+		{"halfway", 0.5, base, 48, 2},
+		{"clamped above one", 2, base, 48, 0},
+		{"clamped below zero", -1, base, 48, 4},
+		{"unknown taskbar", 0, base, 0, 0},
+		{"short taskbar", 0, short, 40, 3},
+		{"125% taskbar", 0, narrow, 60, 3},
+		{"tall taskbar", 0, base, 60, 6},
+		{"tight taskbar", 0, short, 35, 0},
+	}
+	for _, tt := range tests {
+		if got := riseOffset(tt.shown, tt.layout, tt.tray); got != tt.want {
+			t.Errorf("%s: riseOffset = %d, want %d", tt.name, got, tt.want)
 		}
 	}
 }

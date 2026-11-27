@@ -167,16 +167,19 @@ The **Mini timer** checkbox in the tray turns it on or off and is saved in the c
 on by default. Press `M` in the TUI to toggle it without opening the tray, or use **Hide mini
 timer** in the overlay's context menu.
 
-The widget appears while a countdown is running, paused or finished. When the countdown
-finishes, the `00:00` screen stays for ten seconds and then the widget hides itself, matching
-the TUI celebration's auto-close; starting another timer brings it back. As it reaches zero, the
-widget glows and a one-shot, two-wave confetti burst falls from the bar over the digits. It hides in idle, when
-the TUI window has focus, when the taskbar is auto-hidden or in fullscreen, and when a Start
-menu or shell flyout is in front. Left click opens or focuses the TUI; right click offers
-Open, Pause/Resume, Stop and **Hide mini timer**. It is an independent overlay, not an
-Explorer integration: it does not support dragging, vertical or secondary taskbars, and it
-may cover a Widgets button that shares that left slot. macOS has no overlay; its menu bar
-already shows the remaining time.
+The widget appears while a countdown is running, paused or finished. When it opens or
+closes it fades over about 160 ms while sliding a few pixels vertically, and it respects
+Windows' animation setting (with animation effects off it appears and disappears instantly).
+When the countdown finishes, the `00:00` screen stays for ten seconds and then the widget
+hides itself, matching the TUI celebration's auto-close; starting another timer brings it
+back. As it reaches zero, the widget glows and a one-shot, two-wave confetti burst falls
+from the bar over the digits. It hides in idle, when the TUI window has focus, when the
+taskbar is auto-hidden or in fullscreen, and when a Start menu or shell flyout is in front.
+Left click opens or focuses the TUI; right click offers Open, Pause/Resume, Stop and
+**Hide mini timer**. It is an independent overlay, not an Explorer integration: it does
+not support dragging, vertical or secondary taskbars, and it may cover a Widgets button
+that shares that left slot. macOS has no overlay; its menu bar already shows the remaining
+time.
 
 ## Configuration
 
