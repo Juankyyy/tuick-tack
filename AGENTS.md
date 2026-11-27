@@ -2,12 +2,12 @@
 
 ## Project
 
-**Tuick-Tack** is a personal focus countdown app: a modern terminal UI (TUI) plus a background daemon that owns the timer, presets, sound and the tray/menu-bar menu. Windows 10/11 is the reference platform; the macOS port lives in `dev` (phases 0–5 done; release pending).
+**Tuick-Tack** is a personal focus countdown app: a modern terminal UI (TUI) plus a background daemon that owns the timer, presets, sound and the tray menu. Windows 10/11 is the only supported platform. The macOS port is frozen: its code and manual workflows stay in `dev` for a possible one-off build, but it is not part of the normal CI, release or QA flow.
 
-- Stack: Go 1.26+ (pinned Bubble Tea v2/go-winio require it), Bubble Tea v2.1.1, Lipgloss v2.1.0, `fyne.io/systray` v1.12.2, `github.com/Microsoft/go-winio` v0.6.4, `github.com/mtunjic/winrt-toast` v1.2.0 (pure-Go WinRT toasts), `golang.org/x/sys`; the Windows build stays `CGO_ENABLED=0`. macOS builds without cgo for the headless fallback and with cgo for the real menu bar.
-- App code lives in `cmd/` and `internal/`. Platform code is split by file suffix (`_windows.go`, `_darwin.go`) and build tags; shared code never imports a platform API. The Windows leaves cover the systray, `ShellExecuteW`, WinRT toasts, named pipes, the registry, `PlaySoundW`, CreateProcess and the Windows Terminal/console window; the macOS leaves cover syscalls, the Unix socket, flock, the LaunchAgent, afplay and `open`.
-- Platform features that cannot live in the shared layer stay in the native layer behind small, documented bridges: systray/menu (`internal/tray`; ICO on Windows, 32 px PNG on macOS, no-op without cgo), sound (`internal/daemon/sound.go` plus `play_windows.go`/`play_darwin.go`), autostart (`autostart_windows.go` registry / `autostart_darwin.go` LaunchAgent), IPC (`internal/ipc/pipe_windows.go` / `pipe_darwin.go`), instance locks (`internal/instance`), browser, notifications (WinRT / osascript), explorer, process and window helpers, and the installer/update helper. Inno Setup 6 is a Windows-only build-time dependency; macOS needs cgo only for systray.
-- Current state: v1 complete on Windows plus the macOS port phases 0–5 (CI, platform layer, real menu bar, universal `.app` packaging, update flow, docs/QA). The macOS release is still pending and marked experimental because there is no Mac for visual QA. `SPEC.md` now covers both platforms; Windows remains the reference and must not change behavior.
+- Stack: Go 1.26+ (pinned Bubble Tea v2/go-winio require it), Bubble Tea v2.1.1, Lipgloss v2.1.0, `fyne.io/systray` v1.12.2, `github.com/Microsoft/go-winio` v0.6.4, `github.com/mtunjic/winrt-toast` v1.2.0 (pure-Go WinRT toasts), `golang.org/x/sys`; the Windows build stays `CGO_ENABLED=0`. The frozen macOS leaves can still build without cgo (headless fallback) or with cgo (menu bar), but only on a manual dispatch.
+- App code lives in `cmd/` and `internal/`. Platform code is split by file suffix (`_windows.go`, `_darwin.go`) and build tags; shared code never imports a platform API. The Windows leaves cover the systray, `ShellExecuteW`, WinRT toasts, named pipes, the registry, `PlaySoundW`, CreateProcess and the Windows Terminal/console window; the macOS leaves cover syscalls, the Unix socket, flock, the LaunchAgent, afplay and `open`. The macOS leaves are frozen and receive no new work.
+- Platform features that cannot live in the shared layer stay in the native layer behind small, documented bridges: systray (`internal/tray`; ICO on Windows, 32 px PNG on the frozen macOS menu bar), sound (`internal/daemon/sound.go` plus `play_windows.go`/`play_darwin.go`), autostart (`autostart_windows.go` registry / `autostart_darwin.go` LaunchAgent), IPC (`internal/ipc/pipe_windows.go` / `pipe_darwin.go`), instance locks (`internal/instance`), browser, notifications (WinRT / osascript), explorer, process and window helpers, and the installer/update helper. Inno Setup 6 is a Windows-only build-time dependency; macOS needs cgo only for systray and is never built automatically.
+- Current state: v1 complete on Windows. The macOS port is frozen: phases 0–5 were built and a `v0.3.2` dev preview was published, but there is no macOS release train planned for now. Windows remains the only supported target and must not change behavior. `SPEC.md` covers both platforms, with macOS marked frozen.
 - Generated assets (`assets/sounds/*.wav`, `assets/icon.ico`, `assets/icon.png`, `assets/icon.iconset/*.png`, `assets/icons/*.ico`, `assets/icons/*.png`, `assets/banner.txt`, `assets/banner-compact.txt`, `assets/banner.png`, `installer/wizard-large.png`, `installer/wizard-small.png`, the `.syso` file under `cmd/`) are committed; do not hand-edit them. Regenerate with `go generate ./...` / `scripts/build.ps1`. The branding banner comes from the same 5×7 bigfont grid as the countdown and is not embedded in the executable: `banner.txt` is the 2x ASCII (118 columns) and `banner-compact.txt` the 1x version (59 columns).
 - The tray states are a 7×7 pixel grid and the executable icon a 16×16 grid, drawn without antialiasing by `tools/gen-icons`; keep the ICO sizes, the 32 px PNG variants and the 2× HICON caveat from `SPEC.md` §12.
 
@@ -30,6 +30,8 @@ go generate ./...                # regenerate sounds/icons/banners, installer ar
 .\scripts\build.ps1 -Version v1.0.0 -Installer # portable + Inno setup + checksums
 ```
 
+Frozen macOS port (manual only; it is not part of the normal workflow):
+
 On macOS (Xcode Command Line Tools; cgo links the menu bar):
 
 ```bash
@@ -38,26 +40,27 @@ On macOS (Xcode Command Line Tools; cgo links the menu bar):
   -arm64 dist/tuick-tack-darwin-arm64 -amd64 dist/tuick-tack-darwin-amd64
 ```
 
-From Windows, the cross guardrail for the macOS port:
+From Windows, an optional sanity check for the frozen port (not in CI):
 
 ```powershell
 $env:CGO_ENABLED="0"; $env:GOOS="darwin"; go build ./...; go vet ./...; Remove-Item Env:GOOS
 ```
 
 - `go generate ./...` is Windows-only: it includes the `.syso` and the Inno installer images.
-  On macOS use `go generate ./assets` only; never run it in CI.
+  If you ever build the frozen macOS port, use `go generate ./assets` only; never run it in CI.
 
 - Hot reload: none. Restart the TUI; the daemon can stay running and keeps the timer.
-- CI: GitHub Actions, `.github/workflows/ci.yml`, on every push and pull request.
-  `windows-latest` is the reference and runs `go vet ./...`, `go test ./...` and
-  `go build ./...` with `CGO_ENABLED=0`. `macos-15` (arm64) and `macos-15-intel`
-  (amd64) run the same vet, tests and build without cgo, plus a `CGO_ENABLED=1`
-  build that compiles the real menu bar. A red check blocks merges.
-  `.github/workflows/macos.yml` runs on push to `dev` and manual dispatch: it builds
-  both architectures with cgo, combines them with `lipo`, packages `Tuick-Tack.app`
-  (Info.plist, wrapper, `icon.icns`, ad-hoc signature) and uploads the universal zip,
-  its `.sha256` and `SHA256SUMS.txt` as an artifact. A manual run with a `tag` attaches
-  the zip and its `.sha256` to that existing release; it never creates one.
+- CI: GitHub Actions, `.github/workflows/ci.yml`. `windows-latest` runs on every push
+  and pull request with `go vet ./...`, `go test ./...` and `go build ./...` with
+  `CGO_ENABLED=0`, and a red check blocks merges. The `darwin` job is kept for the
+  frozen port and only runs on manual dispatch; when it runs it also compiles the menu
+  bar with `CGO_ENABLED=1`.
+  `.github/workflows/macos.yml` is manual-only: it has no push trigger. A dispatch
+  builds both architectures with cgo, combines them with `lipo`, packages
+  `Tuick-Tack.app` (Info.plist, wrapper, `icon.icns`, ad-hoc signature) and uploads
+  the universal zip, its `.sha256` and `SHA256SUMS.txt` as an artifact. A manual run
+  with a `tag` attaches the zip and its `.sha256` to that existing release; it never
+  creates one. Do not add macOS back to the automatic CI or release flow.
   Never run `go generate ./...` in CI: it includes the Windows `.syso` and installer
   steps.
 
@@ -72,27 +75,27 @@ internal/
   duration/             duration parser
   engine/               timer state machine
   protocol/             IPC message types
-  ipc/                  IPC server/client (named pipe on Windows, Unix socket on macOS)
+  ipc/                  IPC server/client (named pipe on Windows; frozen macOS Unix socket)
   stats/                session history (JSONL) and the Statistics aggregates
   daemon/               wiring, sound, autostart, launch, logging, platform leaves
   update/               GitHub release check, assets, SHA-256 downloader
-  updater/              Windows helper that runs the setup and reopens the TUI (no-op on macOS)
-  install/              installed vs portable (Inno entry on Windows, .app bundle on macOS)
-  instance/             daemon/TUI singleton locks (named mutex, flock)
-  winproc/              process startup (CreateProcess, Setsid)
+  updater/              Windows helper that runs the setup and reopens the TUI (frozen macOS no-op)
+  install/              installed vs portable (Inno entry on Windows; frozen .app detection)
+  instance/             daemon/TUI singleton locks (named mutex on Windows; frozen macOS flock)
+  winproc/              process startup (CreateProcess; frozen macOS Setsid)
   wt/                   read-only Windows Terminal default profile + launch (Windows)
-  termwin/              locate and move the console window (Windows; no-op on macOS)
-  explorer/             reveal a download in Explorer or Finder
-  browser/              open https links (ShellExecuteW, open)
-  notify/               native notifications (WinRT toast, osascript)
-  tray/                 systray menu, icons, tooltip; no-op on macOS without cgo
+  termwin/              locate and move the console window (Windows; frozen macOS no-op)
+  explorer/             reveal a download in Explorer (frozen Finder path)
+  browser/              open https links (ShellExecuteW; frozen macOS open)
+  notify/               native notifications (WinRT toast; frozen macOS osascript)
+  tray/                 systray menu, icons, tooltip (frozen macOS menu bar; no cgo no-op)
   tui/                  Bubble Tea model/view, canvas, bigfont, theme, fx, copy, notes
 installer/              Inno Setup script and branded wizard images (Windows)
-macos/                  Info.plist, wrapper script and portable README for Tuick-Tack.app
+macos/                  frozen Info.plist, wrapper and README for Tuick-Tack.app
 assets/                 sounds/*.wav, icon.ico, icon.png, icon.iconset/, icons/, banners, screenshot
 tools/                  gen-sounds, gen-icons, gen-banner, gen-installer
 scripts/build.ps1       Windows release build
-scripts/build-macos.sh  macOS build + universal .app packaging
+scripts/build-macos.sh  frozen macOS build + .app packaging (manual only)
 winres/                 go-winres metadata
 ```
 
@@ -102,7 +105,7 @@ winres/                 go-winres metadata
 - Dependencies pinned for a reason keep a comment next to them; do not bump until the packages are compatible. Bubble Tea/Lipgloss v2 use the `charm.land/...` module paths and the v2 API; `systray` v1.12.2 is the Fyne fork with left/right-click callbacks and package-level menu state.
 - Keep time-dependent logic testable by injecting a clock; never call `time.Now()` in domain logic that has tests. `time.Now()` belongs in `main`/wiring; tests use a fake clock. The engine relies on the monotonic reading inside `time.Time`.
 - Config schema version is `6`. Bump it and add a migration before adding/changing fields; back up a corrupt config and fall back to defaults.
-- No cgo on Windows: build with `CGO_ENABLED=0`. macOS builds with cgo for the real menu bar (`systray`) and without cgo for the headless fallback; `systray` and `go-winio` are pure Go on Windows.
+- No cgo on Windows: build with `CGO_ENABLED=0`. The frozen macOS port still builds with cgo for the real menu bar (`systray`) and without cgo for the headless fallback, but only on manual dispatch; `systray` and `go-winio` are pure Go on Windows.
 - No wide runes or emoji in the TUI. Every glyph must be one terminal cell; test layouts at 80×24 and 120×40.
 - All TUI rendering goes through `internal/tui/canvas`; do not scatter raw ANSI outside the canvas serializer.
 - `systray.Run` must run on the main goroutine; do not call systray APIs before `onReady`. The rest of its API is safe from other goroutines.
@@ -110,36 +113,38 @@ winres/                 go-winres metadata
 - TUI launch: when Windows Terminal is the default terminal, the tray and a direct launch reopen the TUI in a new Windows Terminal window with the user's default profile (`internal/wt`, read-only), so `none` keeps the user's acrylic, opacity or background image. Otherwise they fall back to a normal console window. Never write to Windows Terminal's settings or set the terminal's default colors (no OSC 10/11). Direct launches pass the internal `--launch-handled` marker so the relaunch cannot loop.
 - The IPC protocol is versioned. Bump the protocol version for incompatible message changes; do not silently break the TUI/daemon pair.
 - `PlaySoundW` uses a WAV file path with `SND_ASYNC`; do not use `SND_MEMORY` (it does not combine with async). Volume is applied by scaling the PCM samples into a cached WAV; never change the system or wave-out device volume.
-- Updates are explicit and checksum-verified: `internal/update` checks the GitHub release once at startup and every 24 h and selects the stable assets for the platform. Windows uses `tuick-tack-setup.exe`, `tuick-tack.exe` and `SHA256SUMS.txt`; macOS uses `tuick-tack-macos-universal.zip` and its `.sha256`. Nothing downloads until the TUI asks. The Windows installed copy downloads the setup, verifies it and lets `internal/updater` run it silently after the daemon/TUI exit; the Windows portable copy downloads the new `.exe` to Downloads. On macOS the daemon saves the universal zip to `~/Downloads`, verifies it and reveals it in Finder; `install_update` answers `unsupported`. `internal/install` reads the Inno uninstall entry on Windows and detects the `.app` bundle on macOS. The tray/menu bar's **Check for updates** and the TUI `u` key trigger the same manual check; only that path raises a native notification (WinRT on Windows, osascript on macOS). Do not move the download into the TUI: the daemon owns network and verification.
+- Updates are explicit and checksum-verified: `internal/update` checks the GitHub release once at startup and every 24 h and selects the stable assets for the platform. Windows uses `tuick-tack-setup.exe`, `tuick-tack.exe` and `SHA256SUMS.txt`; the frozen macOS port uses `tuick-tack-macos-universal.zip` and its `.sha256`. Nothing downloads until the TUI asks. The Windows installed copy downloads the setup, verifies it and lets `internal/updater` run it silently after the daemon/TUI exit; the Windows portable copy downloads the new `.exe` to Downloads. On the frozen macOS port the daemon saves the universal zip to `~/Downloads`, verifies it and reveals it in Finder; `install_update` answers `unsupported`. `internal/install` reads the Inno uninstall entry on Windows and detects the `.app` bundle on the frozen macOS port. The tray's **Check for updates** and the TUI `u` key trigger the same manual check; only that path raises a native notification (WinRT on Windows, osascript on the frozen macOS port). Do not move the download into the TUI: the daemon owns network and verification.
 - Truecolor is assumed; Windows Terminal is the reference terminal. `conhost` is a fallback, not a design target.
 
-## Platform bridges and parity
+## Platform bridges and the frozen macOS port
 
-Windows is the reference platform; macOS is a supported target built from the same source. The
-parity table lives in `SPEC.md` §4 and is updated with every feature.
+Windows is the only supported target. The macOS leaves stay in the tree, frozen: they are not
+part of the normal CI, releases or QA, and no new macOS work is accepted unless the user
+explicitly asks for a macOS build. The parity table in `SPEC.md` §4 is reference only.
 
 - Shared code never imports `golang.org/x/sys/windows`, `github.com/Microsoft/go-winio`,
-  `github.com/mtunjic/winrt-toast` or `fyne.io/systray`; the macOS build fails if it does.
-- A platform capability is declared once in the shared layer and implemented in both leaves
-  (`_windows.go` and `_darwin.go`). If a platform does not have it, return a no-op or announce
-  the capability and hide the UI action; never call a platform API from shared code.
+  `github.com/mtunjic/winrt-toast` or `fyne.io/systray`; a manual macOS build still enforces it.
+- A platform capability is declared once in the shared layer and implemented in the leaves
+  (`_windows.go` and `_darwin.go`). Windows changes only need the Windows leaf; do not add
+  features or fixes to the frozen macOS leaf unless a macOS build is explicitly requested.
 - Do not duplicate the daemon, the TUI, the tray or the protocol for macOS and do not create a
-  parallel branch. The compiler and the CI matrix enforce the split.
+  parallel branch. The frozen port shares the same source.
 - Platform-specific user-facing copy stays in `internal/tui/copy` with platform variants; the
   Windows strings are the baseline and must not change by accident.
-- macOS specifics:
+- macOS specifics (frozen reference; do not change unless a macOS build is explicitly requested):
   - Data goes to `~/Library/Application Support/tuick-tack` and
     `~/Library/Caches/tuick-tack`; the LaunchAgent is
     `~/Library/LaunchAgents/com.juankyyy.tuick-tack.plist`.
   - The bundle is `Tuick-Tack.app` with `LSUIElement` (menu bar, no Dock); the wrapper
     `Contents/MacOS/launcher` starts the daemon, and the real binary is `tuick-tack`.
-  - cgo only links the menu bar; `CGO_ENABLED=0 GOOS=darwin go build ./...` must keep working
-    as the headless fallback. A real cgo build and the packaging run only on macOS/CI.
+  - cgo only links the menu bar; `CGO_ENABLED=0 GOOS=darwin go build ./...` is the headless
+    fallback. The real cgo build and packaging run only on macOS or a manual workflow dispatch.
   - The macOS update is a download only: `update.InstallSupported=false`, `install_update`
     answers `unsupported`, and the daemon saves the zip, verifies it and reveals it in Finder.
   - The TUI never moves or resizes the terminal on macOS; the daemon omits `window` from the
     `hello` and the window placement fields are Windows-only.
-  - A feature is not finished until the Windows and the macOS CI checks are green.
+- A Windows feature is finished when the Windows checks are green. macOS checks are only
+  required for a macOS release explicitly requested by the user.
 
 ## Convenciones
 
@@ -190,11 +195,14 @@ La fuente funcional es `SPEC.md`; este documento manda en el proceso.
   Mantener el portable como opción de la release; el setup es el recomendado.
 - **Publicación**: siempre en GitHub, a petición del usuario y desde `main`. Tag `vX.Y.Z`
   (patch por defecto si no se indica versión); adjuntar los dos `.exe` y `SHA256SUMS.txt`.
-  Después, despachar `.github/workflows/macos.yml` con `tag=vX.Y.Z`: compila el commit del tag
-  y adjunta `tuick-tack-macos-universal.zip` y su `.sha256` a esa misma release. El workflow
-  nunca crea la release. Notas en inglés, manuales, con el formato de las releases anteriores
-  e indicando que quien venga de una versión sin actualizador debe instalar esta una vez. Sin
-  QA visual en una Mac, marcar macOS como experimental en las notas.
+  Las releases normales son **solo Windows**: no se despacha `macos.yml` como parte de una
+  release. Notas en inglés, manuales, con el formato de las releases anteriores e indicando
+  que quien venga de una versión sin actualizador debe instalar esta una vez.
+- **Release macOS (solo si se pide expresamente)**: es independiente de la release Windows.
+  Crear primero la release/tag, luego despachar a mano `.github/workflows/macos.yml` con
+  `tag=vX.Y.Z` (el workflow nunca crea la release). Compila el commit del tag y adjunta
+  `tuick-tack-macos-universal.zip` y su `.sha256`. Sin QA en una Mac, marcarla como
+  experimental. No despacharla por iniciativa propia.
 - **Notas en la app**: el diálogo de actualización muestra la sección `## What's new` del
   `body` de la release, desde ese encabezado hasta el siguiente `##`; mantenerla al
   principio de cada release. Si falta, la app cae al body completo. `internal/update`
@@ -202,22 +210,21 @@ La fuente funcional es `SPEC.md`; este documento manda en el proceso.
 - **Procedimiento**: verificar `dev` (diff `main..dev`, `go vet`, `go test`, `go build`),
   actualizar `winres/winres.json` (FileVersion/ProductVersion) y regenerar el `.syso`,
   actualizar docs, merge/push a `main`, tag, compilar desde `main` con `-Installer`,
-  `gh release create`. Comprobar que el setup compila con Inno Setup 6 (`ISCC.exe`). Después
-  despachar el workflow macOS con el tag (`gh workflow run macos.yml --ref vX.Y.Z
-  -f tag=vX.Y.Z`) y verificar que el zip y el `.sha256` están adjuntos y que el job `release`
-  terminó en verde.
+  `gh release create`. Comprobar que el setup compila con Inno Setup 6 (`ISCC.exe`). No
+  despachar `macos.yml` en este procedimiento; solo se hace a mano si el usuario pide una
+  release macOS.
 - **Nada automático**: no hay workflow que cree releases, secrets ni artefactos firmados. La
-  publicación la hace el agente a mano con `gh`; el workflow macOS solo adjunta el zip a una
-  release existente. No añadir CI de release sin pedirlo.
+  publicación la hace el agente a mano con `gh`; el workflow macOS solo se ejecuta a mano y
+  solo adjunta el zip a una release existente. No añadir CI de release sin pedirlo.
 - **Nunca** push/tag/merge a `main` por iniciativa propia; la única excepción es una
   release pedida por el usuario.
 
-## QA manual por plataforma
+## QA manual
 
-Los runners del CI son headless: validan compilación, tests y el `.app`, pero no GUI, TCC,
-Gatekeeper, notificaciones ni autostart. Antes de anunciar una release:
+Los runners del CI son headless: validan compilación y tests, pero no GUI, notificaciones ni
+autostart. Antes de anunciar una release Windows:
 
-**Windows (referencia)**
+**Windows (única plataforma soportada)**
 
 - [ ] TUI a 48×22, 80×24 y 120×40; sin runas anchas ni solapes.
 - [ ] Tray: icono por estado, clic izquierdo abre/enfoca, menú completo, Quit cierra la TUI.
@@ -226,7 +233,10 @@ Gatekeeper, notificaciones ni autostart. Antes de anunciar una release:
 - [ ] Update: setup y portable, aviso de countdown, fallo de red y checksum incorrecto.
 - [ ] Instalar, actualizar y desinstalar el setup; config e historial intactos.
 
-**macOS (experimental; pendiente de una Mac)**
+**macOS (port congelado; solo si se pide una release macOS)**
+
+No forma parte de la QA normal: el workflow `macos.yml` solo se ejecuta a mano. Si se pide una
+release macOS, revisar:
 
 - [ ] `Tuick-Tack.app` en `~/Applications` abre sin Dock y muestra el menu bar; Gatekeeper se
       resuelve con clic derecho > Open o `xattr -dr com.apple.quarantine`.
@@ -237,17 +247,17 @@ Gatekeeper, notificaciones ni autostart. Antes de anunciar una release:
 - [ ] 48×22, 80×24 y 120×40; el zip es universal y `codesign --verify --deep --strict` pasa.
 - [ ] Config e historial en `~/Library`; sustituir el `.app` conserva los datos.
 
-Sin QA en una Mac, la release debe presentar macOS como **experimental** y no anunciar paridad
-visual completa.
+Sin QA en una Mac, la release macOS se marca **experimental** y no anuncia paridad visual
+completa.
 
 ## Antes de decir que algo está terminado
 
 - [ ] `go vet ./...`, `go test ./...` y `go build ./...` (o `scripts/build.ps1 -Installer`) en verde.
-- [ ] `CGO_ENABLED=0 GOOS=darwin go build ./...` y `GOOS=darwin go vet ./...` limpios; CI de Windows y de macOS arm64/amd64 verde.
+- [ ] Opcional, solo si se toca el puerto congelado: `CGO_ENABLED=0 GOOS=darwin go build ./...` y `GOOS=darwin go vet ./...` limpios. No es requisito para Windows.
 - [ ] Assets generados regenerados y commiteados; `.syso` regenerado si cambió el icono; imágenes del instalador regeneradas con `go generate ./...`.
-- [ ] `SPEC.md` / `README.md` / `AGENTS.md` actualizados si cambió el comportamiento o la UI, incluida la tabla de paridad.
+- [ ] `SPEC.md` / `README.md` / `AGENTS.md` actualizados si cambió el comportamiento o la UI.
 - [ ] La respuesta dice qué debe probar el usuario y qué quedó fuera.
 - [ ] El `.exe` compila; el daemon no abre consola con `--hidden`; QA manual a 80×24 y 120×40.
 - [ ] Instalador probado (instalar, actualizar, desinstalar, autostart) y actualización TUI probada en copia instalada y portable, incluido el aviso de countdown y un fallo de red/checksum.
-- [ ] macOS: zip universal verificado, `.app` abre y QA de menu bar/update/autostart; si no hay Mac, la release se marca experimental.
+- [ ] macOS: solo si se pidió una release macOS; zip universal verificado, `.app` abre y QA de menu bar/update/autostart; si no hay Mac, se marca experimental.
 - [ ] Sin `time.Now()` en lógica de dominio; sin runas anchas en la TUI.
