@@ -535,7 +535,7 @@ var texts = map[Key]string{
 	NotifyFailedTitle:        "Update check failed",
 	NotifyFailedBody:         "Could not reach GitHub. Try again later.",
 
-	ControlsIdle:     "[p] presets · [t] theme · [v] sound · [s] stats · [?] help · [q] quit",
+	ControlsIdle:     "[p] presets · [t] themes · [v] sound · [s] stats · [?] help · [q] quit",
 	ControlsRunning:  "[Space] pause · [Esc] cancel · [+/-] 1 min · [v] sound · [s] stats",
 	ControlsPaused:   "[Space] resume · [Esc] cancel · [+/-] 1 min · [v] sound · [s] stats",
 	ControlsFinished: "[v] sound · [s] stats · [?] help · [q] quit",

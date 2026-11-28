@@ -290,7 +290,7 @@ tuick-tack --daemon --hidden   # daemon without a console (used by autostart)
 ## Updates
 
 The daemon checks the latest GitHub release once at startup and every 24 hours. When a newer
-version exists, the TUI shows a moving pastel-rainbow `[Update available →]` after the wordmark
+version exists, the TUI shows a moving accent-gradient `[Update available →]` after the wordmark
 and its version. Clicking it, or pressing `u` once the release is known, opens the update
 dialog: it shows `vCurrent → vLatest` and the action for this copy. You can install the setup
 or download the portable `.exe`. The tray gets `Update available: vX.Y.Z`, which opens the
