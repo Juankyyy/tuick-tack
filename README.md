@@ -92,7 +92,7 @@ validation and QA, and would be announced separately from the Windows releases.
 | **Always running** | The daemon owns the timer, so closing the TUI never stops a countdown. |
 | **Tray** | Start a preset, pause, stop, change the sound or volume, and open the TUI from the Windows system tray. |
 | **Mini timer** | Keep the remaining time and a progress bar over the left side of the Windows taskbar while a countdown runs; toggle it from the tray. |
-| **Statistics** | `s` opens a full-screen view with a range summary and recent daily focus, a 26-week heatmap, time by start hour and weekday, per-preset totals and the latest sessions. |
+| **Statistics** | `s` opens a full-screen view with a range summary and recent daily focus, a heatmap of up to a year (53 weeks) with a per-day detail line, time by start hour and weekday, per-preset totals and the latest sessions. |
 | **At zero** | The selected sound at the chosen volume, an alert tray icon that returns to idle after 30 seconds, and full-screen pixel-art confetti. |
 | **Sound pack** | Chime, Marimba, Digital and Deep; 0–100% volume in 5% steps, with preview and mute. |
 | **Thirteen themes** | Catppuccin Mocha (default), Tokyo Night, Dracula, Material Palenight, Gruvbox, Nord, Everforest, Kanagawa, Rose Pine, Osaka Jade, Ristretto, Matte Black and Vantablack. Press `t` for the live-preview picker. |
@@ -114,7 +114,7 @@ validation and QA, and would be announced separately from the Windows releases.
 | Running | `Space` pause; `Esc` confirm cancel; `+` / `-` ±1 min; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `M` mini timer; `?` help; `q` close |
 | Paused | `Space` resume; `Esc` confirm cancel; `+` / `-` ±1 min; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `M` mini timer; `?` help |
 | Finished | `r` repeat; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `M` mini timer; `Enter` / `Esc` close the celebration (it also closes itself after 10 s) |
-| Statistics | `←` `→` or `Tab` switch section; `1`–`4` jump; `t` range in the overview (7/30/90 days or all time); `↑` `↓` `PgUp` `PgDn` `Home` `End` or the wheel scroll; `Esc` or `s` close |
+| Statistics | `←` `→` or `Tab` switch section; `1`–`4` jump; `t` range in the overview (7/30/90 days or all time); `↑` `↓` `PgUp` `PgDn` `Home` `End` or the wheel scroll; hovering a day in the activity heatmap shows its detail; `Esc` or `s` close |
 | Themes panel | `↑` `↓` preview; `PgUp` `PgDn` `Home` `End` or the wheel move; `Enter` apply; `Esc` cancel |
 | Sound panel | `↑` `↓` select the sound; `←` `→` volume ±5%; `Space` preview; `m` mute; `Esc` close |
 | Presets panel | `↑` `↓` move; `Tab` actions; `←` `→` choose an action; `Enter` start or run; `a` add; `e` edit; `d` delete; `r` restore defaults; `Esc` close |

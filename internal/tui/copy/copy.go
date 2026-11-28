@@ -158,6 +158,7 @@ const (
 	StatsUnavailable    = Key("stats.unavailable")
 	StatsFocused        = Key("stats.focused")
 	StatsSessions       = Key("stats.sessions")
+	StatsSession        = Key("stats.session")
 	StatsCompleted      = Key("stats.completed")
 	StatsOfFinished     = Key("stats.of.finished")
 	StatsVsPrev         = Key("stats.vs.prev")
@@ -171,8 +172,10 @@ const (
 	StatsMax            = Key("stats.max")
 	StatsHeatLess       = Key("stats.heat.less")
 	StatsHeatMore       = Key("stats.heat.more")
+	StatsWhenFocus      = Key("stats.when.focus")
 	StatsByHour         = Key("stats.by.hour")
 	StatsByWeekday      = Key("stats.by.weekday")
+	StatsNoSessions     = Key("stats.no.sessions")
 	StatsInsight        = Key("stats.insight")
 	StatsWeeks          = Key("stats.weeks")
 	StatsPresetsHead    = Key("stats.presets.header")
@@ -194,6 +197,7 @@ const (
 	StatsEmptyBody      = Key("stats.empty.body")
 	StatsHint           = Key("stats.hint")
 	StatsHintSection    = Key("stats.hint.section")
+	StatsHintActivity   = Key("stats.hint.activity")
 	StatsHintNarrow     = Key("stats.hint.narrow")
 	StatsHintShort      = Key("stats.hint.short")
 
@@ -563,22 +567,25 @@ var texts = map[Key]string{
 	StatsUnavailable:    "Statistics are not available",
 	StatsFocused:        "focused",
 	StatsSessions:       "sessions",
+	StatsSession:        "session",
 	StatsCompleted:      "completed",
 	StatsOfFinished:     "of finished",
 	StatsVsPrev:         "vs prev %s",
 	StatsStreak:         "%d-day streak",
 	StatsBestStreak:     "best %d",
 	StatsLongest:        "longest %s",
-	StatsBusiest:        "busiest day %s · hour %02d:00",
+	StatsBusiest:        "busiest weekday %s · %02d:00",
 	StatsFocusPerDay:    "focus per day",
 	StatsLastDays:       "last %d days",
 	StatsRecordsHead:    "records",
 	StatsMax:            "max %s",
 	StatsHeatLess:       "less",
 	StatsHeatMore:       "more",
-	StatsByHour:         "by start hour",
-	StatsByWeekday:      "by weekday",
-	StatsInsight:        "your busiest day is %s · hour %02d:00",
+	StatsWhenFocus:      "when you focus",
+	StatsByHour:         "start hour",
+	StatsByWeekday:      "weekday",
+	StatsNoSessions:     "no sessions",
+	StatsInsight:        "your busiest weekday is %s · %02d:00",
 	StatsWeeks:          "%d weeks",
 	StatsPresetsHead:    "presets by total focus",
 	StatsRuns:           "sessions",
@@ -599,6 +606,7 @@ var texts = map[Key]string{
 	StatsEmptyBody:      "Finish or stop a countdown and it lands here.",
 	StatsHint:           "[←/→] section · [t] range · [↑/↓] scroll · [Esc] close",
 	StatsHintSection:    "[←/→] section · [↑/↓] scroll · [Esc] close",
+	StatsHintActivity:   "[←/→] section · [↑/↓] scroll · [mouse] day · [Esc] close",
 	StatsHintNarrow:     "[←/→] · [↑/↓] scroll · [Esc] close",
 	StatsHintShort:      "[←/→] section · [Esc] close",
 

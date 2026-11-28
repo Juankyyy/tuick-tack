@@ -300,12 +300,16 @@ type Model struct {
 
 	// Statistics tab. The daemon sends the aggregate on demand and the TUI
 	// caches it; statsTab, statsRange and statsScroll are the view state.
-	statsData    *protocol.StatsPayload
-	statsLoaded  bool
-	statsLoading bool
-	statsTab     int
-	statsRange   int
-	statsScroll  int
+	// statsHeatHover is the day under the pointer in the activity heatmap and
+	// statsHeat is the geometry of the last heatmap drawn.
+	statsData      *protocol.StatsPayload
+	statsLoaded    bool
+	statsLoading   bool
+	statsTab       int
+	statsRange     int
+	statsScroll    int
+	statsHeatHover string
+	statsHeat      heatGrid
 }
 
 // New creates the TUI model. It reads the per-user install entry so the update
@@ -1788,6 +1792,11 @@ func (m *Model) handleMouseMotion(msg tea.MouseMotionMsg) {
 		break
 	}
 	m.hoverUpdate = hover
+	if m.modal == modalStats && m.statsTab == statsTabActivity {
+		if day := m.heatDayAt(msg.X, msg.Y); day != m.statsHeatHover {
+			m.statsHeatHover = day
+		}
+	}
 }
 
 // handleMouseWheel scrolls the release notes while the chooser is open, or the

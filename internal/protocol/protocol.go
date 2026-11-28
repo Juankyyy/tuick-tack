@@ -248,9 +248,9 @@ type StatsMessage struct {
 
 func (StatsMessage) isServerMessage() {}
 
-// StatsPayload is the whole Statistics tab in one message (~8 KiB).
+// StatsPayload is the whole Statistics tab in one message (~24 KiB).
 type StatsPayload struct {
-	// Daily covers the last 189 local days, oldest first.
+	// Daily covers the last 371 local days, oldest first.
 	Daily []StatsDay `json:"daily"`
 	// Hourly has 24 buckets by local start hour.
 	Hourly []StatsBucket `json:"hourly"`

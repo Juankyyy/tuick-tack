@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -217,6 +218,7 @@ func TestStatsSectionsRender(t *testing.T) {
 			}
 			if !strings.Contains(plain, copy.T(copy.StatsHint)) &&
 				!strings.Contains(plain, copy.T(copy.StatsHintSection)) &&
+				!strings.Contains(plain, copy.T(copy.StatsHintActivity)) &&
 				!strings.Contains(plain, copy.T(copy.StatsHintNarrow)) &&
 				!strings.Contains(plain, copy.T(copy.StatsHintShort)) {
 				t.Fatalf("%dx%d tab %d missing the hint:\n%s", w, h, tab, plain)
@@ -463,10 +465,57 @@ func TestStatsActivityColumnsAlign(t *testing.T) {
 
 	hourW := statBarsWidth(24, 1, 0)
 	weekdayW := statBarsWidth(7, 2, 1)
-	blockW := hourW + 2 + weekdayW
+	const columnGap = 4
+	blockW := 1 + hourW + columnGap + weekdayW
 	if w < blockW {
 		t.Fatalf("test width %d cannot show both charts", w)
 	}
+	var section, header, axis, chart statLine
+	for _, row := range rows {
+		text := statLineText(row)
+		switch {
+		case strings.Contains(text, copy.T(copy.StatsWhenFocus)):
+			section = row
+		case strings.Contains(text, copy.T(copy.StatsByHour)) &&
+			strings.Contains(text, copy.T(copy.StatsByWeekday)):
+			header = row
+		case strings.Contains(text, weekdayAxis()):
+			axis = row
+		case chart == nil && strings.ContainsAny(text, "█▄·") && lineWidth(row) == blockW:
+			chart = row
+		}
+	}
+	if section == nil || header == nil || axis == nil || chart == nil {
+		t.Fatalf("activity rows missing section/header/axis/chart: section=%v header=%v axis=%v chart=%v",
+			section != nil, header != nil, axis != nil, chart != nil)
+	}
+	weekdayAt := 1 + hourW + columnGap
+	headerText := statLineText(header)
+	if at := strings.Index(headerText, copy.T(copy.StatsByWeekday)); at < 0 || canvas.Width(headerText[:at]) != weekdayAt {
+		t.Fatalf("weekday header starts at %d, want %d: %q", canvas.Width(headerText[:maxInt(0, at)]), weekdayAt, headerText)
+	}
+	axisText := statLineText(axis)
+	if at := strings.Index(axisText, copy.WeekdayNarrow(0)); at < 0 || canvas.Width(axisText[:at]) != weekdayAt {
+		t.Fatalf("weekday axis starts at %d, want %d: %q", canvas.Width(axisText[:maxInt(0, at)]), weekdayAt, axisText)
+	}
+	if got := lineWidth(chart); got != blockW {
+		t.Fatalf("chart block width = %d, want %d", got, blockW)
+	}
+	if got := hourAxis(1, 0); canvas.Width(got) != hourW || !strings.HasSuffix(got, "23") {
+		t.Fatalf("hour axis = %q, want width %d ending in 23", got, hourW)
+	}
+}
+
+func TestStatsActivityWideHourChart(t *testing.T) {
+	m, _, _ := openTestStats(t, 120, 40)
+	m.setStatsTab(statsTabActivity)
+	_, w, _, h := m.statsContentArea()
+	rows := m.statsRows(w, h)
+
+	hourW := statBarsWidth(24, 2, 1)
+	weekdayW := statBarsWidth(7, 2, 1)
+	const columnGap = 4
+	blockW := 1 + hourW + columnGap + weekdayW
 	var header, axis, chart statLine
 	for _, row := range rows {
 		text := statLineText(row)
@@ -481,22 +530,206 @@ func TestStatsActivityColumnsAlign(t *testing.T) {
 		}
 	}
 	if header == nil || axis == nil || chart == nil {
-		t.Fatalf("activity rows missing header/axis/chart: header=%v axis=%v chart=%v",
+		t.Fatalf("wide activity missing header/axis/chart: header=%v axis=%v chart=%v",
 			header != nil, axis != nil, chart != nil)
 	}
-	headerText := statLineText(header)
-	if at := strings.Index(headerText, copy.T(copy.StatsByWeekday)); at < 0 || canvas.Width(headerText[:at]) != hourW+2 {
-		t.Fatalf("weekday header starts at %d, want %d: %q", canvas.Width(headerText[:maxInt(0, at)]), hourW+2, headerText)
+	weekdayAt := 1 + hourW + columnGap
+	if at := strings.Index(statLineText(header), copy.T(copy.StatsByWeekday)); at < 0 || canvas.Width(statLineText(header)[:at]) != weekdayAt {
+		t.Fatalf("wide weekday header starts at %d, want %d", at, weekdayAt)
 	}
-	axisText := statLineText(axis)
-	if at := strings.Index(axisText, copy.WeekdayNarrow(0)); at < 0 || canvas.Width(axisText[:at]) != hourW+2 {
-		t.Fatalf("weekday axis starts at %d, want %d: %q", canvas.Width(axisText[:maxInt(0, at)]), hourW+2, axisText)
+	if at := strings.Index(statLineText(axis), copy.WeekdayNarrow(0)); at < 0 || canvas.Width(statLineText(axis)[:at]) != weekdayAt {
+		t.Fatalf("wide weekday axis starts at %d, want %d", at, weekdayAt)
 	}
 	if got := lineWidth(chart); got != blockW {
-		t.Fatalf("chart block width = %d, want %d", got, blockW)
+		t.Fatalf("wide chart block width = %d, want %d", got, blockW)
 	}
-	if got := hourAxis(); canvas.Width(got) != hourW || !strings.HasSuffix(got, "23") {
-		t.Fatalf("hour axis = %q, want width %d ending in 23", got, hourW)
+	if got := hourAxis(2, 1); canvas.Width(got) != hourW || !strings.HasSuffix(got, "23") {
+		t.Fatalf("wide hour axis = %q, want width %d ending in 23", got, hourW)
+	}
+}
+
+func TestStatsHeatmapSpansAYear(t *testing.T) {
+	for _, tc := range []struct {
+		w, h, weeks, cellW int
+	}{
+		{120, 40, heatWeeks, heatCellWide},
+		{80, 24, heatWeeks, 1},
+	} {
+		m, _, payload := openTestStats(t, tc.w, tc.h)
+		payload.Daily[100].MS = 90 * 60000
+		payload.Daily[100].N = 3
+		m.handleServerEvent(serverEventMsg{msg: protocol.NewStats(payload)})
+		m.setStatsTab(statsTabActivity)
+		assertFrame(t, m, tc.w, tc.h)
+
+		if m.statsHeat.weeks != tc.weeks || m.statsHeat.cellW != tc.cellW {
+			t.Fatalf("%dx%d heatmap = %d weeks x %d cells, want %d x %d",
+				tc.w, tc.h, m.statsHeat.weeks, m.statsHeat.cellW, tc.weeks, tc.cellW)
+		}
+		now := m.now().In(m.statsLocation())
+		thisMonday := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, m.statsLocation()).
+			AddDate(0, 0, -((int(now.Weekday()) + 6) % 7))
+		wantFirst := thisMonday.AddDate(0, 0, -7*(tc.weeks-1))
+		if !m.statsHeat.firstMon.Equal(wantFirst) {
+			t.Fatalf("%dx%d first Monday = %v, want %v", tc.w, tc.h, m.statsHeat.firstMon, wantFirst)
+		}
+
+		day, err := time.ParseInLocation("2006-01-02", payload.Daily[100].Date, m.statsLocation())
+		if err != nil {
+			t.Fatal(err)
+		}
+		first := time.Date(m.statsHeat.firstMon.Year(), m.statsHeat.firstMon.Month(),
+			m.statsHeat.firstMon.Day(), 0, 0, 0, 0, m.statsHeat.firstMon.Location())
+		week := int(day.Sub(first).Hours()/24) / heatDays
+		weekday := (int(day.Weekday()) + 6) % heatDays
+		c := canvas.New(tc.w, tc.h)
+		m.drawStats(c, rect{x: 0, y: 0, w: tc.w, h: tc.h})
+		cell := c.At(m.statsHeat.x+week*m.statsHeat.cellW, m.statsHeat.y+weekday)
+		if !cell.HasBG || cell.BG == m.heatColor(0) {
+			t.Fatalf("%dx%d old day %s at week %d weekday %d is not tinted", tc.w, tc.h, payload.Daily[100].Date, week, weekday)
+		}
+	}
+}
+
+func TestStatsHeatHoverShowsDay(t *testing.T) {
+	m, _, payload := openTestStats(t, 120, 40)
+	m.setStatsTab(statsTabActivity)
+	render(m)
+
+	target := payload.Daily[len(payload.Daily)-7]
+	day, err := time.ParseInLocation("2006-01-02", target.Date, m.statsLocation())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := time.Date(m.statsHeat.firstMon.Year(), m.statsHeat.firstMon.Month(),
+		m.statsHeat.firstMon.Day(), 0, 0, 0, 0, m.statsHeat.firstMon.Location())
+	week := int(day.Sub(first).Hours()/24) / heatDays
+	weekday := (int(day.Weekday()) + 6) % heatDays
+	x := m.statsHeat.x + week*m.statsHeat.cellW + 1
+	y := m.statsHeat.y + weekday
+	m.handleMouseMotion(tea.MouseMotionMsg{X: x, Y: y})
+	if m.statsHeatHover != target.Date {
+		t.Fatalf("hover = %q, want %q", m.statsHeatHover, target.Date)
+	}
+	wantDate := copy.WeekdayShort((int(day.Weekday())+6)%7) + " " +
+		fmt.Sprintf("%02d", day.Day()) + " " + copy.MonthShort(day.Month())
+	plain := assertFrame(t, m, 120, 40)
+	if !strings.Contains(plain, wantDate) || !strings.Contains(plain, "1h") || !strings.Contains(plain, "1 session") {
+		t.Fatalf("hovered day missing its detail %q:\n%s", wantDate, plain)
+	}
+
+	m.handleMouseMotion(tea.MouseMotionMsg{X: 0, Y: 0})
+	if m.statsHeatHover != "" {
+		t.Fatalf("leaving the grid kept hover %q", m.statsHeatHover)
+	}
+}
+
+func TestStatsHeatLevels(t *testing.T) {
+	values := make([]int64, 100)
+	for i := range values {
+		values[i] = int64(i + 1)
+	}
+	thresholds := heatThresholds(append([]int64(nil), values...))
+	if thresholds != [3]int64{26, 51, 76} {
+		t.Fatalf("thresholds = %v, want [26 51 76]", thresholds)
+	}
+	levels := make([]int, len(values))
+	for i, v := range values {
+		levels[i] = heatLevel(v, thresholds)
+	}
+	if levels[0] != 1 || levels[len(levels)-1] != 4 {
+		t.Fatalf("extreme levels = %d..%d, want 1..4", levels[0], levels[len(levels)-1])
+	}
+	for i := 1; i < len(levels); i++ {
+		if levels[i] < levels[i-1] {
+			t.Fatalf("levels are not monotonic at %d: %v", i, levels)
+		}
+	}
+
+	two := heatThresholds([]int64{10, 40})
+	if heatLevel(10, two) == heatLevel(40, two) {
+		t.Fatalf("two active days share a level: %v", two)
+	}
+	three := heatThresholds([]int64{10, 20, 30})
+	if a, b, c := heatLevel(10, three), heatLevel(20, three), heatLevel(30, three); a != 2 || b != 3 || c != 4 {
+		t.Fatalf("three active day levels = [%d %d %d], want [2 3 4]", a, b, c)
+	}
+	repeated := heatThresholds([]int64{10, 10, 10})
+	if heatLevel(10, repeated) != 4 {
+		t.Fatalf("equal active days do not reach the top step")
+	}
+
+	if got := heatLevel(42*60000, heatThresholds([]int64{42 * 60000})); got != 4 {
+		t.Fatalf("a single active day has level %d, want 4", got)
+	}
+	if got := heatLevel(0, thresholds); got != 0 {
+		t.Fatalf("empty day has level %d, want 0", got)
+	}
+}
+
+func TestStatsHeatmapNarrowSheet(t *testing.T) {
+	m, _, _ := openTestStats(t, 48, 22)
+	m.setStatsTab(statsTabActivity)
+	render(m)
+	if m.statsHeat.weeks != 35 || m.statsHeat.cellW != 1 {
+		t.Fatalf("48x22 heatmap = %d weeks x %d cells, want 35 x 1", m.statsHeat.weeks, m.statsHeat.cellW)
+	}
+}
+
+func TestStatsHeatHoverIgnoresFutureAndTracksScroll(t *testing.T) {
+	m, _, _ := openTestStats(t, 120, 40)
+	m.setStatsTab(statsTabActivity)
+	render(m)
+	grid := m.statsHeat
+	futureX := grid.x + (grid.weeks-1)*grid.cellW
+	futureY := grid.y + 6
+	if got := m.heatDayAt(futureX, futureY); got != "" {
+		t.Fatalf("future day maps to %q, want empty", got)
+	}
+
+	scrolled, _, _ := openTestStats(t, 80, 24)
+	scrolled.setStatsTab(statsTabActivity)
+	scrolled.scrollStats(1)
+	render(scrolled)
+	grid = scrolled.statsHeat
+	want := grid.firstMon.AddDate(0, 0, 5).Format("2006-01-02")
+	if got := scrolled.heatDayAt(grid.x, grid.y+5); got != want {
+		t.Fatalf("scrolled heatmap maps to %q, want %q", got, want)
+	}
+}
+
+func TestStatsHeatHoverClearsOutsideWindow(t *testing.T) {
+	m, _, _ := openTestStats(t, 120, 40)
+	m.setStatsTab(statsTabActivity)
+	render(m)
+	m.statsHeatHover = "2000-01-01"
+	_, w, _, h := m.statsContentArea()
+	m.statsRows(w, h)
+	if m.statsHeatHover != "" {
+		t.Fatalf("stale hover %q survived the window rebuild", m.statsHeatHover)
+	}
+}
+
+func TestStatsHeatEmptyCellIsVisible(t *testing.T) {
+	m, _, _ := openTestStats(t, 120, 40)
+	for _, name := range config.Themes {
+		m.cfg.Theme = name
+		m.pal = theme.Get(name)
+		empty := m.heatColor(0)
+		if empty == m.pal.Panel {
+			t.Fatalf("%s: empty heat cell is the panel color", name)
+		}
+		if theme.Contrast(empty, m.pal.Panel) < 1.05 {
+			t.Fatalf("%s: empty heat cell is invisible against the panel", name)
+		}
+		previous := theme.Luminance(empty)
+		for level := 1; level <= 4; level++ {
+			lum := theme.Luminance(m.heatColor(level))
+			if lum <= previous {
+				t.Fatalf("%s: heat level %d is not lighter than the previous one", name, level)
+			}
+			previous = lum
+		}
 	}
 }
 
@@ -642,8 +875,8 @@ func TestStatsHintDependsOnSection(t *testing.T) {
 	if strings.Contains(plain, "[t] range") {
 		t.Fatalf("activity hint advertises the overview range key:\n%s", plain)
 	}
-	if !strings.Contains(plain, copy.T(copy.StatsHintSection)) {
-		t.Fatalf("activity missing its section hint:\n%s", plain)
+	if !strings.Contains(plain, copy.T(copy.StatsHintActivity)) {
+		t.Fatalf("activity missing its hint:\n%s", plain)
 	}
 }
 

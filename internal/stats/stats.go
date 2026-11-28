@@ -26,9 +26,9 @@ const (
 	// amortized instead of happening on every append.
 	trimSlack = 256
 	// DailyWindow is the number of local days the daemon sends to the TUI.
-	// It covers the 26-week heatmap (182 days) plus a week of slack, so the
-	// oldest column is complete whatever day of the week it is.
-	DailyWindow = 189
+	// It covers the 53-week year heatmap (371 days), so the oldest Monday
+	// column is complete whatever day of the week it is.
+	DailyWindow = 371
 	// RecentCount is how many sessions the recent list carries.
 	RecentCount = 20
 	// LabelCount is how many labels the presets section shows.

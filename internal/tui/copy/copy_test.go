@@ -200,7 +200,7 @@ func TestKeyHintsUseBracketFormat(t *testing.T) {
 		UpdateHint,
 		SoundHint, SoundActionHint,
 		PresetFormHint, PresetsEmpty, PresetsHint, PresetsActionHint,
-		StatsHint, StatsHintSection, StatsHintNarrow, StatsHintShort,
+		StatsHint, StatsHintSection, StatsHintActivity, StatsHintNarrow, StatsHintShort,
 	}
 	for _, key := range keys {
 		text := T(key)
@@ -215,16 +215,16 @@ func TestStatsCopyExists(t *testing.T) {
 		StatsTitle, StatsOverview, StatsActivity, StatsPresets, StatsRecent,
 		StatsRange7, StatsRange30, StatsRange90, StatsRangeAll,
 		StatsLoading, StatsUnavailable,
-		StatsFocused, StatsSessions, StatsCompleted, StatsOfFinished, StatsVsPrev,
+		StatsFocused, StatsSessions, StatsSession, StatsCompleted, StatsOfFinished, StatsVsPrev,
 		StatsStreak, StatsBestStreak, StatsLongest, StatsBusiest,
 		StatsFocusPerDay, StatsLastDays, StatsRecordsHead,
 		StatsMax, StatsHeatLess, StatsHeatMore,
-		StatsByHour, StatsByWeekday, StatsInsight, StatsWeeks,
+		StatsWhenFocus, StatsByHour, StatsByWeekday, StatsNoSessions, StatsInsight, StatsWeeks,
 		StatsPresetsHead, StatsRuns, StatsMostUsed, StatsAvgSession,
 		StatsWhen, StatsPlanned, StatsLabel, StatsOutcome,
 		StatsDone, StatsStopped, StatsReplaced,
 		StatsToday, StatsYesterday, StatsYesterdayShort, StatsShowing,
-		StatsEmptyTitle, StatsEmptyBody, StatsHint, StatsHintSection, StatsHintNarrow, StatsHintShort,
+		StatsEmptyTitle, StatsEmptyBody, StatsHint, StatsHintSection, StatsHintActivity, StatsHintNarrow, StatsHintShort,
 		WeekdayMon, WeekdayTue, WeekdayWed, WeekdayThu, WeekdayFri, WeekdaySat, WeekdaySun,
 		MonthJan, MonthFeb, MonthMar, MonthApr, MonthMay, MonthJun,
 		MonthJul, MonthAug, MonthSep, MonthOct, MonthNov, MonthDec,

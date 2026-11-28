@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -35,6 +36,29 @@ const (
 	statsRangeCount
 )
 
+// The activity heatmap always spans a year (GitHub-style). At wide sizes each
+// day is two cells so the square reads as a square in a terminal cell.
+const (
+	heatWeeks    = 53
+	heatDays     = 7
+	heatCellWide = 2
+)
+
+// heatRamp is the five-step tint of the heatmap, from an almost empty day to
+// the brightest one. The empty step is deliberately above the panel so the
+// whole grid stays visible.
+var heatRamp = [...]float64{0.10, 0.28, 0.46, 0.64, 0.86}
+
+// heatGrid is the last geometry of the activity heatmap. drawStats fills x and
+// y; heatDayAt uses it to map the pointer to a date without hitboxes.
+type heatGrid struct {
+	x, y     int
+	row      int
+	cellW    int
+	weeks    int
+	firstMon time.Time
+}
+
 // openStats opens the tab and asks the daemon for a fresh summary. The previous
 // summary stays cached until the reply arrives.
 func (m *Model) openStats() tea.Cmd {
@@ -46,6 +70,8 @@ func (m *Model) openStats() tea.Cmd {
 	m.statsTab = statsTabOverview
 	m.statsRange = statsRange7
 	m.statsScroll = 0
+	m.statsHeatHover = ""
+	m.statsHeat = heatGrid{}
 	return m.requestStats()
 }
 
@@ -79,6 +105,7 @@ func (m *Model) setStatsTab(tab int) {
 	}
 	m.statsTab = tab
 	m.statsScroll = 0
+	m.statsHeatHover = ""
 }
 
 func (m *Model) scrollStats(delta int) {
@@ -158,7 +185,8 @@ func (m *Model) handleStatsKey(key tea.Key) tea.Cmd {
 // get room, but keeps a margin for the dimmed stage behind it.
 func (m *Model) statsRect() rect {
 	baseW, baseH := m.viewSize()
-	w := minInt(96, baseW-6)
+	// The year heatmap needs room for 53 two-cell days at 120 columns.
+	w := minInt(114, baseW-6)
 	h := minInt(26, baseH-2)
 	if w < 24 {
 		w = baseW
@@ -667,188 +695,180 @@ func (m *Model) statsRecordsLine(w int) statLine {
 
 func (m *Model) statsActivityRows(w, h int) []statLine {
 	p := m.statsData
+	// statsMaxScroll also builds the rows; keep the drawn origin so a mouse
+	// motion before the next draw still maps to the right cells.
+	lastX, lastY := m.statsHeat.x, m.statsHeat.y
+	m.statsHeat = heatGrid{}
+	if w <= 3 {
+		return nil
+	}
 	loc := m.statsLocation()
-
-	byDate := make(map[string]int64, len(p.Daily))
+	byDate := make(map[string]protocol.StatsDay, len(p.Daily))
 	for _, day := range p.Daily {
-		byDate[day.Date] = day.MS
+		byDate[day.Date] = day
 	}
 	now := m.now().In(loc)
 	today := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, loc)
-	weeks := 26
-	if fit := w - 3; weeks > fit {
-		weeks = fit
-	}
-	if weeks < 4 {
-		weeks = 4
-	}
 	thisMonday := today.AddDate(0, 0, -((int(today.Weekday()) + 6) % 7))
+
+	// At 120 columns each day gets two cells, which reads as a square in a
+	// terminal; narrower sheets keep one cell and show as many of the 53 weeks
+	// as fit.
+	cellW := 1
+	if w-3 >= heatWeeks*heatCellWide {
+		cellW = heatCellWide
+	}
+	weeks := (w - 3) / cellW
+	if weeks > heatWeeks {
+		weeks = heatWeeks
+	}
+	if weeks < 1 {
+		weeks = 1
+	}
+	for weeks > 1 && 3+weeks*cellW > w {
+		weeks--
+	}
 	firstMonday := thisMonday.AddDate(0, 0, -7*(weeks-1))
+	firstKey := firstMonday.Format("2006-01-02")
+	todayKey := today.Format("2006-01-02")
+	if m.statsHeatHover != "" && (m.statsHeatHover < firstKey || m.statsHeatHover > todayKey) {
+		// A refresh or midnight can move the window out from under a hover.
+		m.statsHeatHover = ""
+	}
 
-	rows := []statLine{m.statsHeader(copy.T(copy.StatsActivity), copy.T(copy.StatsWeeks, weeks), w)}
-
-	var maxMS int64
+	// Collect the visible window once: its total feeds the summary and its
+	// active days feed the quartile thresholds of the tint ramp.
+	active := make([]int64, 0, weeks*heatDays)
+	var totalMS int64
+	var totalN int
 	for i := 0; i < weeks; i++ {
 		monday := firstMonday.AddDate(0, 0, 7*i)
-		for d := 0; d < 7; d++ {
+		for d := 0; d < heatDays; d++ {
 			day := monday.AddDate(0, 0, d)
 			if day.After(today) {
 				continue
 			}
-			if v := byDate[day.Format("2006-01-02")]; v > maxMS {
-				maxMS = v
+			value := byDate[day.Format("2006-01-02")]
+			if value.MS > 0 {
+				active = append(active, value.MS)
 			}
+			totalMS += value.MS
+			totalN += value.N
 		}
 	}
+	thresholds := heatThresholds(active)
 
-	months := make([]rune, weeks)
-	for i := range months {
-		months[i] = ' '
-	}
-	placeMonth := func(at int, label string) {
-		for k, r := range []rune(label) {
-			if at+k < weeks {
-				months[at+k] = r
-			}
-		}
-	}
-	lastMonth := ""
-	lastCol := -10
-	for i := 0; i < weeks; i++ {
-		label := copy.MonthShort(firstMonday.AddDate(0, 0, 7*i).Month())
-		if label == lastMonth {
-			continue
-		}
-		switch {
-		case i+3 <= weeks && i >= lastCol+4:
-			placeMonth(i, label)
-			lastMonth = label
-			lastCol = i
-		case i+3 > weeks:
-			// The last month label is right-aligned into the grid when it fits
-			// without touching the previous one.
-			start := weeks - 3
-			if start >= 0 && start >= lastCol+4 {
-				placeMonth(start, label)
-				lastMonth = label
-				lastCol = start
-			}
-		}
-	}
-	rows = append(rows, statLine{statPad(3), statTxt(string(months), m.pal.Muted)})
+	rows := []statLine{m.statsHeader(copy.T(copy.StatsActivity), copy.T(copy.StatsWeeks, weeks), w)}
+	rows = append(rows, m.heatMonthLabels(firstMonday, weeks, cellW))
 
-	dayLabels := [7]string{}
-	for _, d := range []int{0, 2, 4} {
-		dayLabels[d] = firstRunes(copy.WeekdayShort(d), 1)
-	}
-	for d := 0; d < 7; d++ {
-		line := statLine{statTxt(" "+dayLabels[d]+" ", m.pal.Muted)}
+	gridRow := len(rows)
+	for d := 0; d < heatDays; d++ {
+		label := ""
+		switch d {
+		case 0, 2, 4:
+			label = firstRunes(copy.WeekdayShort(d), 1)
+		}
+		// Keep the gutter at three cells even on rows without a label, or the
+		// unlabelled rows would shift one column left of the labelled ones.
+		line := statLine{statTxt(" "+padRight(label, 1)+" ", m.pal.Muted)}
 		for i := 0; i < weeks; i++ {
 			day := firstMonday.AddDate(0, 0, 7*i+d)
-			level := 0
-			if !day.After(today) && maxMS > 0 {
-				if v := byDate[day.Format("2006-01-02")]; v > 0 {
-					ratio := float64(v) / float64(maxMS)
-					level = 1 + int(math.Min(3, math.Floor(ratio*3.999)))
-				}
-			}
-			bg := theme.Lerp(m.pal.Panel, m.pal.BG, 0.55)
+			key := day.Format("2006-01-02")
+			bg := m.heatColor(0)
 			if day.After(today) {
-				bg = m.pal.BG
-			} else if level > 0 {
-				bg = theme.Lerp(m.pal.Panel, m.pal.Accent, 0.18+0.2*float64(level))
+				// Leave the future days empty instead of a dark square.
+				bg = m.pal.Panel
+			} else if value := byDate[key]; value.MS > 0 {
+				bg = m.heatColor(heatLevel(value.MS, thresholds))
 			}
-			line = append(line, statBG(" ", m.pal.Text, bg))
+			if key == m.statsHeatHover {
+				bg = theme.Lerp(bg, m.pal.Text, 0.32)
+			}
+			line = append(line, statBG(strings.Repeat(" ", cellW), m.pal.Text, bg))
 		}
 		rows = append(rows, line)
 	}
-
-	if h >= 15 {
-		legend := statLine{statPad(1), statTxt(copy.T(copy.StatsHeatLess)+" ", m.pal.Muted)}
-		for level := 0; level <= 4; level++ {
-			bg := theme.Lerp(m.pal.Panel, m.pal.BG, 0.55)
-			if level > 0 {
-				bg = theme.Lerp(m.pal.Panel, m.pal.Accent, 0.18+0.2*float64(level))
-			}
-			legend = append(legend, statBG(" ", m.pal.Text, bg))
-		}
-		legend = append(legend, statTxt(" "+copy.T(copy.StatsHeatMore), m.pal.Muted))
-		rows = append(rows, legend)
+	m.statsHeat = heatGrid{
+		x:        lastX,
+		y:        lastY,
+		row:      gridRow,
+		cellW:    cellW,
+		weeks:    weeks,
+		firstMon: firstMonday,
 	}
-	if h >= 17 {
+
+	rows = append(rows, m.heatSummaryLines(w, cellW, totalMS, totalN)...)
+	rows = append(rows, m.heatDetailLine(w, byDate, today))
+	if h >= 16 {
 		rows = append(rows, statLine{})
 	}
+	rows = append(rows, m.statsHeader(copy.T(copy.StatsWhenFocus), copy.T(copy.StatsRangeAll), w))
 
-	hourVals := make([]int64, len(p.Hourly))
-	for i := range p.Hourly {
-		hourVals[i] = p.Hourly[i].MS
+	hourVals := make([]int64, 24)
+	for i := range hourVals {
+		if i < len(p.Hourly) {
+			hourVals[i] = p.Hourly[i].MS
+		}
 	}
-	weekdayVals := make([]int64, len(p.Weekday))
-	for i := range p.Weekday {
-		weekdayVals[i] = p.Weekday[i].MS
+	weekdayVals := make([]int64, 7)
+	for i := range weekdayVals {
+		if i < len(p.Weekday) {
+			weekdayVals[i] = p.Weekday[i].MS
+		}
 	}
 	hourMax := maxValue(hourVals)
 	weekdayMax := maxValue(weekdayVals)
 
+	hourBarW, hourGap := 1, 0
+	if w >= 100 {
+		hourBarW, hourGap = heatCellWide, 1
+	}
 	const (
-		hourBarW    = 1
-		hourGap     = 0
 		weekdayBarW = 2
 		weekdayGap  = 1
-		columnGap   = 2
+		columnGap   = 4
 	)
 	hourW := statBarsWidth(len(hourVals), hourBarW, hourGap)
 	weekdayW := statBarsWidth(len(weekdayVals), weekdayBarW, weekdayGap)
 
-	hourTitle := statLine{
-		statTxt(" "+copy.T(copy.StatsByHour), m.pal.Text),
-		statTxt(" · "+copy.T(copy.StatsRangeAll), m.pal.Muted),
-	}
-	weekdayTitle := statLine{
-		statTxt(copy.T(copy.StatsByWeekday), m.pal.Text),
-		statTxt(" · "+copy.T(copy.StatsRangeAll), m.pal.Muted),
-	}
+	hourChart := statChart(m, statBars{
+		values: hourVals, max: hourMax, height: 3,
+		barW: hourBarW, gap: hourGap, accent: m.pal.Accent,
+	})
+	weekdayChart := statChart(m, statBars{
+		values: weekdayVals, max: weekdayMax, height: 3,
+		barW: weekdayBarW, gap: weekdayGap, accent: m.pal.Accent,
+	})
 
-	// The header can be one cell wider than the chart block because the
-	// weekday title carries its "all time" note.
-	headerW := hourW + columnGap + maxInt(weekdayW, lineWidth(weekdayTitle))
-	if w >= headerW {
-		header := append(statLine{}, hourTitle...)
-		if pad := hourW + columnGap - lineWidth(header); pad > 0 {
-			header = append(header, statPad(pad))
+	if w >= 1+hourW+columnGap+weekdayW {
+		sub := statLine{statPad(1), statTxt(copy.T(copy.StatsByHour), m.pal.Muted)}
+		if pad := 1 + hourW + columnGap - lineWidth(sub); pad > 0 {
+			sub = append(sub, statPad(pad))
 		}
-		header = append(header, weekdayTitle...)
-		rows = append(rows, header)
-		hourRows := statChart(m, statBars{
-			values: hourVals, max: hourMax, height: 3,
-			barW: hourBarW, gap: hourGap, accent: m.pal.Accent,
-		})
-		weekdayRows := statChart(m, statBars{
-			values: weekdayVals, max: weekdayMax, height: 3,
-			barW: weekdayBarW, gap: weekdayGap, accent: m.pal.Accent,
-		})
+		sub = append(sub, statTxt(copy.T(copy.StatsByWeekday), m.pal.Muted))
+		rows = append(rows, sub)
 		for i := 0; i < 3; i++ {
-			line := append(statLine{}, hourRows[i]...)
+			line := append(statLine{statPad(1)}, hourChart[i]...)
 			line = append(line, statPad(columnGap))
-			line = append(line, weekdayRows[i]...)
+			line = append(line, weekdayChart[i]...)
 			rows = append(rows, line)
 		}
-		axis := statLine{statTxt(hourAxis(), m.pal.Muted)}
-		axis = append(axis, statPad(columnGap), statTxt(weekdayAxis(), m.pal.Muted))
+		axis := statLine{
+			statPad(1), statTxt(hourAxis(hourBarW, hourGap), m.pal.Muted),
+			statPad(columnGap), statTxt(weekdayAxis(), m.pal.Muted),
+		}
 		rows = append(rows, axis)
 	} else {
-		rows = append(rows, hourTitle)
-		rows = append(rows, statChart(m, statBars{
-			values: hourVals, max: hourMax, height: 3,
-			barW: hourBarW, gap: hourGap, accent: m.pal.Accent,
-		})...)
-		rows = append(rows, statLine{statTxt(hourAxis(), m.pal.Muted)})
-		rows = append(rows, weekdayTitle)
-		rows = append(rows, statChart(m, statBars{
-			values: weekdayVals, max: weekdayMax, height: 3,
-			barW: weekdayBarW, gap: weekdayGap, accent: m.pal.Accent,
-		})...)
-		rows = append(rows, statLine{statTxt(weekdayAxis(), m.pal.Muted)})
+		rows = append(rows, statLine{statPad(1), statTxt(copy.T(copy.StatsByHour), m.pal.Muted)})
+		for _, row := range hourChart {
+			rows = append(rows, append(statLine{statPad(1)}, row...))
+		}
+		rows = append(rows, statLine{statPad(1), statTxt(hourAxis(hourBarW, hourGap), m.pal.Muted)})
+		rows = append(rows, statLine{statPad(1), statTxt(copy.T(copy.StatsByWeekday), m.pal.Muted)})
+		for _, row := range weekdayChart {
+			rows = append(rows, append(statLine{statPad(1)}, row...))
+		}
+		rows = append(rows, statLine{statPad(1), statTxt(weekdayAxis(), m.pal.Muted)})
 	}
 
 	if insight := m.statsInsightLine(w); insight != nil {
@@ -860,6 +880,224 @@ func (m *Model) statsActivityRows(w, h int) []statLine {
 		}
 	}
 	return rows
+}
+
+// heatThresholds returns the quartiles of the active days. A handful of
+// sessions should not be flattened by one outlier, which is what a
+// max-relative ramp does; the thresholds adapt to the user's own history.
+func heatThresholds(active []int64) [3]int64 {
+	if len(active) == 0 {
+		return [3]int64{}
+	}
+	sort.Slice(active, func(i, j int) bool { return active[i] < active[j] })
+	// Index by p*n rather than p*(n-1): with only two or three active days the
+	// latter collapses the thresholds and paints every square at the top step.
+	quartile := func(p float64) int64 {
+		idx := int(p * float64(len(active)))
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= len(active) {
+			idx = len(active) - 1
+		}
+		return active[idx]
+	}
+	return [3]int64{quartile(0.25), quartile(0.5), quartile(0.75)}
+}
+
+// heatLevel maps a day to its tint step. Values at or above a quartile use the
+// higher step, so a single active day is still the brightest square.
+func heatLevel(ms int64, thresholds [3]int64) int {
+	switch {
+	case ms <= 0:
+		return 0
+	case ms >= thresholds[2]:
+		return 4
+	case ms >= thresholds[1]:
+		return 3
+	case ms >= thresholds[0]:
+		return 2
+	default:
+		return 1
+	}
+}
+
+func (m *Model) heatColor(level int) color.RGBA {
+	if level < 0 {
+		level = 0
+	}
+	if level >= len(heatRamp) {
+		level = len(heatRamp) - 1
+	}
+	return theme.Lerp(m.pal.Panel, m.pal.Accent, heatRamp[level])
+}
+
+// heatMonthLabels draws one short month name per month run. A partial first
+// month is skipped, like GitHub does, and a label that would touch the previous
+// one is dropped instead of overlapping it.
+func (m *Model) heatMonthLabels(firstMonday time.Time, weeks, cellW int) statLine {
+	width := weeks * cellW
+	if width <= 0 {
+		return nil
+	}
+	cells := make([]rune, width)
+	for i := range cells {
+		cells[i] = ' '
+	}
+	type monthRun struct {
+		year  int
+		month time.Month
+		start int
+		weeks int
+	}
+	runs := make([]monthRun, 0, 13)
+	for i := 0; i < weeks; i++ {
+		monday := firstMonday.AddDate(0, 0, 7*i)
+		if len(runs) == 0 {
+			runs = append(runs, monthRun{year: monday.Year(), month: monday.Month(), start: i, weeks: 1})
+			continue
+		}
+		last := &runs[len(runs)-1]
+		if monday.Year() == last.year && monday.Month() == last.month {
+			last.weeks++
+			continue
+		}
+		runs = append(runs, monthRun{year: monday.Year(), month: monday.Month(), start: i, weeks: 1})
+	}
+	lastEnd := -2
+	for _, run := range runs {
+		if run.weeks < 2 {
+			continue
+		}
+		label := []rune(copy.MonthShort(run.month))
+		at := run.start * cellW
+		if at <= lastEnd+1 || at+len(label) > width {
+			continue
+		}
+		for k, r := range label {
+			cells[at+k] = r
+		}
+		lastEnd = at + len(label) - 1
+	}
+	return statLine{statPad(3), statTxt(string(cells), m.pal.Muted)}
+}
+
+// heatSummaryLines puts the focus total and the less/more legend on one row
+// when they fit, or on two rows on a narrow sheet.
+func (m *Model) heatSummaryLines(w, cellW int, ms int64, n int) []statLine {
+	word := copy.T(copy.StatsSessions)
+	if n == 1 {
+		word = copy.T(copy.StatsSession)
+	}
+	left := statLine{
+		statPad(1),
+		statBold(statDuration(ms), m.pal.Text),
+		statTxt(" "+copy.T(copy.StatsFocused)+" · ", m.pal.Muted),
+		statBold(fmt.Sprintf("%d", n), m.pal.Text),
+		statTxt(" "+word, m.pal.Muted),
+	}
+	legend := m.heatLegendLine(cellW)
+	if lineWidth(left)+lineWidth(legend)+1 <= w {
+		pad := w - lineWidth(left) - lineWidth(legend)
+		left = append(left, statPad(pad))
+		left = append(left, legend...)
+		return []statLine{left}
+	}
+	legend = append(statLine{statPad(1)}, legend...)
+	return []statLine{left, legend}
+}
+
+func (m *Model) heatLegendLine(cellW int) statLine {
+	line := statLine{statTxt(copy.T(copy.StatsHeatLess)+" ", m.pal.Muted)}
+	for level := 0; level <= 4; level++ {
+		if level > 0 {
+			line = append(line, statPad(1))
+		}
+		line = append(line, statBG(strings.Repeat(" ", cellW), m.pal.Text, m.heatColor(level)))
+	}
+	line = append(line, statTxt(" "+copy.T(copy.StatsHeatMore), m.pal.Muted))
+	return line
+}
+
+// heatDetailLine is the GitHub tooltip equivalent: the selected day (or today
+// when the pointer is outside the grid) with its focus time and sessions.
+func (m *Model) heatDetailLine(w int, byDate map[string]protocol.StatsDay, today time.Time) statLine {
+	loc := m.statsLocation()
+	key := m.statsHeatHover
+	if key == "" {
+		key = today.Format("2006-01-02")
+	}
+	day, err := time.ParseInLocation("2006-01-02", key, loc)
+	if err != nil {
+		return nil
+	}
+	entry := byDate[key]
+	build := func(withYear bool) statLine {
+		date := copy.WeekdayShort((int(day.Weekday())+6)%7) + " " +
+			fmt.Sprintf("%02d", day.Day()) + " " + copy.MonthShort(day.Month())
+		if withYear {
+			date += fmt.Sprintf(" %d", day.Year())
+		}
+		line := statLine{
+			statPad(1),
+			statTxt("› ", m.pal.Accent),
+			statTxt(date, m.pal.Text),
+			statTxt(" · ", m.pal.Muted),
+		}
+		if entry.MS <= 0 {
+			return append(line, statTxt(copy.T(copy.StatsNoSessions), m.pal.Muted))
+		}
+		word := copy.T(copy.StatsSessions)
+		if entry.N == 1 {
+			word = copy.T(copy.StatsSession)
+		}
+		return append(line,
+			statTxt(statDuration(entry.MS), m.pal.Text),
+			statTxt(" · "+fmt.Sprintf("%d %s", entry.N, word), m.pal.Muted),
+		)
+	}
+	line := build(day.Year() != today.Year())
+	if lineWidth(line) > w && day.Year() != today.Year() {
+		line = build(false)
+	}
+	if lineWidth(line) > w {
+		line = statLine{statTxt(fitText(lineText(line), w), m.pal.Muted)}
+	}
+	return line
+}
+
+// heatDayAt maps a terminal coordinate to the heatmap date under it. The grid
+// geometry comes from the last draw, so no hitbox is allocated per day.
+func (m *Model) heatDayAt(x, y int) string {
+	g := m.statsHeat
+	if g.weeks <= 0 || g.cellW <= 0 {
+		return ""
+	}
+	_, _, contentY, contentH := m.statsContentArea()
+	if y < contentY || y >= contentY+contentH {
+		return ""
+	}
+	if x < g.x || x >= g.x+g.weeks*g.cellW || y < g.y || y >= g.y+heatDays {
+		return ""
+	}
+	week := (x - g.x) / g.cellW
+	day := y - g.y
+	loc := m.statsLocation()
+	now := m.now().In(loc)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 12, 0, 0, 0, loc)
+	date := g.firstMon.AddDate(0, 0, week*heatDays+day)
+	if date.After(today) {
+		return ""
+	}
+	return date.Format("2006-01-02")
+}
+
+func lineText(line statLine) string {
+	var b strings.Builder
+	for _, cell := range line {
+		b.WriteString(cell.text)
+	}
+	return b.String()
 }
 
 func maxValue(vals []int64) int64 {
@@ -875,16 +1113,34 @@ func maxValue(vals []int64) int64 {
 	return max
 }
 
-func hourAxis() string {
-	runes := []rune(strings.Repeat(" ", 24))
-	runes[0] = '0'
-	runes[6] = '6'
-	runes[12] = '1'
-	runes[13] = '2'
-	runes[18] = '1'
-	runes[19] = '8'
-	runes[22] = '2'
-	runes[23] = '3'
+// hourAxis lays the labels under the 24 bars. barW and gap set the stride so
+// the labels stay under their hour at both chart widths.
+func hourAxis(barW, gap int) string {
+	width := statBarsWidth(24, barW, gap)
+	if width <= 0 {
+		return ""
+	}
+	runes := []rune(strings.Repeat(" ", width))
+	stride := barW + gap
+	place := func(hour int, label string) {
+		at := hour * stride
+		if at+len([]rune(label)) > width {
+			at = width - len([]rune(label))
+		}
+		if at < 0 {
+			at = 0
+		}
+		for k, r := range []rune(label) {
+			if at+k < len(runes) {
+				runes[at+k] = r
+			}
+		}
+	}
+	place(0, "0")
+	place(6, "6")
+	place(12, "12")
+	place(18, "18")
+	place(23, "23")
 	return string(runes)
 }
 
@@ -1104,8 +1360,10 @@ func (m *Model) drawStats(c *canvas.Canvas, base rect) {
 
 	switch {
 	case !m.statsLoaded || m.statsData == nil:
+		m.statsHeat = heatGrid{}
 		m.drawCenteredIn(c, x, y+h/2, w, copy.T(copy.StatsLoading), canvas.Fg(m.pal.Muted))
 	case m.statsData.Retained == 0:
+		m.statsHeat = heatGrid{}
 		m.drawCenteredIn(c, x, y+h/2-1, w, copy.T(copy.StatsEmptyTitle),
 			canvas.Style{FG: m.pal.Text, HasFG: true, Bold: true})
 		m.drawCenteredIn(c, x, y+h/2, w, copy.T(copy.StatsEmptyBody), canvas.Fg(m.pal.Muted))
@@ -1124,6 +1382,10 @@ func (m *Model) drawStats(c *canvas.Canvas, base rect) {
 		if len(rows) > h {
 			m.drawStatsBar(c, r, y, h, scroll, len(rows))
 		}
+		if m.statsTab == statsTabActivity && m.statsHeat.weeks > 0 {
+			m.statsHeat.x = x + 3
+			m.statsHeat.y = y + m.statsHeat.row - scroll
+		}
 	}
 
 	m.drawStatsTabs(c, x, r.y+r.h-3, w)
@@ -1132,6 +1394,9 @@ func (m *Model) drawStats(c *canvas.Canvas, base rect) {
 	if m.statsTab != statsTabOverview {
 		hint = copy.T(copy.StatsHintSection)
 		narrow = copy.StatsHintNarrow
+		if m.statsTab == statsTabActivity {
+			hint = copy.T(copy.StatsHintActivity)
+		}
 	}
 	if canvas.Width(hint) > w {
 		hint = copy.T(narrow)
