@@ -85,6 +85,39 @@ func updateCheckMenu(state, current string) (label string, enabled bool) {
 	}
 }
 
+// finishedIconHold is how long the alert icon stays in the notification area
+// after a countdown ends. The engine keeps the finished state until it is
+// dismissed, so the tray needs its own deadline to return to the idle play
+// icon and invite the next countdown.
+const finishedIconHold = 30 * time.Second
+
+// finishedIconWindow tracks the alert icon. A new FinishSeq restarts the
+// window and leaving the finished state clears it, so a stale finish never
+// hides a fresh one.
+type finishedIconWindow struct {
+	seq int64
+	at  time.Time
+}
+
+// iconStatus observes st and returns the status whose icon the tray should
+// paint at now. A finished countdown falls back to idle once the hold expires;
+// the engine state is untouched.
+func (f *finishedIconWindow) iconStatus(st engine.State, now time.Time) engine.Status {
+	if st.Status != engine.Finished {
+		f.seq = 0
+		f.at = time.Time{}
+		return st.Status
+	}
+	if f.at.IsZero() || f.seq != st.FinishSeq {
+		f.seq = st.FinishSeq
+		f.at = now
+	}
+	if now.Sub(f.at) >= finishedIconHold {
+		return engine.Idle
+	}
+	return engine.Finished
+}
+
 func statusText(st engine.State) (menu, tooltip string) {
 	label := strings.TrimSpace(st.Label)
 	switch st.Status {

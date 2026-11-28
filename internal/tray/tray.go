@@ -5,6 +5,7 @@ package tray
 import (
 	"log"
 	"sync"
+	"time"
 
 	"fyne.io/systray"
 
@@ -38,7 +39,8 @@ type Tray struct {
 	quit          *systray.MenuItem
 	children      []*systray.MenuItem
 
-	lastStatus  engine.Status
+	iconStatus  engine.Status
+	finished    finishedIconWindow
 	lastPresets []config.Preset
 	soundOn     bool
 	startupOn   bool
@@ -59,7 +61,7 @@ type Tray struct {
 
 // New returns a tray bound to actions.
 func New(actions Actions) *Tray {
-	return &Tray{actions: actions, lastStatus: engine.Idle}
+	return &Tray{actions: actions, iconStatus: engine.Idle}
 }
 
 // Run blocks on the systray event loop. Call it from the main goroutine.
@@ -196,9 +198,10 @@ func (t *Tray) updateLocked(st engine.State, cfg config.Config) {
 	systray.SetTooltip(tooltip)
 	setMenuBarTitle(menuBarTitle(st))
 
-	if st.Status != t.lastStatus {
-		t.lastStatus = st.Status
-		systray.SetIcon(iconFor(st.Status))
+	icon := t.finished.iconStatus(st, time.Now())
+	if icon != t.iconStatus {
+		t.iconStatus = icon
+		systray.SetIcon(iconFor(icon))
 	}
 
 	switch st.Status {

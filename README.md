@@ -93,7 +93,7 @@ validation and QA, and would be announced separately from the Windows releases.
 | **Tray** | Start a preset, pause, stop, change the sound or volume, and open the TUI from the Windows system tray. |
 | **Mini timer** | Keep the remaining time and a progress bar over the left side of the Windows taskbar while a countdown runs; toggle it from the tray. |
 | **Statistics** | `s` opens a full-screen view with a range summary and recent daily focus, a 26-week heatmap, time by start hour and weekday, per-preset totals and the latest sessions. |
-| **At zero** | The selected sound at the chosen volume, an alert tray icon and full-screen pixel-art confetti. |
+| **At zero** | The selected sound at the chosen volume, an alert tray icon that returns to idle after 30 seconds, and full-screen pixel-art confetti. |
 | **Sound pack** | Chime, Marimba, Digital and Deep; 0–100% volume in 5% steps, with preview and mute. |
 | **Three themes** | Midnight, Ember and Mono. |
 | **Seven backgrounds** | Aurora (the original), Stars, Fireflies, Rain, Tide, Sunset and none. Press `b` to cycle; the daemon remembers the choice. |
@@ -157,7 +157,9 @@ Quit
 
 The tray owns the timer. Closing the TUI leaves the countdown and the selected sound alive,
 and **Quit** stops everything and closes any open TUI. A daemon restart loses the active
-countdown; persistence is future work.
+countdown; persistence is future work. When a countdown reaches zero the tray icon shows the
+alert for 30 seconds and then returns to the idle play icon; the finished state stays until
+you dismiss it, stop it or start another timer.
 
 ## Mini timer
 

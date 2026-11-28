@@ -166,7 +166,7 @@ Estados: `idle` → `running` ⇄ `paused` → `finished` → `idle` (dismiss/st
 - `start` con un timer activo **reemplaza** el actual. La bandeja lo hace directo; la TUI muestra un toast “replaced”.
 - `restart`: repite la última duración/etiqueta.
 - `dismiss`: vuelve a idle; para el sonido.
-- El estado `finished` se mantiene hasta dismiss/stop/nuevo start; la bandeja queda en alerta.
+- El estado `finished` se mantiene hasta dismiss/stop/nuevo start; la bandeja queda en alerta, pero su icono vuelve al de idle (play) a los 30 s para invitar a otro countdown. El tooltip, el ítem de estado y Stop conservan el estado real hasta dismiss/stop/start.
 - Un solo timer. La UI no calcula la verdad: pinta el estado del daemon e interpola localmente entre snapshots para que la barra vaya suave.
 
 Campos de estado:
@@ -519,6 +519,7 @@ Windows 11 no permite incrustar widgets de terceros en la barra de tareas: los d
 - macOS (congelado): 4 PNG de 32×32 (`assets/icons/idle.png`, etc.) con la misma rejilla. El fork de Fyne fija el tamaño a 16 pt; el PNG de 32 px se ve nítido en Retina.
 - El `.ico` del ejecutable (`assets/icon.ico`) es una loseta navy de 16×16 celdas con anillo mint y agujas blancas, con 16/24/32/40/48/64/96/128/256 px. `winres` lo embebe completo en el `.syso`; `assets/icon.png` es el máster de 256 px para previews.
 - No se regenera el icono cada segundo: systray escribe cada icono nuevo en un archivo temporal. El tiempo va en el tooltip.
+- El icono `finished` es un aviso temporal: 30 s después del fin la bandeja vuelve a `idle` (play) aunque el estado siga en `finished`; el cambio se decide en el tray con el `FinishSeq` y añade una sola escritura de icono. Un `FinishSeq` nuevo rearma la ventana y salir de `finished` la limpia.
 - Tooltip: `Tuick-Tack · ready`, `Tuick-Tack · 04:31 remaining (5 min)`, `Tuick-Tack · time's up!`.
 - Actualización de título/estado/habilitados en cada snapshot (1 Hz) y reconstrucción del submenú de presets solo al cambiar config.
 

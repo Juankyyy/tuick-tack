@@ -126,3 +126,42 @@ func TestIconFor(t *testing.T) {
 		}
 	}
 }
+
+func TestFinishedIconWindow(t *testing.T) {
+	start := time.Date(2026, time.November, 27, 12, 0, 0, 0, time.UTC)
+	finished := engine.State{Status: engine.Finished, FinishSeq: 1}
+
+	var w finishedIconWindow
+	if got := w.iconStatus(finished, start); got != engine.Finished {
+		t.Fatalf("first observation = %s, want finished", got)
+	}
+	if got := w.iconStatus(finished, start.Add(finishedIconHold-time.Millisecond)); got != engine.Finished {
+		t.Errorf("before hold = %s, want finished", got)
+	}
+	if got := w.iconStatus(finished, start.Add(finishedIconHold)); got != engine.Idle {
+		t.Errorf("at hold = %s, want idle", got)
+	}
+
+	// Only a new FinishSeq restarts the window; the same finish stays expired.
+	if got := w.iconStatus(finished, start.Add(2*time.Minute)); got != engine.Idle {
+		t.Errorf("same finish later = %s, want idle", got)
+	}
+	next := engine.State{Status: engine.Finished, FinishSeq: 2}
+	if got := w.iconStatus(next, start.Add(2*time.Minute)); got != engine.Finished {
+		t.Errorf("new FinishSeq = %s, want finished", got)
+	}
+	if got := w.iconStatus(next, start.Add(2*time.Minute+finishedIconHold-time.Second)); got != engine.Finished {
+		t.Errorf("new FinishSeq before hold = %s, want finished", got)
+	}
+	if got := w.iconStatus(next, start.Add(2*time.Minute+finishedIconHold)); got != engine.Idle {
+		t.Errorf("new FinishSeq at hold = %s, want idle", got)
+	}
+
+	// Leaving finished clears the window so a later finish starts fresh.
+	if got := w.iconStatus(engine.State{Status: engine.Running}, start.Add(10*time.Minute)); got != engine.Running {
+		t.Errorf("running = %s, want running", got)
+	}
+	if got := w.iconStatus(finished, start.Add(10*time.Minute)); got != engine.Finished {
+		t.Errorf("finish after running = %s, want finished", got)
+	}
+}
