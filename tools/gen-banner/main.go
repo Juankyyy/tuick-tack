@@ -161,8 +161,8 @@ func renderPNG(cells [][]cell) *image.NRGBA {
 		}
 	}
 
-	ember := theme.Get("ember")
-	midnight := theme.Get("midnight")
+	ember := brandEmber()
+	midnight := brandMidnight()
 	for y, row := range cells {
 		t := 0.0
 		if rows > 1 {
@@ -182,6 +182,23 @@ func renderPNG(cells [][]cell) *image.NRGBA {
 		}
 	}
 	return img
+}
+
+// The committed banner keeps the original Ember/Midnight accents. They are
+// brand colors, not the retired app themes, so generation stays stable after
+// the theme library replaced those palettes.
+func brandEmber() theme.Theme {
+	return theme.Theme{
+		Accent:  theme.RGBA("#FFB86B"),
+		Accent2: theme.RGBA("#FF7A59"),
+	}
+}
+
+func brandMidnight() theme.Theme {
+	return theme.Theme{
+		Accent:  theme.RGBA("#6EE7B7"),
+		Accent2: theme.RGBA("#60A5FA"),
+	}
 }
 
 func fillRect(img *image.NRGBA, x, y, w, h int, c color.NRGBA) {

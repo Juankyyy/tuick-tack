@@ -15,7 +15,7 @@ func testLuminance(c color.RGBA) float64 {
 }
 
 func TestFirefliesAreLowAndGlow(t *testing.T) {
-	pal := theme.Get("midnight")
+	pal := theme.Get(config.ThemeCatppuccin)
 	for _, size := range [][2]int{{80, 24}, {120, 40}} {
 		f := newFireflies(9, size[0], size[1])
 		if n := len(f.flies); n < 14 || n > 18 {
@@ -57,7 +57,7 @@ func TestFirefliesAreLowAndGlow(t *testing.T) {
 }
 
 func TestFirefliesLookDifferentFromStars(t *testing.T) {
-	pal := theme.Get("midnight")
+	pal := theme.Get(config.ThemeCatppuccin)
 	fireflies := canvas.New(80, 24)
 	NewBackdrop(config.BackgroundFireflies, 9, 80, 24).Draw(fireflies, pal, 12.34, State{})
 	stars := canvas.New(80, 24)
@@ -158,7 +158,7 @@ func starGlyphs(c *canvas.Canvas) int {
 }
 
 func TestStarsDrawMoreWithProgress(t *testing.T) {
-	pal := theme.Get("midnight")
+	pal := theme.Get(config.ThemeCatppuccin)
 	low := canvas.New(120, 40)
 	newStars(9, 120, 40).Draw(low, pal, 12.34, State{Progress: 0})
 	high := canvas.New(120, 40)
@@ -169,7 +169,7 @@ func TestStarsDrawMoreWithProgress(t *testing.T) {
 }
 
 func TestSunsetHasVisibleSun(t *testing.T) {
-	pal := theme.Get("midnight")
+	pal := theme.Get(config.ThemeCatppuccin)
 	for _, size := range [][2]int{{80, 24}, {120, 40}} {
 		c := canvas.New(size[0], size[1])
 		NewBackdrop(config.BackgroundGrid, 9, size[0], size[1]).
@@ -190,7 +190,9 @@ func TestSunsetHasVisibleSun(t *testing.T) {
 				if lum > 0.45 {
 					bright++
 				}
-				if bg.R > bg.B+8 && lum > 0.06 {
+				// Cream yellows such as Catppuccin's have a high blue channel,
+				// so a small red margin is enough to identify the sun.
+				if bg.R > bg.B+3 && lum > 0.06 {
 					warm++
 				}
 			}

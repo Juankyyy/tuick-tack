@@ -131,6 +131,41 @@ func TestSetBackgroundPersists(t *testing.T) {
 	}
 }
 
+func TestSetThemePersists(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	store := config.NewStore(path)
+	cfg := config.Default()
+	if err := store.Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	d := &Daemon{
+		logger: log.New(io.Discard, "", 0),
+		store:  store,
+		cfg:    cfg,
+		server: ipc.NewServer("", "test", nil, true),
+	}
+
+	d.setTheme(nil, config.ThemeDracula)
+	if got := d.Config(); got.Theme != config.ThemeDracula {
+		t.Fatalf("theme = %q, want %q", got.Theme, config.ThemeDracula)
+	}
+	loaded, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.Theme != config.ThemeDracula {
+		t.Fatalf("theme not persisted: %+v", loaded)
+	}
+
+	// Retired and unknown IDs are ignored instead of corrupting the config.
+	for _, name := range []string{"midnight", "neon"} {
+		d.setTheme(nil, name)
+		if got := d.Config(); got.Theme != config.ThemeDracula {
+			t.Fatalf("invalid theme %q changed the config: %+v", name, got)
+		}
+	}
+}
+
 func TestSetReadableTextPersists(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	store := config.NewStore(path)

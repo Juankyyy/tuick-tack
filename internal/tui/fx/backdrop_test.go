@@ -21,22 +21,21 @@ func backdropHash(c *canvas.Canvas) string {
 	return hex.EncodeToString(sum.Sum(nil))
 }
 
-// TestAuroraMatchesOriginal compares the extracted aurora with the background
-// that view.go painted before the fx.Backdrop layer existed. The hashes were
-// captured from that implementation at fixed sizes and times, with the
-// celebration flash disabled.
-func TestAuroraMatchesOriginal(t *testing.T) {
+// TestAuroraGolden keeps the extracted aurora geometry stable at fixed sizes,
+// times and palettes. The hashes are intentionally tied to the current default
+// theme and must be recaptured when a palette changes.
+func TestAuroraGolden(t *testing.T) {
 	cases := []struct {
 		theme string
 		w, h  int
 		t     float64
 		want  string
 	}{
-		{"midnight", 80, 24, 0, "d7f467d6a0a59a81754f794b78e691dc6645af2a98b55488a51bff687ce3661e"},
-		{"midnight", 80, 24, 12.34, "5820dd866e3fb3c25bf04284d2c6dab611271f30ebdb3b1898f2c657e6ffbc96"},
-		{"midnight", 120, 40, 12.34, "ea1d48801dd6fd61027ffd042e75cfefd92cb9fc6a978c683985ba6222409250"},
-		{"midnight", 120, 40, 47.6, "cf153efbcf5dbe61f393ae1937c6f0ebb048e2fbdf1770d628f4dd8b922e8b0d"},
-		{"ember", 80, 24, 12.34, "f2b37806f8894034923cfe48c5702778e81f3e5a736b79a2578a297fe92ec0a8"},
+		{config.ThemeCatppuccin, 80, 24, 0, "eb9e1ce062951c03107f2535e5891f941b8692ae0b88e2660af7bf8e5adca052"},
+		{config.ThemeCatppuccin, 80, 24, 12.34, "a98ec819ff0d0a342e282f30688423c99ada7f7162d384086c4d516111fd832c"},
+		{config.ThemeCatppuccin, 120, 40, 12.34, "3632d995b4d4ba4da987b0545359267766cfc332122fff75c49ac37e0884d38f"},
+		{config.ThemeCatppuccin, 120, 40, 47.6, "63b05168fe6f459208ced7569530664656546b1912ae20b7c7a2f33d835d5244"},
+		{config.ThemeRistretto, 80, 24, 12.34, "588bc36d58d76eb74bf6ddebc9a8975a06a1fea46fa0db4ff8a67db4c8291e1f"},
 	}
 	for _, tc := range cases {
 		b := NewBackdrop(config.BackgroundAurora, 1, tc.w, tc.h)
@@ -50,7 +49,7 @@ func TestAuroraMatchesOriginal(t *testing.T) {
 }
 
 func TestBackdropCatalog(t *testing.T) {
-	pal := theme.Get("midnight")
+	pal := theme.Get(config.ThemeCatppuccin)
 	sizes := [][2]int{{0, 0}, {48, 22}, {80, 24}, {120, 40}}
 	states := []State{
 		{},
@@ -97,7 +96,7 @@ func TestBackdropCatalog(t *testing.T) {
 }
 
 func TestBackdropDeterministic(t *testing.T) {
-	pal := theme.Get("ember")
+	pal := theme.Get(config.ThemeRistretto)
 	for _, name := range config.Backgrounds {
 		t.Run(name, func(t *testing.T) {
 			a := canvas.New(120, 40)
@@ -112,7 +111,7 @@ func TestBackdropDeterministic(t *testing.T) {
 }
 
 func TestBackdropResize(t *testing.T) {
-	pal := theme.Get("mono")
+	pal := theme.Get(config.ThemeVantablack)
 	for _, name := range config.Backgrounds {
 		t.Run(name, func(t *testing.T) {
 			b := NewBackdrop(name, 5, 120, 40)
@@ -139,7 +138,7 @@ func TestBackdropUnknownFallsBackToAurora(t *testing.T) {
 }
 
 func TestNoneIsTransparent(t *testing.T) {
-	for _, name := range []string{"midnight", "ember", "mono"} {
+	for _, name := range config.Themes {
 		pal := theme.Get(name)
 		c := canvas.New(80, 24)
 		NewBackdrop(config.BackgroundNone, 1, 80, 24).Draw(c, pal, 9, State{})
@@ -159,7 +158,7 @@ func TestNoneIsTransparent(t *testing.T) {
 // countdown remains the brightest thing on screen.
 func TestBackdropContrast(t *testing.T) {
 	const maxLuminance = 0.45
-	for _, themeName := range theme.Names {
+	for _, themeName := range config.Themes {
 		pal := theme.Get(themeName)
 		for _, name := range config.Backgrounds {
 			t.Run(themeName+"/"+name, func(t *testing.T) {
@@ -196,7 +195,7 @@ func TestBackdropContrast(t *testing.T) {
 }
 
 func BenchmarkBackdrop(b *testing.B) {
-	pal := theme.Get("midnight")
+	pal := theme.Get(config.ThemeCatppuccin)
 	for _, name := range config.Backgrounds {
 		b.Run(name, func(b *testing.B) {
 			backdrop := NewBackdrop(name, 3, 120, 40)

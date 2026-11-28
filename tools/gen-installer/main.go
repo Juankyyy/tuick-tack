@@ -29,7 +29,7 @@ func main() {
 	root := flag.String("root", "../..", "repository root")
 	flag.Parse()
 
-	pal := theme.Get("midnight")
+	pal := brandPalette()
 	icon, err := loadIcon(filepath.Join(*root, "assets", "icon.png"))
 	if err != nil {
 		fail(err)
@@ -59,6 +59,22 @@ func main() {
 func fail(err error) {
 	fmt.Fprintln(os.Stderr, "gen-installer:", err)
 	os.Exit(1)
+}
+
+// brandPalette is the original Midnight branding used by the installer art.
+// It is intentionally fixed: the committed wizard images and the app icon keep
+// the original look even though the default theme is now Catppuccin.
+func brandPalette() theme.Theme {
+	return theme.Theme{
+		BG:      theme.RGBA("#070B14"),
+		BG2:     theme.RGBA("#0B1524"),
+		Panel:   theme.RGBA("#0C1524"),
+		Border:  theme.RGBA("#1E3150"),
+		Text:    theme.RGBA("#E7ECF5"),
+		Muted:   theme.RGBA("#6C7A96"),
+		Accent:  theme.RGBA("#6EE7B7"),
+		Accent2: theme.RGBA("#60A5FA"),
+	}
 }
 
 func drawBackground(img *image.RGBA, pal theme.Theme) {

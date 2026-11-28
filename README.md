@@ -95,7 +95,7 @@ validation and QA, and would be announced separately from the Windows releases.
 | **Statistics** | `s` opens a full-screen view with a range summary and recent daily focus, a 26-week heatmap, time by start hour and weekday, per-preset totals and the latest sessions. |
 | **At zero** | The selected sound at the chosen volume, an alert tray icon that returns to idle after 30 seconds, and full-screen pixel-art confetti. |
 | **Sound pack** | Chime, Marimba, Digital and Deep; 0–100% volume in 5% steps, with preview and mute. |
-| **Three themes** | Midnight, Ember and Mono. |
+| **Thirteen themes** | Catppuccin Mocha (default), Tokyo Night, Dracula, Material Palenight, Gruvbox, Nord, Everforest, Kanagawa, Rose Pine, Osaka Jade, Ristretto, Matte Black and Vantablack. Press `t` for the live-preview picker. |
 | **Seven backgrounds** | Aurora (the original), Stars, Fireflies, Rain, Tide, Sunset and none. Press `b` to cycle; the daemon remembers the choice. |
 | **Readable `none`** | With `none`, the text that floats over the terminal gets a tight black backing, so it stays legible on white, acrylic or a background image. Press `n` to turn the bands off; they only exist with `none`. |
 | **Remembers the window placement** | Move or resize the terminal and the next TUI opens at the same screen position with the same columns and rows (Windows only). |
@@ -110,11 +110,12 @@ validation and QA, and would be announced separately from the Windows releases.
 | Context | Keys |
 |---|---|
 | Idle | Digits, `:`, `h`, `m`, `s` type a duration; `Backspace` deletes; `Enter` starts |
-| Idle | `←` `→` select a preset; `p` presets; `t` theme; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `M` mini timer; `u` check/install update; `?` help; `q` close |
+| Idle | `←` `→` select a preset; `p` presets; `t` themes; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `M` mini timer; `u` check/install update; `?` help; `q` close |
 | Running | `Space` pause; `Esc` confirm cancel; `+` / `-` ±1 min; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `M` mini timer; `?` help; `q` close |
 | Paused | `Space` resume; `Esc` confirm cancel; `+` / `-` ±1 min; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `M` mini timer; `?` help |
 | Finished | `r` repeat; `b` background; `n` readable bands; `v` sound settings; `m` mute; `s` statistics; `M` mini timer; `Enter` / `Esc` close the celebration (it also closes itself after 10 s) |
 | Statistics | `←` `→` or `Tab` switch section; `1`–`4` jump; `t` range in the overview (7/30/90 days or all time); `↑` `↓` `PgUp` `PgDn` `Home` `End` or the wheel scroll; `Esc` or `s` close |
+| Themes panel | `↑` `↓` preview; `PgUp` `PgDn` `Home` `End` or the wheel move; `Enter` apply; `Esc` cancel |
 | Sound panel | `↑` `↓` select the sound; `←` `→` volume ±5%; `Space` preview; `m` mute; `Esc` close |
 | Presets panel | `↑` `↓` move; `Tab` actions; `←` `→` choose an action; `Enter` start or run; `a` add; `e` edit; `d` delete; `r` restore defaults; `Esc` close |
 | Form | `Tab` next field; `Enter` save; `Esc` cancel |
@@ -204,8 +205,8 @@ see `SPEC.md` §8.
 
 ```json
 {
-  "version": 7,
-  "theme": "midnight",
+  "version": 8,
+  "theme": "catppuccin",
   "background": "aurora",
   "readable_text": true,
   "mini_timer": true,
@@ -224,10 +225,12 @@ see `SPEC.md` §8.
 ```
 
 The daemon is the only writer and writes atomically. A corrupt config is backed up as
-`config.bad-<timestamp>.json` and replaced with defaults. Older configs are migrated to version 7:
+`config.bad-<timestamp>.json` and replaced with defaults. Older configs are migrated to version 8:
 version 1 gets Digital at 80%; versions 2 and 3 keep their sound, volume and size; versions 1–4
 start with the original Aurora background; versions 1–5 enable `readable_text`; versions 1–6
-enable the mini timer. The window position stays unset until you move the TUI.
+enable the mini timer. The original themes migrate to the library: Midnight becomes Catppuccin,
+Ember becomes Ristretto and Mono becomes Vantablack. The window position stays unset until you
+move the TUI.
 
 `readable_text` defaults to `true` and controls the black reading bands used by `none`; `n`
 toggles it.
@@ -241,9 +244,16 @@ is not restored. This feature is Windows-only.
 
 `background` is `aurora` (the original), `stars`, `fireflies`, `rain`, `waves`, `grid` (shown
 as **Sunset**) or `none`. Press `b` in the TUI to cycle; the daemon stores the choice and every
-open TUI picks it up. The theme only changes the palette, so any background works with Midnight,
-Ember and Mono. Aurora keeps the original dust field and Tide shares it; Stars, Fireflies, Rain,
-Sunset and none are clean or carry their own particles.
+open TUI picks it up. The theme only changes the palette, so any background works with every
+theme. Aurora keeps the original dust field and Tide shares it; Stars, Fireflies, Rain, Sunset and
+none are clean or carry their own particles.
+
+`t` opens the theme picker: moving the cursor previews the palette across the whole TUI, `Enter`
+applies it and `Esc` restores the current one. The palettes are recreated from Catppuccin, Tokyo
+Night, Dracula and Material Palenight, plus the Omarchy lineup: Gruvbox, Nord, Everforest,
+Kanagawa, Rose Pine, Osaka Jade, Ristretto, Matte Black and Vantablack. Their muted, accent2
+and danger tones are tuned so panels stay readable at AA contrast. The selection is saved by the
+daemon and survives restarts.
 
 `none` leaves the terminal background untouched: the app paints no empty cells and never sets
 the terminal background or foreground color, so a custom background, image or acrylic shows

@@ -764,7 +764,16 @@ func (d *Daemon) restorePresets(c *ipc.Session) {
 }
 
 func (d *Daemon) setTheme(c *ipc.Session, name string) {
+	if !config.ValidTheme(name) {
+		if c != nil {
+			c.Send(protocol.NewError(protocol.CodeInvalidTheme, "unknown theme"))
+		}
+		return
+	}
 	cfg := d.Config()
+	if cfg.Theme == name {
+		return
+	}
 	cfg.Theme = name
 	d.commitConfig(c, cfg)
 }

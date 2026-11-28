@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"tuick-tack/internal/config"
 	"tuick-tack/internal/tui/canvas"
 	"tuick-tack/internal/tui/theme"
 )
@@ -34,7 +35,7 @@ func TestDustUpdateBounds(t *testing.T) {
 }
 
 func TestConfettiBursts(t *testing.T) {
-	th := theme.Get("midnight")
+	th := theme.Get(config.ThemeCatppuccin)
 	full := NewCelebration(1, 80, 24, th.Confetti, false)
 	if full.Count() != 110 {
 		t.Fatalf("particles = %d, want 110", full.Count())
@@ -63,7 +64,7 @@ func TestConfettiBursts(t *testing.T) {
 }
 
 func TestConfettiExpires(t *testing.T) {
-	th := theme.Get("midnight")
+	th := theme.Get(config.ThemeCatppuccin)
 	c := NewCelebration(2, 80, 24, th.Confetti, false)
 	if c.Done() {
 		t.Fatal("confetti reported done before the bursts fired")
@@ -82,7 +83,7 @@ func TestConfettiExpires(t *testing.T) {
 }
 
 func TestConfettiResize(t *testing.T) {
-	th := theme.Get("mono")
+	th := theme.Get(config.ThemeVantablack)
 	c := NewCelebration(3, 120, 40, th.Confetti, false)
 	for i := 0; i < 10; i++ {
 		c.Update(0.05)
@@ -104,7 +105,7 @@ func TestConfettiResize(t *testing.T) {
 }
 
 func TestConfettiResizeBeforeBurst(t *testing.T) {
-	th := theme.Get("midnight")
+	th := theme.Get(config.ThemeCatppuccin)
 	c := NewCelebration(4, 120, 40, th.Confetti, false)
 	c.Resize(80, 24)
 	c.Update(0.05)
@@ -124,7 +125,7 @@ func TestConfettiResizeBeforeBurst(t *testing.T) {
 }
 
 func TestConfettiDeterministic(t *testing.T) {
-	th := theme.Get("midnight")
+	th := theme.Get(config.ThemeCatppuccin)
 	a := NewCelebration(42, 80, 24, th.Confetti, false)
 	b := NewCelebration(42, 80, 24, th.Confetti, false)
 	for i := 0; i < 100; i++ {
@@ -143,7 +144,7 @@ func TestConfettiDeterministic(t *testing.T) {
 }
 
 func TestConfettiFlutterSpeed(t *testing.T) {
-	th := theme.Get("midnight")
+	th := theme.Get(config.ThemeCatppuccin)
 	c := NewCelebration(5, 80, 24, th.Confetti, false)
 	maxFall := 0.0
 	for i := 0; i < 200; i++ {
@@ -237,7 +238,7 @@ func TestConfettiCartoonShading(t *testing.T) {
 }
 
 func TestConfettiDissolve(t *testing.T) {
-	th := theme.Get("midnight")
+	th := theme.Get(config.ThemeCatppuccin)
 	c := NewCelebration(7, 80, 24, th.Confetti, false)
 	c.particles = []particle{{
 		X: 40, Y: 12, Age: 0, Life: 10, Placed: true, Active: true,
@@ -279,7 +280,7 @@ func TestConfettiDissolve(t *testing.T) {
 }
 
 func TestConfettiDraw(t *testing.T) {
-	th := theme.Get("midnight")
+	th := theme.Get(config.ThemeCatppuccin)
 	c := NewCelebration(6, 80, 24, th.Confetti, false)
 	cv := canvas.New(80, 24)
 	cv.Clear(th.BG)

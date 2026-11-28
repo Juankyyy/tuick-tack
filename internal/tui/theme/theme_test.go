@@ -3,22 +3,63 @@ package theme
 import (
 	"image/color"
 	"testing"
+
+	"tuick-tack/internal/config"
 )
 
-func TestGetAndNext(t *testing.T) {
-	for _, name := range Names {
-		if got := Get(name); got.Name != name {
+func TestGetAndCatalog(t *testing.T) {
+	for _, name := range config.Themes {
+		got := Get(name)
+		if got.Name != name {
 			t.Errorf("Get(%q).Name = %q", name, got.Name)
 		}
+		if got.BG == got.Panel || got.Text == got.Muted || got.Accent == got.Accent2 {
+			t.Errorf("%q has ambiguous palette fields: %+v", name, got)
+		}
+		if len(got.Confetti) < 6 {
+			t.Errorf("%q has %d confetti colors, want at least 6", name, len(got.Confetti))
+		}
 	}
-	if Get("nope").Name != "midnight" {
-		t.Error("unknown theme should fall back to midnight")
+	for _, old := range []string{"midnight", "ember", "mono", "nope"} {
+		if got := Get(old); got.Name != config.DefaultTheme {
+			t.Errorf("Get(%q) = %q, want the default %q", old, got.Name, config.DefaultTheme)
+		}
 	}
-	if Next("midnight") != "ember" || Next("ember") != "mono" || Next("mono") != "midnight" {
-		t.Error("theme cycle is wrong")
-	}
-	if Next("nope") != "midnight" {
-		t.Error("unknown theme should cycle to midnight")
+}
+
+func TestPaletteContrast(t *testing.T) {
+	for _, name := range config.Themes {
+		pal := Get(name)
+		checks := []struct {
+			label string
+			fg    color.RGBA
+			bg    color.RGBA
+			min   float64
+		}{
+			{"text/bg", pal.Text, pal.BG, 4.5},
+			{"text/panel", pal.Text, pal.Panel, 4.5},
+			{"muted/bg", pal.Muted, pal.BG, 4.5},
+			{"muted/panel", pal.Muted, pal.Panel, 4.0},
+			{"accent/bg", pal.Accent, pal.BG, 4.5},
+			{"accent/panel", pal.Accent, pal.Panel, 4.5},
+			{"accent fill", pal.BG, pal.Accent, 4.5},
+			{"accent2/bg", pal.Accent2, pal.BG, 4.5},
+			{"accent2/panel", pal.Accent2, pal.Panel, 4.0},
+			{"warn/bg", pal.Warn, pal.BG, 4.5},
+			{"warn/panel", pal.Warn, pal.Panel, 4.0},
+			{"danger/bg", pal.Danger, pal.BG, 4.5},
+			{"danger/panel", pal.Danger, pal.Panel, 4.0},
+		}
+		for _, c := range checks {
+			if got := Contrast(c.fg, c.bg); got < c.min {
+				t.Errorf("%s: %s contrast = %.2f, want %.1f", name, c.label, got, c.min)
+			}
+		}
+		for i, c := range pal.Confetti {
+			if got := Contrast(c, pal.BG); got < 2.0 {
+				t.Errorf("%s: confetti %d %+v contrast = %.2f, want 2.0", name, i, c, got)
+			}
+		}
 	}
 }
 
@@ -47,14 +88,14 @@ func TestRGBAParsing(t *testing.T) {
 	if got := RGBA("#6EE7B7"); got != c {
 		t.Fatalf("RGBA = %+v", got)
 	}
-	if got := RGBA("bad"); got != Get("midnight").BG {
+	if got := RGBA("bad"); got != Get(config.DefaultTheme).BG {
 		t.Fatalf("bad hex should fall back, got %+v", got)
 	}
 }
 
 func TestPulseStaysInRange(t *testing.T) {
-	a := Get("midnight").Accent
-	b := Get("midnight").Danger
+	a := Get(config.DefaultTheme).Accent
+	b := Get(config.DefaultTheme).Danger
 	for i := 0.0; i < 10; i += 0.37 {
 		c := Pulse(a, b, i)
 		if c.A != 0xFF {
@@ -114,7 +155,7 @@ func TestContrastAndInk(t *testing.T) {
 		t.Fatalf("Ink changed a readable color: %+v", got)
 	}
 	// A pastel accent is darkened just enough to meet the target.
-	accent := Get("midnight").Accent
+	accent := Get(config.DefaultTheme).Accent
 	ink := Ink(accent, white, 4.5)
 	if got := Contrast(ink, white); got < 4.5 {
 		t.Fatalf("ink contrast = %.2f, want at least 4.5", got)

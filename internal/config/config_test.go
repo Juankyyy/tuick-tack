@@ -18,7 +18,7 @@ func TestDefault(t *testing.T) {
 	if len(c.Presets) != 3 || c.Presets[0].Seconds != 300 || c.Presets[2].Seconds != 900 {
 		t.Fatalf("unexpected default presets: %+v", c.Presets)
 	}
-	if c.Theme != ThemeMidnight || !c.Sound {
+	if c.Theme != DefaultTheme || !c.Sound {
 		t.Fatalf("unexpected defaults: %+v", c)
 	}
 	if c.Background != DefaultBackground {
@@ -32,6 +32,54 @@ func TestDefault(t *testing.T) {
 	}
 	if c.Version != Version || c.SoundName != DefaultSound || c.Volume != DefaultVolume {
 		t.Fatalf("unexpected sound defaults: %+v", c)
+	}
+}
+
+func TestThemeCatalog(t *testing.T) {
+	if !ValidTheme(DefaultTheme) {
+		t.Fatalf("default theme %q is not valid", DefaultTheme)
+	}
+	if len(Themes) == 0 {
+		t.Fatal("Themes is empty")
+	}
+	if Themes[0] != DefaultTheme {
+		t.Fatalf("Themes[0] = %q, want the default %q", Themes[0], DefaultTheme)
+	}
+	seen := make(map[string]bool, len(Themes))
+	for _, name := range Themes {
+		if !ValidTheme(name) {
+			t.Errorf("%q is not valid", name)
+		}
+		if seen[name] {
+			t.Errorf("%q appears twice", name)
+		}
+		seen[name] = true
+	}
+	for _, old := range []string{"midnight", "ember", "mono", ""} {
+		if ValidTheme(old) {
+			t.Errorf("retired theme %q should be invalid", old)
+		}
+	}
+}
+
+func TestMigrateRetiredThemes(t *testing.T) {
+	tests := map[string]string{
+		"midnight": ThemeCatppuccin,
+		"ember":    ThemeRistretto,
+		"mono":     ThemeVantablack,
+	}
+	for old, want := range tests {
+		c := Default()
+		c.Version = 7
+		c.Theme = old
+		got, changed := Migrate(c)
+		if !changed || got.Version != Version || got.Theme != want {
+			t.Errorf("Migrate(%q) = version %d theme %q changed %v, want %d/%q",
+				old, got.Version, got.Theme, changed, Version, want)
+		}
+		if err := Validate(got); err != nil {
+			t.Errorf("migrated %q is invalid: %v", old, err)
+		}
 	}
 }
 
@@ -179,7 +227,7 @@ func TestLoadMigratesV1(t *testing.T) {
 	if !c.MiniTimer {
 		t.Fatal("v1 migration should enable the mini timer")
 	}
-	if c.Theme != ThemeEmber || c.Sound || len(c.Presets) != 1 {
+	if c.Theme != ThemeRistretto || c.Sound || len(c.Presets) != 1 {
 		t.Fatalf("migration lost settings: %+v", c)
 	}
 	if err := store.Save(c); err != nil {
@@ -189,7 +237,7 @@ func TestLoadMigratesV1(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"version": 7`) ||
+	if !strings.Contains(string(data), `"version": 8`) ||
 		!strings.Contains(string(data), `"background": "aurora"`) ||
 		!strings.Contains(string(data), `"readable_text": true`) ||
 		!strings.Contains(string(data), `"mini_timer": true`) ||
@@ -222,7 +270,7 @@ func TestLoadMigratesV2(t *testing.T) {
 		t.Fatalf("version = %d, want %d", c.Version, Version)
 	}
 	if c.SoundName != SoundMarimba || c.Volume != 35 || c.Sound ||
-		c.Theme != ThemeMono || len(c.Presets) != 1 ||
+		c.Theme != ThemeVantablack || len(c.Presets) != 1 ||
 		c.Background != DefaultBackground {
 		t.Fatalf("v2 migration lost settings: %+v", c)
 	}
@@ -250,7 +298,8 @@ func TestLoadMigratesV3(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if c.Version != Version || c.WindowWidth != 140 || c.WindowHeight != 45 {
+	if c.Version != Version || c.WindowWidth != 140 || c.WindowHeight != 45 ||
+		c.Theme != ThemeCatppuccin {
 		t.Fatalf("v3 migration lost settings: %+v", c)
 	}
 	if c.WindowPosition != nil {
@@ -283,7 +332,7 @@ func TestLoadMigratesV4(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if c.Version != Version || c.Theme != ThemeEmber ||
+	if c.Version != Version || c.Theme != ThemeRistretto ||
 		c.Background != DefaultBackground || c.SoundName != SoundDeep ||
 		c.Volume != 40 || len(c.Presets) != 1 {
 		t.Fatalf("v4 migration lost settings: %+v", c)
@@ -317,7 +366,7 @@ func TestLoadMigratesV5(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 	if c.Version != Version || c.Background != BackgroundNone ||
-		c.Theme != ThemeMono || len(c.Presets) != 1 {
+		c.Theme != ThemeVantablack || len(c.Presets) != 1 {
 		t.Fatalf("v5 migration lost settings: %+v", c)
 	}
 	if !c.ReadableText {
@@ -347,7 +396,7 @@ func TestLoadMigratesV6(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if c.Version != Version || c.ReadableText || !c.MiniTimer {
+	if c.Version != Version || c.ReadableText || !c.MiniTimer || c.Theme != ThemeCatppuccin {
 		t.Fatalf("v6 migration mismatch: %+v", c)
 	}
 }
@@ -356,7 +405,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "config.json")
 	store := NewStore(path)
 	c := Default()
-	c.Theme = ThemeEmber
+	c.Theme = ThemeRistretto
 	c.Background = BackgroundStars
 	c.ReadableText = false
 	c.MiniTimer = false
@@ -377,7 +426,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got.Theme != ThemeEmber || got.Sound || len(got.Presets) != 4 ||
+	if got.Theme != ThemeRistretto || got.Sound || len(got.Presets) != 4 ||
 		got.Background != BackgroundStars || got.ReadableText || got.MiniTimer ||
 		got.SoundName != SoundMarimba || got.Volume != 35 ||
 		got.WindowWidth != 140 || got.WindowHeight != 45 ||
@@ -466,7 +515,7 @@ func TestSaveRejectsInvalid(t *testing.T) {
 func TestNormalizeTrimsLabels(t *testing.T) {
 	c := Config{
 		Version:    Version,
-		Theme:      ThemeMono,
+		Theme:      ThemeVantablack,
 		Background: DefaultBackground,
 		SoundName:  DefaultSound,
 		Volume:     DefaultVolume,

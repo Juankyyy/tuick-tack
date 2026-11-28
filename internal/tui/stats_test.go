@@ -666,7 +666,7 @@ func TestFirstRunesDoesNotSplit(t *testing.T) {
 }
 
 func TestStatsRendersInEveryTheme(t *testing.T) {
-	for _, name := range theme.Names {
+	for _, name := range config.Themes {
 		m, _, _ := openTestStats(t, 80, 24)
 		m.cfg.Theme = name
 		m.pal = theme.Get(name)

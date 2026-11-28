@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"tuick-tack/internal/config"
 	"tuick-tack/internal/engine"
 	"tuick-tack/internal/tui/bigfont"
 	"tuick-tack/internal/tui/canvas"
@@ -421,7 +422,7 @@ func TestProgress(t *testing.T) {
 }
 
 func TestPaletteFor(t *testing.T) {
-	pal := theme.Get("midnight")
+	pal := theme.Get(config.ThemeCatppuccin)
 	if got := PaletteFor(pal, engine.State{Status: engine.Running}); got.Top != pal.Accent ||
 		got.Bottom != pal.Accent2 || got.Head != pal.Text {
 		t.Fatalf("running palette = %+v", got)
@@ -437,7 +438,7 @@ func TestPaletteFor(t *testing.T) {
 }
 
 func TestHoverFrame(t *testing.T) {
-	pal := theme.Get("midnight")
+	pal := theme.Get(config.ThemeCatppuccin)
 	tests := []struct {
 		name                string
 		amount              float64
@@ -464,7 +465,7 @@ func TestHoverFrame(t *testing.T) {
 }
 
 func TestRender(t *testing.T) {
-	pal := theme.Get("midnight")
+	pal := theme.Get(config.ThemeCatppuccin)
 	st := engine.State{
 		Status:    engine.Running,
 		Duration:  4 * time.Minute,
@@ -491,7 +492,7 @@ func TestRender(t *testing.T) {
 }
 
 func TestRenderLongTime(t *testing.T) {
-	pal := theme.Get("midnight")
+	pal := theme.Get(config.ThemeCatppuccin)
 	st := engine.State{
 		Status:    engine.Running,
 		Duration:  24 * time.Hour,
@@ -514,7 +515,7 @@ func TestRenderLongTime(t *testing.T) {
 }
 
 func TestRenderFinished(t *testing.T) {
-	pal := theme.Get("ember")
+	pal := theme.Get(config.ThemeRistretto)
 	st := engine.State{Status: engine.Finished, Duration: 5 * time.Minute}
 	c := Render(st, pal, 0)
 	word := copy.T(copy.HeroDone)
@@ -543,7 +544,7 @@ func TestRenderFinished(t *testing.T) {
 }
 
 func TestRenderPausedUsesWarn(t *testing.T) {
-	pal := theme.Get("mono")
+	pal := theme.Get(config.ThemeVantablack)
 	st := engine.State{
 		Status:    engine.Paused,
 		Duration:  4 * time.Minute,
@@ -558,7 +559,7 @@ func TestRenderPausedUsesWarn(t *testing.T) {
 }
 
 func TestRenderBurst(t *testing.T) {
-	pal := theme.Get("midnight")
+	pal := theme.Get(config.ThemeCatppuccin)
 	st := engine.State{Status: engine.Finished, Duration: 5 * time.Minute}
 	calm := RenderAt(st, pal, 0, Cols)
 	running := engine.State{Status: engine.Running, Duration: time.Minute, Remaining: 30 * time.Second}
@@ -587,7 +588,7 @@ func TestRenderBurst(t *testing.T) {
 }
 
 func TestRenderBurstFlashesTheBar(t *testing.T) {
-	pal := theme.Get("ember")
+	pal := theme.Get(config.ThemeRistretto)
 	st := engine.State{Status: engine.Finished, Duration: 5 * time.Minute}
 	calm := RenderAt(st, pal, 0, Cols)
 	c := RenderBurstAt(st, pal, 0, Cols, barFlash/2)
@@ -601,7 +602,7 @@ func TestRenderBurstFlashesTheBar(t *testing.T) {
 }
 
 func TestRenderBurstCoversDigits(t *testing.T) {
-	pal := theme.Get("midnight")
+	pal := theme.Get(config.ThemeCatppuccin)
 	st := engine.State{Status: engine.Finished, Duration: 5 * time.Minute}
 	calm := RenderAt(st, pal, 0, Cols)
 	c := RenderBurstAt(st, pal, 0, Cols, 700*time.Millisecond)
@@ -628,7 +629,7 @@ func TestRenderBurstCoversDigits(t *testing.T) {
 }
 
 func TestRenderBurstIsDense(t *testing.T) {
-	pal := theme.Get("midnight")
+	pal := theme.Get(config.ThemeCatppuccin)
 	st := engine.State{Status: engine.Finished, Duration: 5 * time.Minute}
 	calm := RenderAt(st, pal, 0, Cols)
 	c := RenderBurstAt(st, pal, 0, Cols, 600*time.Millisecond)
@@ -648,7 +649,7 @@ func TestRenderBurstIsDense(t *testing.T) {
 }
 
 func TestRenderBurstDeterministic(t *testing.T) {
-	pal := theme.Get("midnight")
+	pal := theme.Get(config.ThemeCatppuccin)
 	st := engine.State{Status: engine.Finished, Duration: time.Minute}
 	age := 450 * time.Millisecond
 	if !sameCanvas(RenderBurstAt(st, pal, 0, Cols, age), RenderBurstAt(st, pal, 0, Cols, age)) {
@@ -657,7 +658,7 @@ func TestRenderBurstDeterministic(t *testing.T) {
 }
 
 func TestRenderBurstKeepsTheBarCentred(t *testing.T) {
-	pal := theme.Get("mono")
+	pal := theme.Get(config.ThemeVantablack)
 	st := engine.State{Status: engine.Finished, Duration: 24 * time.Hour, FinishSeq: 1}
 	calm := RenderAt(st, pal, 0, 47)
 	c := RenderBurstAt(st, pal, 0, 47, barFlash/2)

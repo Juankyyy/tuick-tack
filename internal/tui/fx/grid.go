@@ -92,8 +92,9 @@ func (s *Sunset) Draw(c *canvas.Canvas, pal theme.Theme, t float64, st State) {
 			cellAlpha := alpha * (1 - 0.15*dx*dx)
 			if d > 0.82 {
 				// A thin, bright rim makes the semicircle read as a sun instead
-				// of a striped mound. It is a small number of cells.
-				cellAlpha = 0.80 * bright
+				// of a striped mound. It is a small number of cells. Cap it so
+				// the brightest palette yellows stay below the backdrop limit.
+				cellAlpha = 0.65 * bright
 			}
 			c.Set(x, y, ' ', canvas.Bg(theme.Lerp(pal.BG2, pal.Warn, cellAlpha)))
 		}

@@ -232,6 +232,24 @@ const (
 	SoundDigital    = Key("sound.digital")
 	SoundDeep       = Key("sound.deep")
 
+	ThemeTitle = Key("theme.title")
+	ThemeHint  = Key("theme.hint")
+	Apply      = Key("action.apply")
+
+	ThemeCatppuccin        = Key("theme.catppuccin")
+	ThemeTokyoNight        = Key("theme.tokyo.night")
+	ThemeDracula           = Key("theme.dracula")
+	ThemeMaterialPalenight = Key("theme.material.palenight")
+	ThemeGruvbox           = Key("theme.gruvbox")
+	ThemeNord              = Key("theme.nord")
+	ThemeEverforest        = Key("theme.everforest")
+	ThemeKanagawa          = Key("theme.kanagawa")
+	ThemeRosePine          = Key("theme.rose.pine")
+	ThemeOsakaJade         = Key("theme.osaka.jade")
+	ThemeRistretto         = Key("theme.ristretto")
+	ThemeMatteBlack        = Key("theme.matte.black")
+	ThemeVantablack        = Key("theme.vantablack")
+
 	Pause    = Key("action.pause")
 	Resume   = Key("action.resume")
 	PlusMin  = Key("action.plus")
@@ -619,6 +637,24 @@ var texts = map[Key]string{
 	SoundDigital:    "Digital",
 	SoundDeep:       "Deep",
 
+	ThemeTitle: "Themes",
+	ThemeHint:  "↑↓ preview · Enter apply · Esc cancel",
+
+	ThemeCatppuccin:        "Catppuccin Mocha",
+	ThemeTokyoNight:        "Tokyo Night",
+	ThemeDracula:           "Dracula",
+	ThemeMaterialPalenight: "Material Palenight",
+	ThemeGruvbox:           "Gruvbox Dark",
+	ThemeNord:              "Nord",
+	ThemeEverforest:        "Everforest Dark",
+	ThemeKanagawa:          "Kanagawa Wave",
+	ThemeRosePine:          "Rose Pine",
+	ThemeOsakaJade:         "Osaka Jade",
+	ThemeRistretto:         "Ristretto",
+	ThemeMatteBlack:        "Matte Black",
+	ThemeVantablack:        "Vantablack",
+
+	Apply:    "apply",
 	Pause:    "pause",
 	Resume:   "resume",
 	PlusMin:  "+1 min",
@@ -657,7 +693,7 @@ var texts = map[Key]string{
 	HelpMute:         "[m] mute or unmute",
 	HelpStats:        "[s] statistics",
 	HelpUpdate:       "[u] check for updates",
-	HelpTheme:        "[t] theme",
+	HelpTheme:        "[t] themes",
 	HelpBackground:   "[b] background",
 	HelpReadable:     "[n] readable bands",
 	HelpReadableNote: "only with None background",
@@ -672,7 +708,7 @@ var texts = map[Key]string{
 	HelpNarrowRepeat:       "[r] repeat",
 	HelpNarrowPanels:       "[p] presets · [v] sound",
 	HelpNarrowPanelsMore:   "[s] stats · [u] update · [m] mute",
-	HelpNarrowDisplay:      "[t] theme · [b] background",
+	HelpNarrowDisplay:      "[t] themes · [b] background",
 	HelpNarrowReadable:     "[n] readable bands · [M] mini timer",
 	HelpNarrowQuit:         "[q] quit · [Esc] close help",
 	HelpNarrowQuitAll:      "[Shift+Q] quit everything",
@@ -814,6 +850,40 @@ func SoundLabel(id string) string {
 		return T(SoundDigital)
 	case config.SoundDeep:
 		return T(SoundDeep)
+	default:
+		return id
+	}
+}
+
+// ThemeLabel returns the user-facing label for a stable theme ID.
+func ThemeLabel(id string) string {
+	switch id {
+	case config.ThemeCatppuccin:
+		return T(ThemeCatppuccin)
+	case config.ThemeTokyoNight:
+		return T(ThemeTokyoNight)
+	case config.ThemeDracula:
+		return T(ThemeDracula)
+	case config.ThemeMaterialPalenight:
+		return T(ThemeMaterialPalenight)
+	case config.ThemeGruvbox:
+		return T(ThemeGruvbox)
+	case config.ThemeNord:
+		return T(ThemeNord)
+	case config.ThemeEverforest:
+		return T(ThemeEverforest)
+	case config.ThemeKanagawa:
+		return T(ThemeKanagawa)
+	case config.ThemeRosePine:
+		return T(ThemeRosePine)
+	case config.ThemeOsakaJade:
+		return T(ThemeOsakaJade)
+	case config.ThemeRistretto:
+		return T(ThemeRistretto)
+	case config.ThemeMatteBlack:
+		return T(ThemeMatteBlack)
+	case config.ThemeVantablack:
+		return T(ThemeVantablack)
 	default:
 		return id
 	}

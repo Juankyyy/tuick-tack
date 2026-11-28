@@ -29,6 +29,35 @@ func TestSoundLabelsAreSingleCell(t *testing.T) {
 	}
 }
 
+func TestThemeLabelCoversConfig(t *testing.T) {
+	for _, name := range config.Themes {
+		label := ThemeLabel(name)
+		if label == "" || label == name {
+			t.Errorf("ThemeLabel(%q) = %q, want a user-facing label", name, label)
+		}
+		for _, r := range label {
+			if r > 0x7f {
+				t.Errorf("ThemeLabel(%q) contains a non-ASCII rune %q", name, r)
+			}
+		}
+	}
+}
+
+func TestThemeCopyExists(t *testing.T) {
+	keys := []Key{
+		ThemeTitle, ThemeHint, Apply,
+		ThemeCatppuccin, ThemeTokyoNight, ThemeDracula, ThemeMaterialPalenight,
+		ThemeGruvbox, ThemeNord, ThemeEverforest, ThemeKanagawa, ThemeRosePine,
+		ThemeOsakaJade, ThemeRistretto, ThemeMatteBlack, ThemeVantablack,
+		HelpTheme, HelpNarrowDisplay,
+	}
+	for _, key := range keys {
+		if T(key) == "" || T(key) == string(key) {
+			t.Errorf("copy key %q has no text", key)
+		}
+	}
+}
+
 func TestFinishedChoicesFitHero(t *testing.T) {
 	seen := map[string]bool{}
 	for _, key := range HeroFinishedChoices {

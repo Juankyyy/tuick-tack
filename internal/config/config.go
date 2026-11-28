@@ -18,7 +18,7 @@ import (
 
 const (
 	// Version is the schema version understood by this build.
-	Version = 7
+	Version = 8
 	// MaxPresets is the maximum number of stored presets.
 	MaxPresets = 16
 	// MinSeconds and MaxSeconds bound a preset or countdown.
@@ -49,13 +49,41 @@ const (
 
 // Theme names are stable identifiers stored in config.json.
 const (
-	ThemeMidnight = "midnight"
-	ThemeEmber    = "ember"
-	ThemeMono     = "mono"
+	ThemeCatppuccin        = "catppuccin"
+	ThemeTokyoNight        = "tokyo-night"
+	ThemeDracula           = "dracula"
+	ThemeMaterialPalenight = "material-palenight"
+	ThemeGruvbox           = "gruvbox"
+	ThemeNord              = "nord"
+	ThemeEverforest        = "everforest"
+	ThemeKanagawa          = "kanagawa"
+	ThemeRosePine          = "rose-pine"
+	ThemeOsakaJade         = "osaka-jade"
+	ThemeRistretto         = "ristretto"
+	ThemeMatteBlack        = "matte-black"
+	ThemeVantablack        = "vantablack"
+
+	// DefaultTheme is the theme used by a fresh configuration.
+	DefaultTheme = ThemeCatppuccin
 )
 
-// Themes lists the supported themes in cycle order.
-var Themes = []string{ThemeMidnight, ThemeEmber, ThemeMono}
+// Themes lists the supported themes in picker order. The first entry is the
+// default for a fresh configuration.
+var Themes = []string{
+	ThemeCatppuccin,
+	ThemeTokyoNight,
+	ThemeDracula,
+	ThemeMaterialPalenight,
+	ThemeGruvbox,
+	ThemeNord,
+	ThemeEverforest,
+	ThemeKanagawa,
+	ThemeRosePine,
+	ThemeOsakaJade,
+	ThemeRistretto,
+	ThemeMatteBlack,
+	ThemeVantablack,
+}
 
 // Background names are stable identifiers stored in config.json. They are
 // separate from the theme: the theme owns the palette and the background owns
@@ -137,7 +165,7 @@ type Config struct {
 func Default() Config {
 	return Config{
 		Version:      Version,
-		Theme:        ThemeMidnight,
+		Theme:        DefaultTheme,
 		Background:   DefaultBackground,
 		ReadableText: true,
 		MiniTimer:    true,
@@ -254,8 +282,10 @@ func ValidPresetID(id string) bool {
 // both stay unset until the TUI records them. Version 5 adds the ambient
 // background, which starts as the original aurora. Version 6 adds the black
 // readable-text bands used by the transparent "none" background; they start
-// enabled. Version 7 adds the taskbar mini timer; it starts enabled. It returns
-// the migrated config and whether anything changed.
+// enabled. Version 7 adds the taskbar mini timer; it starts enabled. Version 8
+// replaces the original Midnight, Ember and Mono palettes with the theme
+// library, so the three old identifiers map to their closest replacements. It
+// returns the migrated config and whether anything changed.
 func Migrate(c Config) (Config, bool) {
 	if c.Version >= Version {
 		return c, false
@@ -272,6 +302,16 @@ func Migrate(c Config) (Config, bool) {
 	}
 	if c.Version < 7 {
 		c.MiniTimer = true
+	}
+	if c.Version < 8 {
+		switch c.Theme {
+		case "midnight":
+			c.Theme = ThemeCatppuccin
+		case "ember":
+			c.Theme = ThemeRistretto
+		case "mono":
+			c.Theme = ThemeVantablack
+		}
 	}
 	c.Version = Version
 	return c, true

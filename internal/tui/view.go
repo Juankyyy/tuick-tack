@@ -544,16 +544,6 @@ func headerVersionColor(pal theme.Theme) color.RGBA {
 	return theme.Lerp(pal.BG, pal.Muted, 0.85)
 }
 
-// Update notice colors: a wide hue sweep at low saturation so the link reads as
-// a rainbow without competing with the countdown. Mono keeps the palette's own
-// grays.
-const (
-	updateHueSpan  = 0.8
-	updateHueSpeed = 0.1
-	updateSat      = 0.52
-	updateLight    = 0.68
-)
-
 // drawUpdateLink paints the clickable notice after the wordmark. It falls back
 // to a shorter label, and then to nothing, when the status would collide.
 func (m *Model) drawUpdateLink(c *canvas.Canvas, x, y, limit int) {
@@ -589,19 +579,19 @@ func (m *Model) updateColors(n int) []color.RGBA {
 	if n <= 0 {
 		return nil
 	}
+	// Leave a hair of headroom above the AA target: Pulse blends the two inks,
+	// and a blend of two colors at exactly 4.5 can round just below it.
+	accent := m.stageColor(m.pal.Accent, m.pal.Accent, stageMutedContrast+0.1)
+	accent2 := m.stageColor(m.pal.Accent2, m.pal.Accent2, stageMutedContrast+0.1)
 	colors := make([]color.RGBA, n)
 	for i := range colors {
 		t := 0.0
 		if n > 1 {
 			t = float64(i) / float64(n-1)
 		}
-		if m.pal.Name == "mono" {
-			raw := theme.Lerp(m.pal.Muted, m.pal.Text, t)
-			colors[i] = m.stageColor(raw, raw, stageMutedContrast)
-			continue
-		}
-		raw := theme.HSL(updateHueSpan*t+m.animTime*updateHueSpeed, updateSat, updateLight)
-		colors[i] = m.stageColor(raw, raw, stageMutedContrast)
+		// A soft two-tone sweep keeps the notice in the active palette and
+		// still moves like the old rainbow.
+		colors[i] = theme.Pulse(accent, accent2, m.animTime*1.4+t*2.4)
 	}
 	return colors
 }
@@ -729,8 +719,9 @@ func (m *Model) drawHero(c *canvas.Canvas, y, x, w int) {
 	if m.lightStage() {
 		// Keep the block shadow, but make it a light gray: a near-black
 		// shadow under dark ink would merge the digits into a dark mass on a
-		// light terminal.
-		shadow = theme.Scale(m.termBG, 0.78)
+		// light terminal. The pastel accents of the theme library need a
+		// lighter shadow than the old palettes to keep their dark ink at 3:1.
+		shadow = theme.Scale(m.termBG, 0.94)
 	}
 	bx := x + (w-bw)/2
 	if bx < x {
@@ -1100,6 +1091,8 @@ func (m *Model) drawModal(c *canvas.Canvas, base rect) {
 		m.drawForm(c, base)
 	case modalSound:
 		m.drawSound(c, base)
+	case modalTheme:
+		m.drawThemes(c, base)
 	case modalUpdate:
 		m.drawUpdate(c, base)
 	case modalStats:

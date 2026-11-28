@@ -37,6 +37,7 @@ const (
 	modalPresets
 	modalPresetForm
 	modalSound
+	modalTheme
 	modalUpdate
 	modalStats
 )
@@ -100,6 +101,9 @@ const (
 	hitSoundPreview
 	hitSoundMute
 	hitSoundClose
+	hitThemeRow
+	hitThemeApply
+	hitThemeClose
 	hitUpdate
 	hitUpdateInstall
 	hitUpdatePortable
@@ -241,6 +245,12 @@ type Model struct {
 	form         formState
 	deleteTarget config.Preset
 
+	// Theme picker state. themeOriginal is the persisted theme the picker
+	// restores on cancel; m.pal previews themeCursor without writing config.
+	themeCursor   int
+	themeScroll   int
+	themeOriginal string
+
 	finishSeen       int64
 	finishWord       string
 	finishAutoArmed  bool
@@ -315,9 +325,8 @@ func newModel(pipe string, now func() time.Time, seed int64) *Model {
 	if now == nil {
 		now = time.Now
 	}
-	pal := theme.Get("midnight")
+	pal := theme.Get(config.DefaultTheme)
 	cfg := config.Default()
-	cfg.Theme = "midnight"
 	m := &Model{
 		pipe:        pipe,
 		now:         now,
@@ -655,7 +664,7 @@ func (m *Model) applyConfig(cfg protocol.ConfigMessage) {
 		Presets:      append([]config.Preset(nil), cfg.Presets...),
 	}
 	if !config.ValidTheme(c.Theme) {
-		c.Theme = "midnight"
+		c.Theme = config.DefaultTheme
 	}
 	if c.SoundName == "" {
 		// An older daemon does not send the sound fields at all.
@@ -670,7 +679,13 @@ func (m *Model) applyConfig(cfg protocol.ConfigMessage) {
 	m.backgroundSupported = supported
 	m.readableSupported = readableSupported
 	m.cfg = c
-	m.pal = theme.Get(c.Theme)
+	if m.modal == modalTheme {
+		// Keep the live preview when an unrelated config broadcast arrives.
+		// Applying or cancelling the picker reconciles it with m.cfg.Theme.
+		m.themeOriginal = c.Theme
+	} else {
+		m.pal = theme.Get(c.Theme)
+	}
 	m.setBackdrop(c.Background)
 	if m.modal == modalSound {
 		m.soundCursor = soundIndex(c.SoundName)
@@ -1426,7 +1441,8 @@ func (m *Model) handleIdleKey(key tea.Key) tea.Cmd {
 		m.openPresets()
 		return nil
 	case text == "t":
-		return m.cycleTheme()
+		m.openThemes()
+		return nil
 	case text == "b":
 		if m.input != "" {
 			return nil
@@ -1553,6 +1569,8 @@ func (m *Model) handleModalKey(key tea.Key) tea.Cmd {
 		return m.handleFormKey(key)
 	case modalSound:
 		return m.handleSoundKey(key)
+	case modalTheme:
+		return m.handleThemeKey(key)
 	case modalUpdate:
 		return m.handleUpdateKey(key)
 	case modalStats:
@@ -1787,6 +1805,15 @@ func (m *Model) handleMouseWheel(msg tea.MouseWheelMsg) {
 		}
 		return
 	}
+	if m.modal == modalTheme {
+		switch msg.Button {
+		case tea.MouseWheelUp:
+			m.moveTheme(-1)
+		case tea.MouseWheelDown:
+			m.moveTheme(1)
+		}
+		return
+	}
 	if m.modal != modalUpdate || m.updateStep != updateStepChoose {
 		return
 	}
@@ -1884,6 +1911,15 @@ func (m *Model) performHit(hit hitbox) tea.Cmd {
 		return m.toggleSound()
 	case hitSoundClose:
 		return m.closeSound()
+	case hitThemeRow:
+		if hit.index >= 0 && hit.index < len(config.Themes) {
+			m.themeCursor = hit.index
+			m.previewTheme()
+		}
+	case hitThemeApply:
+		return m.applyTheme()
+	case hitThemeClose:
+		m.closeThemes()
 	case hitUpdate:
 		m.openUpdateModal()
 	case hitUpdateInstall:
@@ -1964,18 +2000,6 @@ func (m *Model) adjust(seconds int) tea.Cmd {
 		return m.send(protocol.ClientMessage{Type: protocol.TypeAdjust, DeltaSeconds: seconds})
 	}
 	return nil
-}
-
-func (m *Model) cycleTheme() tea.Cmd {
-	next := theme.Next(m.cfg.Theme)
-	if !m.connected {
-		m.showToast(copy.T(copy.ErrorOffline))
-		return nil
-	}
-	m.cfg.Theme = next
-	m.pal = theme.Get(next)
-	m.showToast(copy.T(copy.ToastTheme, next))
-	return m.send(protocol.ClientMessage{Type: protocol.TypeSetTheme, Name: next})
 }
 
 // setBackdrop swaps the ambient layer only when the name really changes, so a

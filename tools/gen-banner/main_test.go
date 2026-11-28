@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"tuick-tack/internal/tui/bigfont"
-	"tuick-tack/internal/tui/theme"
 )
 
 func TestComposeShape(t *testing.T) {
@@ -95,7 +94,7 @@ func TestPNG(t *testing.T) {
 		t.Fatalf("bottom-right alpha = %d, want 0", c.A)
 	}
 
-	ember := theme.Get("ember")
+	ember := brandEmber()
 	tuiTop := img.NRGBAAt(padX+12, padY+12)
 	wantTUI := color.NRGBA{
 		R: ember.Accent.R, G: ember.Accent.G, B: ember.Accent.B, A: ember.Accent.A,
@@ -104,7 +103,7 @@ func TestPNG(t *testing.T) {
 		t.Fatalf("TUI top = %+v, want %+v", tuiTop, wantTUI)
 	}
 
-	midnight := theme.Get("midnight")
+	midnight := brandMidnight()
 	restTop := img.NRGBAAt(padX+19*cellW+12, padY+12)
 	wantRest := color.NRGBA{
 		R: midnight.Accent.R, G: midnight.Accent.G, B: midnight.Accent.B, A: midnight.Accent.A,

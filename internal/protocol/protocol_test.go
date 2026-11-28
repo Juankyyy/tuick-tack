@@ -20,7 +20,7 @@ func TestClientRoundTrip(t *testing.T) {
 		{Type: TypePresetAdd, Label: "Focus", Seconds: 1500},
 		{Type: TypePresetUpdate, ID: "abc", Label: "Deep work", Seconds: 1500},
 		{Type: TypePresetDelete, ID: "abc"},
-		{Type: TypeSetTheme, Name: config.ThemeEmber},
+		{Type: TypeSetTheme, Name: config.ThemeDracula},
 		{Type: TypeSetBackground, Name: config.BackgroundStars},
 		{Type: TypeSetReadableText, Enabled: &enabled},
 		{Type: TypeSetSound, Enabled: &enabled},
@@ -105,7 +105,7 @@ func TestStateWithoutDeadline(t *testing.T) {
 
 func TestHelloAndConfigRoundTrip(t *testing.T) {
 	c := config.Default()
-	c.Theme = config.ThemeMono
+	c.Theme = config.ThemeVantablack
 	c.Background = config.BackgroundWaves
 	c.ReadableText = false
 	c.WindowWidth, c.WindowHeight = 140, 45
@@ -118,7 +118,7 @@ func TestHelloAndConfigRoundTrip(t *testing.T) {
 		t.Fatalf("DecodeServer: %v", err)
 	}
 	h, ok := back.(HelloMessage)
-	if !ok || h.Protocol != Version || h.Config.Theme != config.ThemeMono ||
+	if !ok || h.Protocol != Version || h.Config.Theme != config.ThemeVantablack ||
 		h.Config.Background != config.BackgroundWaves ||
 		h.Config.ReadableText == nil || *h.Config.ReadableText ||
 		len(h.Config.Presets) != 3 || h.Config.SoundName != c.SoundName ||
@@ -150,7 +150,7 @@ func TestHelloAndConfigRoundTrip(t *testing.T) {
 func TestConfigWithoutBackgroundDecodesEmpty(t *testing.T) {
 	// An older daemon omits the field; the TUI treats it as "keep the local
 	// background" instead of failing the handshake.
-	data := []byte(`{"type":"config","presets":[],"theme":"midnight","sound":true,"sound_name":"digital","volume":80}`)
+	data := []byte(`{"type":"config","presets":[],"theme":"catppuccin","sound":true,"sound_name":"digital","volume":80}`)
 	back, err := DecodeServer(data)
 	if err != nil {
 		t.Fatalf("DecodeServer: %v", err)
@@ -356,7 +356,7 @@ func TestValidate(t *testing.T) {
 		{"delete", ClientMessage{Type: TypePresetDelete, ID: "p5"}, ""},
 		{"delete missing id", ClientMessage{Type: TypePresetDelete}, CodeInvalidCommand},
 		{"restore", ClientMessage{Type: TypePresetsRestoreDefault}, ""},
-		{"theme", ClientMessage{Type: TypeSetTheme, Name: config.ThemeEmber}, ""},
+		{"theme", ClientMessage{Type: TypeSetTheme, Name: config.ThemeDracula}, ""},
 		{"bad theme", ClientMessage{Type: TypeSetTheme, Name: "neon"}, CodeInvalidTheme},
 		{"background", ClientMessage{Type: TypeSetBackground, Name: config.BackgroundStars}, ""},
 		{"bad background", ClientMessage{Type: TypeSetBackground, Name: "neon"}, CodeInvalidBackground},

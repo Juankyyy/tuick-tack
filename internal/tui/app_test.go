@@ -923,20 +923,20 @@ func TestUpdateColors(t *testing.T) {
 		t.Fatal("the gradient should change across the label")
 	}
 
-	m.pal = theme.Get("mono")
+	m.pal = theme.Get(config.ThemeVantablack)
 	for _, c := range m.updateColors(18) {
 		if absInt(int(c.R)-int(c.G)) > 12 || absInt(int(c.G)-int(c.B)) > 12 {
-			t.Fatalf("mono notice is not gray enough: %+v", c)
+			t.Fatalf("vantablack notice is not gray enough: %+v", c)
 		}
 	}
 
-	m.pal = theme.Get("midnight")
+	m.pal = theme.Get(config.ThemeCatppuccin)
 	m.animTime = 0
 	first := m.updateColors(18)
 	m.animTime = 1
 	moved := m.updateColors(18)
 	if first[0] == moved[0] {
-		t.Fatal("the rainbow should move with animTime")
+		t.Fatal("the accent sweep should move with animTime")
 	}
 }
 
@@ -1588,8 +1588,9 @@ func TestIdleInputKeys(t *testing.T) {
 	}
 	press(m, tea.KeyEscape, "")
 	press(m, 't', "t")
-	if m.cfg.Theme != "ember" || m.pal.Name != "ember" {
-		t.Fatalf("theme did not cycle: %q %q", m.cfg.Theme, m.pal.Name)
+	if m.modal != modalTheme || m.cfg.Theme != config.DefaultTheme || m.pal.Name != config.DefaultTheme {
+		t.Fatalf("t did not open the picker: modal=%v cfg=%q pal=%q",
+			m.modal, m.cfg.Theme, m.pal.Name)
 	}
 }
 
@@ -1841,14 +1842,14 @@ func TestFinishedKeys(t *testing.T) {
 func TestApplyConfig(t *testing.T) {
 	m, _ := testModel(80, 24)
 	cfg := config.Default()
-	cfg.Theme = config.ThemeEmber
+	cfg.Theme = config.ThemeDracula
 	cfg.Background = config.BackgroundGrid
 	cfg.Sound = false
 	cfg.SoundName = config.SoundMarimba
 	cfg.Volume = 35
 	cfg.Presets = cfg.Presets[:1]
 	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.NewConfigPayload(cfg)})
-	if m.pal.Name != config.ThemeEmber || m.cfg.Sound || len(m.cfg.Presets) != 1 ||
+	if m.pal.Name != config.ThemeDracula || m.cfg.Sound || len(m.cfg.Presets) != 1 ||
 		m.cfg.Background != config.BackgroundGrid || m.backdrop.Name() != config.BackgroundGrid ||
 		m.cfg.SoundName != config.SoundMarimba || m.cfg.Volume != 35 {
 		t.Fatalf("config not applied: %+v", m.cfg)
@@ -1867,7 +1868,7 @@ func TestApplyConfigKeepsLocalBackgroundForOldDaemon(t *testing.T) {
 
 	// An older daemon omits the field: keep the local choice for this session.
 	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.ConfigPayload{
-		Theme: config.ThemeMidnight, Sound: true,
+		Theme: config.ThemeCatppuccin, Sound: true,
 	}})
 	if m.backgroundSupported {
 		t.Fatal("a missing background should mark the daemon as unsupported")
@@ -1880,7 +1881,7 @@ func TestApplyConfigKeepsLocalBackgroundForOldDaemon(t *testing.T) {
 	// A malformed non-empty value falls back to aurora but still marks the
 	// daemon as capable: the field is present, so set_background can be sent.
 	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.ConfigPayload{
-		Theme: config.ThemeMidnight, Background: "neon", Sound: true,
+		Theme: config.ThemeCatppuccin, Background: "neon", Sound: true,
 	}})
 	if !m.backgroundSupported {
 		t.Fatal("a non-empty background should mark the daemon as supported")
@@ -2254,7 +2255,8 @@ func TestLightStageFrame(t *testing.T) {
 				bg = cell.BG
 			}
 			if got := theme.Contrast(cell.FG, bg); got < stageDimContrast {
-				t.Fatalf("hero ink at %d,%d has contrast %.2f against its cell", x, y, got)
+				t.Fatalf("hero ink at %d,%d has contrast %.2f against its cell (fg %+v bg %+v)",
+					x, y, got, cell.FG, bg)
 			}
 		}
 	}
@@ -2515,7 +2517,7 @@ func TestApplyConfigReadableText(t *testing.T) {
 	// An older daemon omits the pointer: keep the local choice and mark the
 	// command unsupported.
 	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.ConfigPayload{
-		Theme: config.ThemeMidnight, Background: config.BackgroundNone,
+		Theme: config.ThemeCatppuccin, Background: config.BackgroundNone,
 		Sound: true, SoundName: config.DefaultSound, Volume: config.DefaultVolume,
 	}})
 	if m.cfg.ReadableText || m.readableSupported {
@@ -2595,7 +2597,7 @@ func TestBackdropClockSlowsWhenPaused(t *testing.T) {
 func TestApplyConfigFallsBackMissingSound(t *testing.T) {
 	m, _ := testModel(80, 24)
 	m.applyConfig(protocol.ConfigMessage{ConfigPayload: protocol.ConfigPayload{
-		Theme: config.ThemeMono,
+		Theme: config.ThemeVantablack,
 		Sound: true,
 	}})
 	if m.cfg.SoundName != config.DefaultSound || m.cfg.Volume != config.DefaultVolume {
@@ -2691,7 +2693,7 @@ func TestManyPresetsKeepAddChip(t *testing.T) {
 }
 
 func TestFormAndThemesRender(t *testing.T) {
-	for _, name := range []string{"midnight", "ember", "mono"} {
+	for _, name := range config.Themes {
 		m, _ := testModel(80, 24)
 		m.cfg.Theme = name
 		m.pal = theme.Get(name)

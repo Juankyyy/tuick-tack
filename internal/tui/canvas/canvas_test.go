@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"tuick-tack/internal/config"
 	"tuick-tack/internal/tui/theme"
 )
 
@@ -12,14 +13,14 @@ var ansi = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func TestCanvasDimensionsAndText(t *testing.T) {
 	c := New(20, 5)
-	bg := theme.Get("midnight").BG
+	bg := theme.Get(config.ThemeCatppuccin).BG
 	c.Clear(bg)
-	c.Text(2, 1, "hello", Fg(theme.Get("midnight").Text))
+	c.Text(2, 1, "hello", Fg(theme.Get(config.ThemeCatppuccin).Text))
 	if got := c.cells[1*20+2].Ch; got != 'h' {
 		t.Fatalf("cell = %q", got)
 	}
-	c.Text(18, 1, "overflow", Fg(theme.Get("midnight").Text))
-	c.Set(-1, 0, 'x', Fg(theme.Get("midnight").Text))
+	c.Text(18, 1, "overflow", Fg(theme.Get(config.ThemeCatppuccin).Text))
+	c.Set(-1, 0, 'x', Fg(theme.Get(config.ThemeCatppuccin).Text))
 	lines := strings.Split(c.Render(), "\n")
 	if len(lines) != 5 {
 		t.Fatalf("lines = %d, want 5", len(lines))
@@ -34,14 +35,14 @@ func TestCanvasDimensionsAndText(t *testing.T) {
 
 func TestCanvasWideRuneReplaced(t *testing.T) {
 	c := New(4, 1)
-	c.Set(0, 0, '中', Fg(theme.Get("midnight").Text))
+	c.Set(0, 0, '中', Fg(theme.Get(config.ThemeCatppuccin).Text))
 	if got := c.At(0, 0).Ch; got != '?' {
 		t.Fatalf("wide rune = %q, want ?", got)
 	}
 }
 
 func TestGradientRect(t *testing.T) {
-	th := theme.Get("midnight")
+	th := theme.Get(config.ThemeCatppuccin)
 	c := New(4, 3)
 	c.GradientRect(0, 0, 4, 3, th.BG, th.BG2)
 	if c.cells[0].BG == c.cells[2*4].BG {
@@ -53,7 +54,7 @@ func TestGradientRect(t *testing.T) {
 }
 
 func TestFrame(t *testing.T) {
-	th := theme.Get("ember")
+	th := theme.Get(config.ThemeRistretto)
 	c := New(10, 5)
 	c.Frame(0, 0, 10, 5, th.Border, th.Accent2, th.Panel)
 	if c.cells[0].Ch != '╭' || c.cells[9].Ch != '╮' {
@@ -68,7 +69,7 @@ func TestFrame(t *testing.T) {
 }
 
 func TestDim(t *testing.T) {
-	th := theme.Get("midnight")
+	th := theme.Get(config.ThemeCatppuccin)
 	c := New(2, 1)
 	c.Clear(th.BG)
 	c.Text(0, 0, "a", Full(th.Text, th.Panel))
@@ -83,7 +84,7 @@ func TestDim(t *testing.T) {
 }
 
 func TestDimLeavesTransparent(t *testing.T) {
-	th := theme.Get("midnight")
+	th := theme.Get(config.ThemeCatppuccin)
 	c := New(2, 1)
 	c.Set(0, 0, 'a', Fg(th.Text))
 	c.Set(1, 0, 'b', Bg(th.Panel))
@@ -110,7 +111,7 @@ func TestRenderTransparentCanvas(t *testing.T) {
 }
 
 func TestRenderMixedTransparentCells(t *testing.T) {
-	th := theme.Get("midnight")
+	th := theme.Get(config.ThemeCatppuccin)
 	c := New(4, 1)
 	c.Set(0, 0, 'a', Full(th.Text, th.Panel))
 	c.Set(1, 0, 'b', Fg(th.Text))
@@ -133,7 +134,7 @@ func TestRenderMixedTransparentCells(t *testing.T) {
 }
 
 func TestRenderBackgroundOnlyCell(t *testing.T) {
-	th := theme.Get("midnight")
+	th := theme.Get(config.ThemeCatppuccin)
 	c := New(3, 1)
 	c.Set(1, 0, ' ', Bg(th.Panel))
 	s := c.Render()
@@ -146,7 +147,7 @@ func TestRenderBackgroundOnlyCell(t *testing.T) {
 }
 
 func TestRenderBoldTransition(t *testing.T) {
-	th := theme.Get("midnight")
+	th := theme.Get(config.ThemeCatppuccin)
 	c := New(2, 1)
 	c.Set(0, 0, 'a', Style{FG: th.Text, HasFG: true, Bold: true})
 	c.Set(1, 0, 'b', Fg(th.Text))
@@ -162,7 +163,7 @@ func TestRenderBoldTransition(t *testing.T) {
 
 func TestResize(t *testing.T) {
 	c := New(2, 2)
-	c.Set(0, 0, 'a', Fg(theme.Get("midnight").Text))
+	c.Set(0, 0, 'a', Fg(theme.Get(config.ThemeCatppuccin).Text))
 	c.Resize(4, 3)
 	if c.W != 4 || c.H != 3 || c.cells[0].Ch != 'a' {
 		t.Fatalf("resize lost content: %+v", c.cells[0])
@@ -180,7 +181,7 @@ func TestSingleCell(t *testing.T) {
 
 func TestRenderNoTrailingNewline(t *testing.T) {
 	c := New(3, 2)
-	c.Clear(theme.Get("midnight").BG)
+	c.Clear(theme.Get(config.ThemeCatppuccin).BG)
 	s := c.Render()
 	if strings.HasSuffix(s, "\n") {
 		t.Fatal("render should not end with a newline")

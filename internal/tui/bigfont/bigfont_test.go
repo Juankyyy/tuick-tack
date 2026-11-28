@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"tuick-tack/internal/config"
 	"tuick-tack/internal/tui/canvas"
 	"tuick-tack/internal/tui/theme"
 )
@@ -53,7 +54,7 @@ func TestWidthProportional(t *testing.T) {
 }
 
 func TestDrawProportionalTrimsBearings(t *testing.T) {
-	th := theme.Get("midnight")
+	th := theme.Get(config.ThemeCatppuccin)
 	c := canvas.New(100, 10)
 	w := Draw(c, 3, 1, "TIME'S UP!", Options{
 		Scale: 2, Proportional: true, Top: th.Warn, Bottom: th.Danger,
@@ -93,7 +94,7 @@ func TestDrawProportionalNarrowGlyph(t *testing.T) {
 }
 
 func TestDrawFitsAndUsesGradient(t *testing.T) {
-	th := theme.Get("midnight")
+	th := theme.Get(config.ThemeCatppuccin)
 	c := canvas.New(40, 10)
 	w := Draw(c, 2, 1, "04:32", Options{
 		Scale: 1, Top: th.Accent, Bottom: th.Accent2,

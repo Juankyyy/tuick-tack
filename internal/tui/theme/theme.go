@@ -1,4 +1,4 @@
-// Package theme holds the three palettes and color helpers shared by the TUI.
+// Package theme holds the palette library and color helpers shared by the TUI.
 package theme
 
 import (
@@ -6,6 +6,8 @@ import (
 	"image/color"
 	"math"
 	"strings"
+
+	"tuick-tack/internal/config"
 )
 
 // Theme is one complete palette.
@@ -24,92 +26,268 @@ type Theme struct {
 	Confetti []color.RGBA
 }
 
-// Names lists themes in cycle order.
-var Names = []string{"midnight", "ember", "mono"}
-
-// Get returns the named theme, falling back to midnight.
-func Get(name string) Theme {
-	switch name {
-	case "ember":
-		return Theme{
-			Name:    "ember",
-			BG:      rgb(0x120C0A),
-			BG2:     rgb(0x1E100C),
-			Panel:   rgb(0x1A1210),
-			Border:  rgb(0x3A2520),
-			Text:    rgb(0xF7EDE8),
-			Muted:   rgb(0x8C7A72),
-			Accent:  rgb(0xFFB86B),
-			Accent2: rgb(0xFF7A59),
-			Warn:    rgb(0xFBBF24),
-			Danger:  rgb(0xF87171),
-			Confetti: []color.RGBA{
-				rgb(0xFFB86B), rgb(0xFF7A59), rgb(0xFBBF24),
-				rgb(0xF7EDE8), rgb(0xE85D3D), rgb(0xFFD8A8),
-			},
-		}
-	case "mono":
-		return Theme{
-			Name:    "mono",
-			BG:      rgb(0x0A0A0C),
-			BG2:     rgb(0x111114),
-			Panel:   rgb(0x121216),
-			Border:  rgb(0x2A2A33),
-			Text:    rgb(0xF4F4F5),
-			Muted:   rgb(0x71717A),
-			Accent:  rgb(0xE5E7EB),
-			Accent2: rgb(0x9CA3AF),
-			Warn:    rgb(0xD4D4D8),
-			Danger:  rgb(0xA1A1AA),
-			Confetti: []color.RGBA{
-				rgb(0xFFFFFF), rgb(0xD4D4D8), rgb(0xA1A1AA),
-				rgb(0x71717A), rgb(0xE5E7EB), rgb(0xF4F4F5),
-			},
-		}
-	default:
-		return Theme{
-			Name:    "midnight",
-			BG:      rgb(0x070B14),
-			BG2:     rgb(0x0B1524),
-			Panel:   rgb(0x0C1524),
-			Border:  rgb(0x1E3150),
-			Text:    rgb(0xE7ECF5),
-			Muted:   rgb(0x6C7A96),
-			Accent:  rgb(0x6EE7B7),
-			Accent2: rgb(0x60A5FA),
-			Warn:    rgb(0xFBBF24),
-			Danger:  rgb(0xF87171),
-			Confetti: []color.RGBA{
-				rgb(0x6EE7B7), rgb(0x60A5FA), rgb(0xA78BFA),
-				rgb(0xF472B6), rgb(0xFBBF24), rgb(0xF8FAFC),
-			},
-		}
-	}
+// palettes is the theme library. The IDs and their order live in config; this
+// table only maps them to colors. Backgrounds, panels and accents follow the
+// upstream palette; muted, accent2 and danger tones are lightened only where
+// the TUI needs a readable contrast on a panel.
+var palettes = map[string]Theme{
+	// Catppuccin Mocha, from Omarchy's Catppuccin palette.
+	config.ThemeCatppuccin: {
+		Name:    config.ThemeCatppuccin,
+		BG:      rgb(0x1E1E2E),
+		BG2:     rgb(0x181825),
+		Panel:   rgb(0x313244),
+		Border:  rgb(0x45475A),
+		Text:    rgb(0xCDD6F4),
+		Muted:   rgb(0xA6ADC8),
+		Accent:  rgb(0x89B4FA),
+		Accent2: rgb(0xCBA6F7),
+		Warn:    rgb(0xF9E2AF),
+		Danger:  rgb(0xF38BA8),
+		Confetti: []color.RGBA{
+			rgb(0x89B4FA), rgb(0xCBA6F7), rgb(0xA6E3A1),
+			rgb(0xF9E2AF), rgb(0xF5C2E7), rgb(0x94E2D5),
+		},
+	},
+	// Tokyo Night, from Omarchy's Tokyo Night palette.
+	config.ThemeTokyoNight: {
+		Name:    config.ThemeTokyoNight,
+		BG:      rgb(0x1A1B26),
+		BG2:     rgb(0x16161E),
+		Panel:   rgb(0x24283B),
+		Border:  rgb(0x292E42),
+		Text:    rgb(0xC0CAF5),
+		Muted:   rgb(0x9AA5CE),
+		Accent:  rgb(0x7AA2F7),
+		Accent2: rgb(0xBB9AF7),
+		Warn:    rgb(0xE0AF68),
+		Danger:  rgb(0xF7768E),
+		Confetti: []color.RGBA{
+			rgb(0x7AA2F7), rgb(0xBB9AF7), rgb(0x9ECE6A),
+			rgb(0xE0AF68), rgb(0xF7768E), rgb(0x7DCFFF),
+		},
+	},
+	// Dracula, from the official Dracula palette.
+	config.ThemeDracula: {
+		Name:    config.ThemeDracula,
+		BG:      rgb(0x282A36),
+		BG2:     rgb(0x21222C),
+		Panel:   rgb(0x343746),
+		Border:  rgb(0x44475A),
+		Text:    rgb(0xF8F8F2),
+		Muted:   rgb(0x93A0DD),
+		Accent:  rgb(0xBD93F9),
+		Accent2: rgb(0xFF79C6),
+		Warn:    rgb(0xF1FA8C),
+		Danger:  rgb(0xFF6B7A),
+		Confetti: []color.RGBA{
+			rgb(0xBD93F9), rgb(0xFF79C6), rgb(0x50FA7B),
+			rgb(0x8BE9FD), rgb(0xF1FA8C), rgb(0xFFB86C),
+		},
+	},
+	// Material Palenight, from the Material Theme palette.
+	config.ThemeMaterialPalenight: {
+		Name:    config.ThemeMaterialPalenight,
+		BG:      rgb(0x292D3E),
+		BG2:     rgb(0x1E2132),
+		Panel:   rgb(0x333747),
+		Border:  rgb(0x444267),
+		Text:    rgb(0xA6ACCD),
+		Muted:   rgb(0x96A0C8),
+		Accent:  rgb(0x82AAFF),
+		Accent2: rgb(0xC792EA),
+		Warn:    rgb(0xFFCB6B),
+		Danger:  rgb(0xF28B90),
+		Confetti: []color.RGBA{
+			rgb(0x82AAFF), rgb(0xC792EA), rgb(0xC3E88D),
+			rgb(0xFFCB6B), rgb(0x89DDFF), rgb(0xF28B90),
+		},
+	},
+	// Gruvbox Dark, from Omarchy's Gruvbox palette.
+	config.ThemeGruvbox: {
+		Name:    config.ThemeGruvbox,
+		BG:      rgb(0x282828),
+		BG2:     rgb(0x1E1E1E),
+		Panel:   rgb(0x3C3836),
+		Border:  rgb(0x504945),
+		Text:    rgb(0xEBDBB2),
+		Muted:   rgb(0xBDAE93),
+		Accent:  rgb(0x7DAEA3),
+		Accent2: rgb(0xD8A657),
+		Warn:    rgb(0xD8A657),
+		Danger:  rgb(0xEF7E75),
+		Confetti: []color.RGBA{
+			rgb(0x7DAEA3), rgb(0xA9B665), rgb(0xD8A657),
+			rgb(0xD3869B), rgb(0xEF7E75), rgb(0xEBDBB2),
+		},
+	},
+	// Nord, from Omarchy's Nord palette.
+	config.ThemeNord: {
+		Name:    config.ThemeNord,
+		BG:      rgb(0x2E3440),
+		BG2:     rgb(0x272C36),
+		Panel:   rgb(0x3B4252),
+		Border:  rgb(0x434C5E),
+		Text:    rgb(0xD8DEE9),
+		Muted:   rgb(0xA3B0C6),
+		Accent:  rgb(0x88C0D0),
+		Accent2: rgb(0xC39BD3),
+		Warn:    rgb(0xEBCB8B),
+		Danger:  rgb(0xE3A1A8),
+		Confetti: []color.RGBA{
+			rgb(0x88C0D0), rgb(0x81A1C1), rgb(0xA3BE8C),
+			rgb(0xEBCB8B), rgb(0xC39BD3), rgb(0xE5E9F0),
+		},
+	},
+	// Everforest Dark, from Omarchy's Everforest palette.
+	config.ThemeEverforest: {
+		Name:    config.ThemeEverforest,
+		BG:      rgb(0x2D353B),
+		BG2:     rgb(0x232A2E),
+		Panel:   rgb(0x343F44),
+		Border:  rgb(0x475258),
+		Text:    rgb(0xD3C6AA),
+		Muted:   rgb(0xA9B3A9),
+		Accent:  rgb(0x7FBBB3),
+		Accent2: rgb(0xA7C080),
+		Warn:    rgb(0xDBBC7F),
+		Danger:  rgb(0xEC8F91),
+		Confetti: []color.RGBA{
+			rgb(0x7FBBB3), rgb(0xA7C080), rgb(0xDBBC7F),
+			rgb(0xD699B6), rgb(0xEC8F91), rgb(0xD3C6AA),
+		},
+	},
+	// Kanagawa Wave, from Omarchy's Kanagawa palette.
+	config.ThemeKanagawa: {
+		Name:    config.ThemeKanagawa,
+		BG:      rgb(0x1F1F28),
+		BG2:     rgb(0x181820),
+		Panel:   rgb(0x2A2A37),
+		Border:  rgb(0x363646),
+		Text:    rgb(0xDCD7BA),
+		Muted:   rgb(0x9A9580),
+		Accent:  rgb(0x7E9CD8),
+		Accent2: rgb(0xA792C9),
+		Warn:    rgb(0xE6C384),
+		Danger:  rgb(0xE87A85),
+		Confetti: []color.RGBA{
+			rgb(0x7E9CD8), rgb(0xA792C9), rgb(0x98BB6C),
+			rgb(0xE6C384), rgb(0xE87A85), rgb(0xDCD7BA),
+		},
+	},
+	// Rose Pine Main, the dark variant of the Rose Pine palette.
+	config.ThemeRosePine: {
+		Name:    config.ThemeRosePine,
+		BG:      rgb(0x191724),
+		BG2:     rgb(0x1F1D2E),
+		Panel:   rgb(0x26233A),
+		Border:  rgb(0x403D52),
+		Text:    rgb(0xE0DEF4),
+		Muted:   rgb(0x908CAA),
+		Accent:  rgb(0xC4A7E7),
+		Accent2: rgb(0xEB6F92),
+		Warn:    rgb(0xF6C177),
+		Danger:  rgb(0xEB6F92),
+		Confetti: []color.RGBA{
+			rgb(0xC4A7E7), rgb(0xEB6F92), rgb(0x31748F),
+			rgb(0xF6C177), rgb(0x9CCFD8), rgb(0xE0DEF4),
+		},
+	},
+	// Osaka Jade, from Omarchy's older Osaka Jade palette.
+	config.ThemeOsakaJade: {
+		Name:    config.ThemeOsakaJade,
+		BG:      rgb(0x111C18),
+		BG2:     rgb(0x0D1512),
+		Panel:   rgb(0x23372B),
+		Border:  rgb(0x2B5147),
+		Text:    rgb(0xC1C497),
+		Muted:   rgb(0x8CA894),
+		Accent:  rgb(0x6FB89A),
+		Accent2: rgb(0x2DD5B7),
+		Warn:    rgb(0xE5C736),
+		Danger:  rgb(0xFF6B5F),
+		Confetti: []color.RGBA{
+			rgb(0x6FB89A), rgb(0x2DD5B7), rgb(0x549E6A),
+			rgb(0xE5C736), rgb(0xD2689C), rgb(0xC1C497),
+		},
+	},
+	// Ristretto, from Omarchy's Ristretto palette.
+	config.ThemeRistretto: {
+		Name:    config.ThemeRistretto,
+		BG:      rgb(0x2C2525),
+		BG2:     rgb(0x211B1B),
+		Panel:   rgb(0x3D2F2A),
+		Border:  rgb(0x403E41),
+		Text:    rgb(0xE6D9DB),
+		Muted:   rgb(0xB0A0A2),
+		Accent:  rgb(0xF38D70),
+		Accent2: rgb(0xA8A9EB),
+		Warn:    rgb(0xF9CC6C),
+		Danger:  rgb(0xFD6883),
+		Confetti: []color.RGBA{
+			rgb(0xF38D70), rgb(0xA8A9EB), rgb(0xADDA78),
+			rgb(0xF9CC6C), rgb(0xFD6883), rgb(0xE6D9DB),
+		},
+	},
+	// Matte Black, from Omarchy's Matte Black palette.
+	config.ThemeMatteBlack: {
+		Name:    config.ThemeMatteBlack,
+		BG:      rgb(0x121212),
+		BG2:     rgb(0x0D0D0D),
+		Panel:   rgb(0x1E1E1E),
+		Border:  rgb(0x2A2A2A),
+		Text:    rgb(0xBEBEBE),
+		Muted:   rgb(0x8A8A8D),
+		Accent:  rgb(0xE68E0D),
+		Accent2: rgb(0xF59E0B),
+		Warn:    rgb(0xFFC107),
+		Danger:  rgb(0xE27A7A),
+		Confetti: []color.RGBA{
+			rgb(0xE68E0D), rgb(0xF59E0B), rgb(0xFFC107),
+			rgb(0xBEBEBE), rgb(0xE27A7A), rgb(0x8A8A8D),
+		},
+	},
+	// Vantablack, from Omarchy's Vantablack palette.
+	config.ThemeVantablack: {
+		Name:    config.ThemeVantablack,
+		BG:      rgb(0x000000),
+		BG2:     rgb(0x090909),
+		Panel:   rgb(0x1A1A1A),
+		Border:  rgb(0x2A2A2A),
+		Text:    rgb(0xFFFFFF),
+		Muted:   rgb(0xA4A4A4),
+		Accent:  rgb(0xCECECE),
+		Accent2: rgb(0xB0B0B0),
+		Warn:    rgb(0xCECECE),
+		Danger:  rgb(0xA4A4A4),
+		Confetti: []color.RGBA{
+			rgb(0xFFFFFF), rgb(0xCECECE), rgb(0xB0B0B0),
+			rgb(0xA4A4A4), rgb(0x8D8D8D), rgb(0xF5F5F5),
+		},
+	},
 }
 
-// Next returns the next theme in cycle order.
-func Next(name string) string {
-	for i, n := range Names {
-		if n == name {
-			return Names[(i+1)%len(Names)]
-		}
+// Get returns the named theme, falling back to the default theme.
+func Get(name string) Theme {
+	if t, ok := palettes[name]; ok {
+		return t
 	}
-	return Names[0]
+	return palettes[config.DefaultTheme]
 }
 
 func rgb(v uint32) color.RGBA {
 	return color.RGBA{R: uint8(v >> 16), G: uint8(v >> 8), B: uint8(v), A: 0xFF}
 }
 
-// RGBA parses #RRGGBB. Invalid input returns midnight's background.
+// RGBA parses #RRGGBB. Invalid input returns the default theme's background.
 func RGBA(hex string) color.RGBA {
 	hex = strings.TrimPrefix(hex, "#")
 	if len(hex) != 6 {
-		return rgb(0x070B14)
+		return Get(config.DefaultTheme).BG
 	}
 	var v uint32
 	if _, err := fmt.Sscanf(hex, "%06x", &v); err != nil {
-		return rgb(0x070B14)
+		return Get(config.DefaultTheme).BG
 	}
 	return rgb(v)
 }
